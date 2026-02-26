@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
-export default function Home() {
-  redirect("/day0");
+export default function HomePage() {
+  redirect("/risk-register");
 }
