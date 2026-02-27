@@ -14,39 +14,22 @@ export function RiskRegisterTable({
   scoreDeltaByRiskId?: Record<string, number>;
 }) {
   return (
-    <div style={{ marginTop: 16, border: "1px solid #e5e5e5", borderRadius: 10, overflow: "hidden" }}>
+    <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden bg-[var(--background)]">
       <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr",
-          gap: 10,
-          padding: "10px 12px",
-          fontWeight: 600,
-          background: "rgba(0,0,0,0.03)",
-          borderBottom: "1px solid #e5e5e5",
-        }}
+        className="grid gap-2.5 py-2.5 px-3 font-semibold border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-700 dark:text-neutral-300"
+        style={{ gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr" }}
       >
         <div>Title</div>
         <div>Category</div>
         <div>Owner</div>
         <div>Inherent</div>
         <div>Residual</div>
-        <div
-          style={{
-            paddingTop: 10,
-            marginTop: 6,
-            borderTop: "1px solid #e8e8e8",
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-            alignItems: "flex-start",
-          }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 600, color: "#525252" }}>
-            <span style={{ fontSize: 14 }} aria-hidden>🛠</span>
+        <div className="pt-2.5 mt-1.5 border-t border-neutral-200 dark:border-neutral-700 flex flex-col gap-1 items-start">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-neutral-600 dark:text-neutral-400">
+            <span className="text-sm" aria-hidden>🛠</span>
             <span>Mitigation Strategy</span>
           </div>
-          <div style={{ fontSize: 11, fontWeight: 400, color: "#737373", lineHeight: 1.3 }}>
+          <div className="text-[11px] font-normal text-neutral-500 dark:text-neutral-500 leading-snug">
             Updates to these fields reset mitigation effectiveness tracking.
           </div>
         </div>
@@ -55,7 +38,7 @@ export function RiskRegisterTable({
       </div>
 
       {risks.length === 0 ? (
-        <div style={{ padding: 12, opacity: 0.8 }}>No risks yet.</div>
+        <div className="p-3 opacity-80 text-[var(--foreground)]">No risks yet.</div>
       ) : (
         risks.map((risk) => (
           <RiskRegisterRow

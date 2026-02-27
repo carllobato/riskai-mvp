@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useTheme } from "@/context/ThemeContext";
 
 const navItems: { href: string; label: string }[] = [
   { href: "/risk-register", label: "Risk Register" },
@@ -12,6 +13,7 @@ const navItems: { href: string; label: string }[] = [
 
 export function NavBar() {
   const pathname = usePathname();
+  const { theme, toggleTheme } = useTheme();
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
@@ -45,8 +47,18 @@ export function NavBar() {
         })}
       </div>
 
-      {/* Right: reserved for theme toggle (no implementation in this step) */}
-      <div className="ml-auto w-10 shrink-0" aria-hidden />
+      {/* Right: theme toggle */}
+      <div className="ml-auto shrink-0">
+        <button
+          type="button"
+          onClick={toggleTheme}
+          aria-label="Toggle theme"
+          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+          className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)] hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors text-base"
+        >
+          {theme === "dark" ? "☀️" : "🌙"}
+        </button>
+      </div>
     </nav>
   );
 }

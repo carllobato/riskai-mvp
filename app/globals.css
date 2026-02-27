@@ -1,6 +1,19 @@
 @import "tailwindcss";
 
+/* Class-based dark mode for manual toggle; .dark / .light set by ThemeProvider + inline script */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+:root.dark {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+:root.light {
   --background: #ffffff;
   --foreground: #171717;
 }
@@ -10,13 +23,6 @@
   --color-foreground: var(--foreground);
   --font-sans: "Geist", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {
