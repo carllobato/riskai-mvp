@@ -3,8 +3,11 @@
 import type { Risk, RiskCategory, RiskLevel, RiskStatus } from "@/domain/risk/risk.schema";
 import type { TrajectoryState } from "@/domain/risk/risk.logic";
 import type { DecisionMetrics } from "@/domain/decision/decision.types";
+import type { EscalationBand } from "@/config/riskThresholds";
 import { calculateMomentum, detectTrajectoryState } from "@/domain/risk/risk.logic";
+import { getBand } from "@/config/riskThresholds";
 import { getScoreBand } from "@/lib/decisionScoreBand";
+import { getForwardSignals } from "@/lib/forwardSignals";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
 import { RiskLevelBadge } from "@/components/risk-register/RiskLevelBadge";
@@ -113,17 +116,39 @@ function trajectoryLabelStyle(state: TrajectoryState): React.CSSProperties {
   return {};
 }
 
+/** Faint row tint by highest projected band (restrained; low opacity for light and dark). */
+function rowTintForBand(band: EscalationBand): React.CSSProperties["backgroundColor"] {
+  if (band === "normal") return undefined;
+  if (band === "watch") return "rgba(128, 128, 128, 0.04)"; // faint neutral
+  if (band === "high") return "rgba(249, 115, 22, 0.05)"; // faint amber
+  return "rgba(239, 68, 68, 0.05)"; // faint red (critical)
+}
+
 function DecisionCell({
   decision,
   scoreDelta,
   momentumScore,
   trajectoryState,
+  signals,
+  currentBand,
 }: {
   decision: DecisionMetrics | null | undefined;
   scoreDelta?: number;
   momentumScore?: number;
   trajectoryState?: TrajectoryState;
+  signals: ReturnType<typeof getForwardSignals>;
+  currentBand: EscalationBand;
 }) {
+  const { hasForecast, projectedCritical, timeToCritical, mitigationInsufficient } = signals;
+  const showProjectedUp = hasForecast && projectedCritical && currentBand !== "critical";
+  const isCritical = currentBand === "critical";
+  const cyclesLabel = hasForecast && (timeToCritical != null || isCritical)
+    ? (isCritical ? "0 cycles" : `in ${timeToCritical} cycles`)
+    : null;
+  const mitigationLabel = hasForecast && mitigationInsufficient
+    ? (isCritical ? "Remains critical" : "Mitigation insufficient")
+    : null;
+
   if (!decision) return <span style={{ fontSize: 12, color: "#737373" }}>—</span>;
   const tags = decision.alertTags ?? [];
   const showTags = tags.slice(0, 2);
@@ -137,7 +162,7 @@ function DecisionCell({
           : "→"
       : null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
         <span
           style={{
@@ -153,6 +178,22 @@ function DecisionCell({
         {trajectoryState != null && trajectoryState !== "NEUTRAL" && (
           <span style={{ ...trajectoryBadgeStyle, ...trajectoryLabelStyle(trajectoryState) }}>
             {trajectoryState}
+          </span>
+        )}
+        {showProjectedUp && (
+          <span style={{ ...alertPillStyle, backgroundColor: "rgba(0,0,0,0.06)", color: "#525252" }} title={cyclesLabel ?? undefined}>
+            Projected ↑
+          </span>
+        )}
+        {cyclesLabel != null && (
+          <span style={{ fontSize: 10, color: "#a3a3a3" }} title={isCritical ? "Already critical" : `Reaches critical in ${timeToCritical} cycles`}>
+            {isCritical ? "0 cycles" : `in ${timeToCritical} cycles`}
+          </span>
+        )}
+        {mitigationLabel != null && (
+          <span style={{ ...alertPillStyle, backgroundColor: "rgba(180, 83, 9, 0.12)", color: "#b45309", display: "inline-flex", alignItems: "center", gap: 4 }} title={isCritical ? "Remains critical within horizon" : "Mitigation still crosses critical within horizon"}>
+            <span aria-hidden>⚠</span>
+            {mitigationLabel}
           </span>
         )}
         {showTags.map((t) => (
@@ -186,9 +227,12 @@ export function RiskRegisterRow({
   decision?: DecisionMetrics | null;
   scoreDelta?: number;
 }) {
-  const { updateRisk, updateRatingPc } = useRiskRegister();
+  const { updateRisk, updateRatingPc, riskForecastsById } = useRiskRegister();
   const momentum = calculateMomentum(risk);
   const trajectoryState = detectTrajectoryState(risk);
+  const signals = getForwardSignals(risk.id, riskForecastsById);
+  const currentBand = getBand(decision?.compositeScore ?? 0);
+  const rowTint = signals.hasForecast ? rowTintForBand(signals.projectedPeakBand) : undefined;
 
   return (
     <div
@@ -200,6 +244,7 @@ export function RiskRegisterRow({
         borderBottom: "1px solid #eee",
         alignItems: "center",
         gap: 10,
+        backgroundColor: rowTint,
       }}
     >
       {/* Title */}
@@ -271,12 +316,14 @@ export function RiskRegisterRow({
         ))}
       </select>
 
-      {/* Decision: score + momentum arrow + trajectory badge + alert pills */}
+      {/* Decision: score + momentum arrow + trajectory badge + alert pills + projection signals */}
       <DecisionCell
         decision={decision}
         scoreDelta={scoreDelta}
         momentumScore={momentum.momentumScore}
         trajectoryState={trajectoryState}
+        signals={signals}
+        currentBand={currentBand}
       />
     </div>
   );

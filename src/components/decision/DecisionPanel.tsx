@@ -12,6 +12,8 @@ import {
 } from "@/store/selectors";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import { getScoreBand } from "@/lib/decisionScoreBand";
+import { getForwardSignals } from "@/lib/forwardSignals";
+import { getBand } from "@/config/riskThresholds";
 import type { RankedRiskRow } from "@/store/selectors";
 import type { AlertTag } from "@/domain/decision/decision.types";
 
@@ -41,7 +43,7 @@ function scoreBadgeClass(score: number): string {
 }
 
 export function DecisionPanel() {
-  const { simulation } = useRiskRegister();
+  const { simulation, riskForecastsById, forwardPressure } = useRiskRegister();
   const [sortBy, setSortBy] = useState<DecisionSort>("score");
 
   const state = useMemo(() => ({ simulation }), [simulation]);
@@ -91,7 +93,7 @@ export function DecisionPanel() {
         </p>
       </div>
 
-      <div className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+      <div className="p-4 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3">
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
           <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
             Total Risks
@@ -133,6 +135,17 @@ export function DecisionPanel() {
             Avg Score
           </div>
           <div className="mt-0.5 text-lg font-semibold">{summary.avgCompositeScore.toFixed(1)}</div>
+        </div>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+            Projected critical (5 cycles)
+          </div>
+          <div className="mt-0.5 text-lg font-semibold">{forwardPressure.projectedCriticalCount}</div>
+          {forwardPressure.mitigationInsufficientCount > 0 && (
+            <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+              +{forwardPressure.mitigationInsufficientCount} mitigation insufficient
+            </div>
+          )}
         </div>
       </div>
 
@@ -176,6 +189,16 @@ export function DecisionPanel() {
               const delta = scoreDeltaByRiskId[row.riskId];
               const showUp = typeof delta === "number" && delta > SCORE_DELTA_SHOW_THRESHOLD;
               const showDown = typeof delta === "number" && delta < -SCORE_DELTA_SHOW_THRESHOLD;
+              const signals = getForwardSignals(row.riskId, riskForecastsById);
+              const currentBand = getBand(row.compositeScore);
+              const isCritical = currentBand === "critical";
+              const showProjectedUp = signals.hasForecast && signals.projectedCritical && !isCritical;
+              const cyclesText = signals.hasForecast && (signals.timeToCritical != null || isCritical)
+                ? (isCritical ? "0 cycles" : `in ${signals.timeToCritical} cycles`)
+                : null;
+              const mitigationLabel = signals.hasForecast && signals.mitigationInsufficient
+                ? (isCritical ? "Remains critical" : "Mitigation insufficient")
+                : null;
               return (
                 <li
                   key={row.riskId}
@@ -194,6 +217,25 @@ export function DecisionPanel() {
                     {showDown && <span className="opacity-90">↓</span>}
                   </span>
                   <div className="flex flex-wrap items-center gap-1 shrink-0">
+                    {showProjectedUp && (
+                      <span
+                        className="inline-flex rounded px-1.5 py-0.5 text-xs font-medium bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400"
+                        title={cyclesText ?? undefined}
+                      >
+                        Projected ↑
+                      </span>
+                    )}
+                    {cyclesText != null && (
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400" title={isCritical ? "Already critical" : `Reaches critical in ${signals.timeToCritical} cycles`}>
+                        {cyclesText}
+                      </span>
+                    )}
+                    {mitigationLabel != null && (
+                      <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" title={isCritical ? "Remains critical within horizon" : "Mitigation still crosses critical within horizon"}>
+                        <span aria-hidden>⚠</span>
+                        {mitigationLabel}
+                      </span>
+                    )}
                     {showTags.map((t) => (
                       <span
                         key={t}

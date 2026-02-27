@@ -4,6 +4,9 @@
  */
 export const DEBUG_DECISION = false;
 
+/** When true, run forward projection guard checks on load (dev-only, console output). */
+export const DEBUG_FORWARD_PROJECTION = false;
+
 /*
  * Manual verification checklist (Day 6 decision layer):
  * - [ ] App loads with no console errors

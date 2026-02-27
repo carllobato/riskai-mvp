@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { selectDecisionByRiskId, selectDecisionScoreDelta } from "@/store/selectors";
+import { getForwardSignals } from "@/lib/forwardSignals";
 import { RiskRegisterHeader } from "@/components/risk-register/RiskRegisterHeader";
 import { RiskExtractPanel } from "@/components/risk-register/RiskExtractPanel";
 import { RiskRegisterTable } from "@/components/risk-register/RiskRegisterTable";
@@ -12,8 +13,9 @@ const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
 
 function RiskRegisterContent() {
-  const { risks, simulation } = useRiskRegister();
+  const { risks, simulation, riskForecastsById } = useRiskRegister();
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
+  const [showProjectedOnly, setShowProjectedOnly] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
@@ -22,13 +24,18 @@ function RiskRegisterContent() {
   const state = useMemo(() => ({ simulation }), [simulation]);
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
   const scoreDeltaByRiskId = useMemo(() => selectDecisionScoreDelta(state), [state]);
-  const filteredRisks = useMemo(
-    () =>
-      showFlaggedOnly
-        ? risks.filter((r) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0)
-        : risks,
-    [risks, showFlaggedOnly, decisionById]
-  );
+
+  const filteredRisks = useMemo(() => {
+    const flagged = (r: (typeof risks)[0]) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0;
+    const projected = (r: (typeof risks)[0]) => {
+      const s = getForwardSignals(r.id, riskForecastsById);
+      return s.hasForecast && (s.projectedCritical || s.mitigationInsufficient);
+    };
+    if (showFlaggedOnly && showProjectedOnly) return risks.filter((r) => flagged(r) || projected(r));
+    if (showFlaggedOnly) return risks.filter(flagged);
+    if (showProjectedOnly) return risks.filter(projected);
+    return risks;
+  }, [risks, showFlaggedOnly, showProjectedOnly, decisionById, riskForecastsById]);
 
   useEffect(() => {
     if (!focusRiskId) return;
@@ -57,7 +64,7 @@ function RiskRegisterContent() {
     <main style={{ padding: 24 }}>
       <RiskRegisterHeader />
       <RiskExtractPanel />
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 16, marginBottom: 0, flexWrap: "wrap" }}>
         <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, cursor: "pointer" }}>
           <input
             type="checkbox"
@@ -65,6 +72,14 @@ function RiskRegisterContent() {
             onChange={(e) => setShowFlaggedOnly(e.target.checked)}
           />
           Show flagged only
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={showProjectedOnly}
+            onChange={(e) => setShowProjectedOnly(e.target.checked)}
+          />
+          Show projected only
         </label>
       </div>
       <RiskRegisterTable risks={filteredRisks} decisionById={decisionById} scoreDeltaByRiskId={scoreDeltaByRiskId} />

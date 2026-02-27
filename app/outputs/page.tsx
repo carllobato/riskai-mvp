@@ -4,6 +4,8 @@ import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { calculateMomentum, detectTrajectoryState, isMitigationIneffective, portfolioMomentumSummary } from "@/domain/risk/risk.logic";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
+import { getForwardSignals, normalizeForecastForDisplay } from "@/lib/forwardSignals";
+import { getBand } from "@/config/riskThresholds";
 import type { SimulationRiskDelta } from "@/domain/simulation/simulation.types";
 import { DecisionPanel } from "@/components/decision/DecisionPanel";
 
@@ -97,7 +99,7 @@ export default function OutputsPage() {
   const [costView, setCostView] = useState<"simMean" | "expected">("simMean");
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [intelligenceSort, setIntelligenceSort] = useState<"simMean" | "instability">("simMean");
-  const { risks, simulation, runSimulation, clearSimulationHistory } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory, riskForecastsById, forwardPressure } = useRiskRegister();
   const { current, history, delta } = simulation;
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
   const intelligenceRisks = useMemo(
@@ -270,6 +272,7 @@ export default function OutputsPage() {
                     <div>Portfolio pressure: {momentumSummary.portfolioPressure}</div>
                     <div>Escalating: {momentumSummary.escalatingCount} ({Math.round(momentumSummary.escalatingPct * 100)}%)</div>
                     <div>Positive momentum: {momentumSummary.positiveMomentumCount} ({Math.round(momentumSummary.positiveMomentumPct * 100)}%)</div>
+                    <div className="text-neutral-500 dark:text-neutral-400">Projected critical (5): {forwardPressure.projectedCriticalCount} ({Math.round(forwardPressure.pctProjectedCritical * 100)}%)</div>
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -317,6 +320,7 @@ export default function OutputsPage() {
                         <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Score history</th>
                         <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Momentum</th>
                         <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Mitigation</th>
+                        <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Forecast</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -340,6 +344,21 @@ export default function OutputsPage() {
                               ? scoreHistory.filter((s) => s.timestamp > lastMitigationUpdate).length
                               : 0;
                           const ineffectiveMitigation = fullRisk ? isMitigationIneffective(fullRisk) : false;
+                          const signals = getForwardSignals(risk.id, riskForecastsById);
+                          const forecast = riskForecastsById[risk.id];
+                          const hasForecast = signals.hasForecast && forecast != null;
+                          const currentScore = lastSnapshot?.compositeScore ?? 0;
+                          const currentBand = getBand(currentScore);
+                          const summary = hasForecast && forecast
+                            ? {
+                                crossesCritical: forecast.baselineForecast?.crossesCriticalWithinWindow === true,
+                                timeToCriticalBaseline: forecast.baselineForecast?.timeToCritical ?? null,
+                                timeToCriticalMitigated: forecast.timeToCriticalMitigated ?? null,
+                                mitigationInsufficient: forecast.mitigationInsufficient === true,
+                                projectedPeakBand: signals.projectedPeakBand,
+                              }
+                            : null;
+                          const disp = summary ? normalizeForecastForDisplay(currentBand, summary) : null;
                           return (
                             <tr key={risk.id} className="border-b border-neutral-100 dark:border-neutral-800">
                               <td className="py-2 px-3">{risk.title}</td>
@@ -369,6 +388,30 @@ export default function OutputsPage() {
                                 <div>lastMitigationUpdate (raw): {lastMitigationUpdate ?? "—"}</div>
                                 <div>Post-mitigation snaps: {postMitigationSnaps}</div>
                                 <div>Ineffective mitigation: {ineffectiveMitigation ? "YES" : "NO"}</div>
+                              </td>
+                              <td className="py-2 px-3 text-left text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                                {!hasForecast ? (
+                                  <>
+                                    <div>Forecast: —</div>
+                                    <div>Insufficient history</div>
+                                  </>
+                                ) : disp ? (
+                                  <>
+                                    <div>Peak band: {disp.peakBandDisplay}</div>
+                                    <div>Crosses critical: {disp.crossesCriticalDisplay}</div>
+                                    <div>TtC (baseline): {disp.ttCBaselineDisplay}</div>
+                                    <div>TtC (mitigated): {disp.ttCMitigatedDisplay}</div>
+                                    <div>Mitigation insufficient: {disp.mitigationInsufficientDisplay}</div>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div>Peak band: {signals.projectedPeakBand}</div>
+                                    <div>Crosses critical: —</div>
+                                    <div>TtC (baseline): —</div>
+                                    <div>TtC (mitigated): —</div>
+                                    <div>Mitigation insufficient: —</div>
+                                  </>
+                                )}
                               </td>
                             </tr>
                           );

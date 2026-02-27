@@ -4,7 +4,9 @@ import { useRiskRegister } from "@/store/risk-register.store";
 import { createRisk } from "@/domain/risk/risk.factory";
 
 export function RiskRegisterHeader() {
-  const { risks, clearRisks, addRisk } = useRiskRegister();
+  const { risks, clearRisks, addRisk, forwardPressure } = useRiskRegister();
+  const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
+  const isElevated = forwardPressure.pressureClass === "High" || forwardPressure.pressureClass === "Severe";
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -12,6 +14,17 @@ export function RiskRegisterHeader() {
         <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Risk Register</h1>
         <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
           {risks.length} risk{risks.length === 1 ? "" : "s"}
+        </p>
+        <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "#64748b" }}>
+          Forward pressure: {forwardPressure.pressureClass} — {pct}% projected critical
+          {isElevated && (
+            <span style={{ marginLeft: 6, color: "#b45309" }} title="Portfolio pressure is High or Severe">
+              <span aria-hidden>⚠</span>
+            </span>
+          )}
+        </p>
+        <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#94a3b8", fontStyle: "normal" }}>
+          Tip: toggle &quot;Show projected only&quot; to surface pre-escalation risks.
         </p>
       </div>
 

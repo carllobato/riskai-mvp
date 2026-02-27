@@ -57,6 +57,9 @@ export const RiskSchema = z.object({
   mitigation: z.string().optional(),
   contingency: z.string().optional(),
 
+  /** Strength of mitigation effect on score momentum (0 = none, 1 = full). Used for stress-test forecasts. */
+  mitigationStrength: z.number().min(0).max(1).optional(),
+
   /** Timestamp (ms) of last edit to mitigation or contingency. */
   lastMitigationUpdate: z.number().optional(),
 

@@ -10,6 +10,17 @@ import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
 import { loadState, saveState } from "@/store/persist";
 import { nowIso } from "@/lib/time";
+import { getLatestSnapshot, getRiskHistory, addRiskSnapshot } from "@/lib/riskSnapshotHistory";
+import { buildMitigationStressForecast } from "@/lib/riskForecast";
+import { selectDecisionByRiskId } from "@/store/selectors";
+import { riskThresholds } from "@/config/riskThresholds";
+import type { RiskMitigationForecast } from "@/domain/risk/risk-forecast.types";
+import {
+  computePortfolioForwardPressure,
+  type PortfolioForwardPressure,
+} from "@/lib/portfolioForwardPressure";
+import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
+import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const PERSIST_SCHEMA_VERSION = 1;
@@ -58,6 +69,8 @@ type State = {
     history: SimulationSnapshot[];
     delta?: SimulationDelta | null;
   };
+  /** Per-risk Day 8 forecast (score-based); updated when intelligence/simulation updates. */
+  riskForecastsById: Record<string, RiskMitigationForecast>;
 };
 
 type Action =
@@ -71,10 +84,11 @@ type Action =
   | { type: "simulation/run"; snapshot: SimulationSnapshot }
   | { type: "simulation/clearHistory" }
   | { type: "simulation/setDelta"; delta: SimulationDelta | null }
-  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[] } };
+  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[] } }
+  | { type: "riskForecasts/set"; payload: Record<string, RiskMitigationForecast> };
 
 const initialSimulation = { history: [] as SimulationSnapshot[], delta: null as SimulationDelta | null };
-const initialState: State = { risks: [], simulation: initialSimulation };
+const initialState: State = { risks: [], simulation: initialSimulation, riskForecastsById: {} };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -203,6 +217,9 @@ function reducer(state: State, action: Action): State {
       };
     }
 
+    case "riskForecasts/set":
+      return { ...state, riskForecastsById: action.payload };
+
     default:
       return state;
   }
@@ -221,12 +238,22 @@ type Ctx = {
   runSimulation: (iterations?: number) => void;
   clearSimulationHistory: () => void;
   setSimulationDelta: (delta: SimulationDelta | null) => void;
+  /** Portfolio forward pressure from mitigation stress forecasts (derived from risks + snapshot history). */
+  forwardPressure: PortfolioForwardPressure;
+  /** Per-risk mitigation stress forecast keyed by riskId (for row-level projection signals). */
+  riskForecastsById: Record<string, RiskMitigationForecast>;
 };
 
 const RiskRegisterContext = createContext<Ctx | null>(null);
 
 export function RiskRegisterProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const lastPushedSnapshotKeyRef = React.useRef<string | null>(null);
+
+  // Dev-only: run forward projection guard checks when DEBUG_FORWARD_PROJECTION is true
+  useEffect(() => {
+    if (DEBUG_FORWARD_PROJECTION) runForwardProjectionGuards();
+  }, []);
 
   // Hydrate once: restore risks and simulation from localStorage (backward compat: old format had only risks or full state)
   useEffect(() => {
@@ -259,6 +286,56 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     saveState(STORAGE_KEY, payload);
   }, [state.risks, state.simulation.current, state.simulation.history]);
 
+  // Canonical forecast update: when simulation/risks change, push decision scores into snapshot history once per run (Day 8 input), then build and store forecast map.
+  useEffect(() => {
+    const { risks, simulation } = state;
+    const snapshotKey = simulation.current ? `${simulation.current.timestampIso ?? simulation.current.id ?? ""}-${simulation.history?.length ?? 0}` : null;
+    if (!snapshotKey) lastPushedSnapshotKeyRef.current = null;
+    if (simulation.current && risks.length > 0 && snapshotKey !== null && snapshotKey !== lastPushedSnapshotKeyRef.current) {
+      lastPushedSnapshotKeyRef.current = snapshotKey;
+      const decisionById = selectDecisionByRiskId({ simulation });
+      const cycleIndex = Math.max(0, (simulation.history?.length ?? 1) - 1);
+      const timestamp = new Date().toISOString();
+      for (const risk of risks) {
+        const compositeScore = decisionById[risk.id]?.compositeScore ?? 0;
+        addRiskSnapshot(risk.id, {
+          riskId: risk.id,
+          cycleIndex,
+          timestamp,
+          compositeScore,
+        });
+      }
+    }
+    const forecasts: RiskMitigationForecast[] = risks.map((risk) =>
+      buildMitigationStressForecast(
+        risk.id,
+        getLatestSnapshot(risk.id),
+        getRiskHistory(risk.id),
+        risk.mitigationStrength
+      )
+    );
+    const byId: Record<string, RiskMitigationForecast> = {};
+    for (const f of forecasts) {
+      byId[f.riskId] = f;
+      if (process.env.NODE_ENV === "development") {
+        const p0 = f.baselineForecast.points[0];
+        const currentScore = p0 ? p0.projectedScore - (p0.projectedDeltaFromNow ?? 0) : 0;
+        const { getForwardSignals } = require("@/lib/forwardSignals");
+        const peakBand = getForwardSignals(f.riskId, byId).projectedPeakBand;
+        if (currentScore >= riskThresholds.criticalMin && peakBand !== "critical") {
+          console.warn("[Forecast] Sanity: currentScore >= criticalThreshold but peakBand is", peakBand, "for risk", f.riskId);
+        }
+      }
+    }
+    dispatch({ type: "riskForecasts/set", payload: byId });
+  }, [state.risks, state.simulation.current, state.simulation.history]);
+
+  const riskForecastsById = state.riskForecastsById;
+  const forwardPressure = useMemo(
+    () => computePortfolioForwardPressure(Object.values(riskForecastsById)),
+    [riskForecastsById]
+  );
+
   const value = useMemo<Ctx>(
     () => ({
       risks: state.risks,
@@ -281,8 +358,10 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
+      forwardPressure,
+      riskForecastsById,
     }),
-    [state.risks, state.simulation]
+    [state.risks, state.simulation, forwardPressure, riskForecastsById]
   );
 
   return <RiskRegisterContext.Provider value={value}>{children}</RiskRegisterContext.Provider>;
