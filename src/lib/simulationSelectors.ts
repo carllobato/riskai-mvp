@@ -189,18 +189,9 @@ const DEBUG_RISK_INTELLIGENCE = false;
  * No-op when DEBUG_RISK_INTELLIGENCE is false.
  */
 export function dumpRiskIntelligenceMetrics(
-  history: SimulationSnapshot[],
-  options?: RiskIntelligenceOptions
+  _history: SimulationSnapshot[],
+  _options?: RiskIntelligenceOptions
 ): void {
   if (!DEBUG_RISK_INTELLIGENCE) return;
-  const map = selectRiskIntelligenceMetrics(history, options);
-  const entries = Array.from(map.entries()).map(([id, m]) => ({
-    riskId: id,
-    ...m,
-  }));
-  // eslint-disable-next-line no-console
-  console.log("[DEBUG_RISK_INTELLIGENCE] selectRiskIntelligenceMetrics", {
-    historyLength: history.length,
-    metrics: entries,
-  });
+  // Dev-only: metrics available via selectRiskIntelligenceMetrics; no console output in production.
 }

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 import { ThemeProvider } from "@/context/ThemeContext";
+import { ProjectionScenarioProvider } from "@/context/ProjectionScenarioContext";
 import { RiskRegisterProvider } from "@/store/risk-register.store";
 import { NavBar } from "@/components/NavBar";
 
@@ -40,10 +41,15 @@ export default function RootLayout({
       </head>
       <body className="antialiased font-sans bg-[var(--background)] text-[var(--foreground)]">
         <ThemeProvider>
-          <RiskRegisterProvider>
-            <NavBar />
-            {children}
-          </RiskRegisterProvider>
+          <ProjectionScenarioProvider>
+            <RiskRegisterProvider>
+              <NavBar />
+              {children}
+              <footer className="mt-auto py-2 px-4 text-center text-xs text-neutral-400 dark:text-neutral-500">
+                Day 10 – Forecast Confidence &amp; Scenario Control
+              </footer>
+            </RiskRegisterProvider>
+          </ProjectionScenarioProvider>
         </ThemeProvider>
       </body>
     </html>

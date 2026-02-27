@@ -10,7 +10,6 @@ import { computeCompositeScore } from "@/domain/decision/decision.score";
 import { rankRisks } from "@/domain/decision/decision.rank";
 import { deriveAlertTags } from "@/domain/decision/decision.alerts";
 import { DEFAULT_DECISION_THRESHOLDS } from "@/config/decisionDefaults";
-import { DEBUG_DECISION } from "@/config/debug";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 
 /** Minimal state slice needed for decision selectors (matches risk-register store). */
@@ -98,17 +97,6 @@ export function selectDecisionByRiskId(state: DecisionSelectorState): Record<str
       rank: rankMap.get(sum.riskId) ?? 0,
       alertTags,
     };
-  }
-
-  if (DEBUG_DECISION) {
-    const counts = { critical: 0, accelerating: 0, volatile: 0, unstable: 0, emerging: 0, improving: 0 };
-    for (const d of Object.values(out)) {
-      for (const t of d.alertTags) {
-        if (t in counts) counts[t as keyof typeof counts]++;
-      }
-    }
-    // eslint-disable-next-line no-console
-    console.log("[DEBUG_DECISION] alert tag counts", counts);
   }
 
   return out;

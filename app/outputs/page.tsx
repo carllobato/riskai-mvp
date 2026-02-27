@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { calculateMomentum, detectTrajectoryState, isMitigationIneffective, portfolioMomentumSummary } from "@/domain/risk/risk.logic";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import { getForwardSignals, normalizeForecastForDisplay } from "@/lib/forwardSignals";
+import { getLatestSnapshot, getRiskHistory } from "@/lib/riskSnapshotHistory";
+import { computeScenarioComparison } from "@/lib/riskForecast";
 import { getBand } from "@/config/riskThresholds";
 import type { SimulationRiskDelta } from "@/domain/simulation/simulation.types";
 import { DecisionPanel } from "@/components/decision/DecisionPanel";
@@ -99,7 +102,20 @@ export default function OutputsPage() {
   const [costView, setCostView] = useState<"simMean" | "expected">("simMean");
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [intelligenceSort, setIntelligenceSort] = useState<"simMean" | "instability">("simMean");
+  const [confidenceWeighted, setConfidenceWeighted] = useState(false);
+  const { profile: scenarioProfile } = useProjectionScenario();
   const { risks, simulation, runSimulation, clearSimulationHistory, riskForecastsById, forwardPressure } = useRiskRegister();
+  const scenarioComparison = useMemo(
+    () => computeScenarioComparison(
+      risks.map((r) => ({ id: r.id, mitigationStrength: r.mitigationStrength })),
+      getLatestSnapshot,
+      getRiskHistory
+    ),
+    [risks]
+  );
+  const pressureDisplay = confidenceWeighted && forwardPressure.forwardPressureWeighted
+    ? forwardPressure.forwardPressureWeighted
+    : forwardPressure;
   const { current, history, delta } = simulation;
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
   const intelligenceRisks = useMemo(
@@ -272,7 +288,52 @@ export default function OutputsPage() {
                     <div>Portfolio pressure: {momentumSummary.portfolioPressure}</div>
                     <div>Escalating: {momentumSummary.escalatingCount} ({Math.round(momentumSummary.escalatingPct * 100)}%)</div>
                     <div>Positive momentum: {momentumSummary.positiveMomentumCount} ({Math.round(momentumSummary.positiveMomentumPct * 100)}%)</div>
-                    <div className="text-neutral-500 dark:text-neutral-400">Projected critical (5): {forwardPressure.projectedCriticalCount} ({Math.round(forwardPressure.pctProjectedCritical * 100)}%)</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-neutral-500 dark:text-neutral-400">
+                        Projected critical (5): {typeof pressureDisplay.projectedCriticalCount === "number" && pressureDisplay.projectedCriticalCount % 1 !== 0
+                          ? pressureDisplay.projectedCriticalCount.toFixed(1)
+                          : pressureDisplay.projectedCriticalCount
+                        } ({Math.round(pressureDisplay.pctProjectedCritical * 100)}%)
+                      </span>
+                      <label className="inline-flex items-center gap-1.5 cursor-pointer" title="Confidence-weighted: Downweights uncertain projections.">
+                        <input
+                          type="checkbox"
+                          checked={confidenceWeighted}
+                          onChange={(e) => setConfidenceWeighted(e.target.checked)}
+                          className="rounded border-neutral-300 dark:border-neutral-600"
+                        />
+                        <span className="text-xs text-neutral-500 dark:text-neutral-400">Confidence-weighted</span>
+                      </label>
+                    </div>
+                    {confidenceWeighted && (
+                      <div className="text-xs text-neutral-500 dark:text-neutral-400">Weighted by forecast confidence</div>
+                    )}
+                  </div>
+                </div>
+                <div className="mb-4 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/50 px-3 py-3">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Scenario comparison</div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    {(["conservative", "neutral", "aggressive"] as const).map((profile) => {
+                      const summary = scenarioComparison[profile];
+                      const isActive = scenarioProfile === profile;
+                      return (
+                        <div
+                          key={profile}
+                          className={`rounded-md px-3 py-2 border ${
+                            isActive
+                              ? "border-neutral-400 dark:border-neutral-500 bg-neutral-200/60 dark:bg-neutral-600/60"
+                              : "border-neutral-200 dark:border-neutral-700 bg-transparent"
+                          }`}
+                        >
+                          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 capitalize mb-1.5">Scenario: {profile}</div>
+                          <div className="text-neutral-700 dark:text-neutral-300 space-y-0.5">
+                            <div>Forward pressure: {summary.forwardPressure.pressureClass}</div>
+                            <div>Projected critical: {summary.projectedCriticalCount}</div>
+                            <div>Median TtC: {summary.medianTtC != null ? summary.medianTtC : "—"}</div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 mb-2">

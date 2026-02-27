@@ -60,6 +60,12 @@ export type ForwardSignals = {
   mitigationInsufficient: boolean;
   projectedPeakBand: EscalationBand;
   hasForecast: boolean;
+  /** Forecast confidence 0–100 (contextual only). */
+  forecastConfidence?: number;
+  /** Low <40, medium 40–69, high ≥70. */
+  confidenceBand?: "low" | "medium" | "high";
+  /** True when history had fewer than 2 snapshots. */
+  insufficientHistory?: boolean;
 };
 
 const DEFAULTS: ForwardSignals = {
@@ -98,5 +104,8 @@ export function getForwardSignals(
     mitigationInsufficient: forecast.mitigationInsufficient ?? false,
     projectedPeakBand: projectedPeakBandFromForecast(forecast),
     hasForecast: true,
+    forecastConfidence: forecast.forecastConfidence,
+    confidenceBand: forecast.confidenceBand,
+    insufficientHistory: forecast.insufficientHistory,
   };
 }

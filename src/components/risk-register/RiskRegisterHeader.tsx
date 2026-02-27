@@ -15,15 +15,15 @@ export function RiskRegisterHeader() {
         <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
           {risks.length} risk{risks.length === 1 ? "" : "s"}
         </p>
-        <p style={{ margin: "4px 0 0 0", fontSize: 12, color: "#64748b" }}>
+        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
           Forward pressure: {forwardPressure.pressureClass} — {pct}% projected critical
           {isElevated && (
-            <span style={{ marginLeft: 6, color: "#b45309" }} title="Portfolio pressure is High or Severe">
+            <span className="ml-1.5 text-amber-600 dark:text-amber-500" title="Forward pressure is High or Severe">
               <span aria-hidden>⚠</span>
             </span>
           )}
         </p>
-        <p style={{ margin: "2px 0 0 0", fontSize: 11, color: "#94a3b8", fontStyle: "normal" }}>
+        <p className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500 font-normal">
           Tip: toggle &quot;Show projected only&quot; to surface pre-escalation risks.
         </p>
       </div>

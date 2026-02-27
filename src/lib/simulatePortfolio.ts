@@ -161,15 +161,6 @@ export function simulatePortfolio(
     const variance = acc.welfordN > 0 ? acc.welfordM2 / acc.welfordN : 0;
     const simStdDev = Math.sqrt(variance);
     const triggerRate = acc.triggeredCount / iterations;
-    if (DEBUG_SIM && risk.id === risks[0]?.id) {
-      // eslint-disable-next-line no-console
-      console.log("[DEBUG_SIM] per-risk sample", {
-        riskId: risk.id,
-        simMeanCost: acc.costSum / iterations,
-        simStdDev,
-        triggerRate,
-      });
-    }
     return {
       id: risk.id,
       title: risk.title,

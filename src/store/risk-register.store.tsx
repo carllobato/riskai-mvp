@@ -11,9 +11,8 @@ import { simulatePortfolio } from "@/lib/simulatePortfolio";
 import { loadState, saveState } from "@/store/persist";
 import { nowIso } from "@/lib/time";
 import { getLatestSnapshot, getRiskHistory, addRiskSnapshot } from "@/lib/riskSnapshotHistory";
-import { buildMitigationStressForecast } from "@/lib/riskForecast";
+import { runForwardProjection } from "@/lib/riskForecast";
 import { selectDecisionByRiskId } from "@/store/selectors";
-import { riskThresholds } from "@/config/riskThresholds";
 import type { RiskMitigationForecast } from "@/domain/risk/risk-forecast.types";
 import {
   computePortfolioForwardPressure,
@@ -21,6 +20,7 @@ import {
 } from "@/lib/portfolioForwardPressure";
 import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
 import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
+import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const PERSIST_SCHEMA_VERSION = 1;
@@ -286,7 +286,9 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     saveState(STORAGE_KEY, payload);
   }, [state.risks, state.simulation.current, state.simulation.history]);
 
-  // Canonical forecast update: when simulation/risks change, push decision scores into snapshot history once per run (Day 8 input), then build and store forecast map.
+  const { profile: projectionProfile } = useProjectionScenario();
+
+  // Canonical forecast update: when simulation/risks or profile change, push decision scores into snapshot history once per run (Day 8 input), then build and store forecast map.
   useEffect(() => {
     const { risks, simulation } = state;
     const snapshotKey = simulation.current ? `${simulation.current.timestampIso ?? simulation.current.id ?? ""}-${simulation.history?.length ?? 0}` : null;
@@ -306,35 +308,21 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         });
       }
     }
-    const forecasts: RiskMitigationForecast[] = risks.map((risk) =>
-      buildMitigationStressForecast(
-        risk.id,
-        getLatestSnapshot(risk.id),
-        getRiskHistory(risk.id),
-        risk.mitigationStrength
-      )
+    const { riskForecastsById: byId } = runForwardProjection(
+      risks,
+      getLatestSnapshot,
+      getRiskHistory,
+      { profile: projectionProfile }
     );
-    const byId: Record<string, RiskMitigationForecast> = {};
-    for (const f of forecasts) {
-      byId[f.riskId] = f;
-      if (process.env.NODE_ENV === "development") {
-        const p0 = f.baselineForecast.points[0];
-        const currentScore = p0 ? p0.projectedScore - (p0.projectedDeltaFromNow ?? 0) : 0;
-        const { getForwardSignals } = require("@/lib/forwardSignals");
-        const peakBand = getForwardSignals(f.riskId, byId).projectedPeakBand;
-        if (currentScore >= riskThresholds.criticalMin && peakBand !== "critical") {
-          console.warn("[Forecast] Sanity: currentScore >= criticalThreshold but peakBand is", peakBand, "for risk", f.riskId);
-        }
-      }
-    }
     dispatch({ type: "riskForecasts/set", payload: byId });
-  }, [state.risks, state.simulation.current, state.simulation.history]);
+  }, [state.risks, state.simulation.current, state.simulation.history, projectionProfile]);
 
   const riskForecastsById = state.riskForecastsById;
-  const forwardPressure = useMemo(
-    () => computePortfolioForwardPressure(Object.values(riskForecastsById)),
-    [riskForecastsById]
-  );
+  const forwardPressure = useMemo(() => {
+    const list = Object.values(riskForecastsById);
+    const profile = list[0]?.projectionProfileUsed;
+    return computePortfolioForwardPressure(list, profile);
+  }, [riskForecastsById]);
 
   const value = useMemo<Ctx>(
     () => ({

@@ -21,6 +21,9 @@ export type RiskForecast = {
   projectedCritical: boolean;
 };
 
+/** Confidence band for forecast confidence score: low < 40, medium 40–69, high ≥ 70. */
+export type ConfidenceBand = "low" | "medium" | "high";
+
 /** Result of mitigation stress testing: baseline (no mitigation) and mitigated forecasts with derived flags. */
 export type RiskMitigationForecast = {
   riskId: string;
@@ -32,4 +35,19 @@ export type RiskMitigationForecast = {
   timeToCriticalBaseline: number | null;
   /** First step to critical in mitigated projection, or null. */
   timeToCriticalMitigated: number | null;
+  /** Forecast confidence 0–100 derived from history depth, stability, and volatility (contextual only). */
+  forecastConfidence: number;
+  /** Band for forecast confidence: low < 40, medium 40–69, high ≥ 70. */
+  confidenceBand?: ConfidenceBand;
+  /** Debug-only breakdown; present when DEBUG_FORWARD_PROJECTION is true. */
+  confidenceBreakdown?: {
+    depthScore: number;
+    stabilityScore: number;
+    volatilityPenalty: number;
+    window: number;
+  };
+  /** Profile used for this projection (traceability). */
+  projectionProfileUsed: "conservative" | "neutral" | "aggressive";
+  /** True when history had fewer than 2 snapshots (for UI tooltip). */
+  insufficientHistory?: boolean;
 };

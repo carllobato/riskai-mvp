@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import {
   selectPortfolioDecisionSummary,
   selectTopCriticalRisks,
@@ -13,6 +14,7 @@ import {
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import { getScoreBand } from "@/lib/decisionScoreBand";
 import { getForwardSignals } from "@/lib/forwardSignals";
+import { getProfileLabel } from "@/context/ProjectionScenarioContext";
 import { getBand } from "@/config/riskThresholds";
 import type { RankedRiskRow } from "@/store/selectors";
 import type { AlertTag } from "@/domain/decision/decision.types";
@@ -43,6 +45,7 @@ function scoreBadgeClass(score: number): string {
 }
 
 export function DecisionPanel() {
+  const { profile: scenarioProfile } = useProjectionScenario();
   const { simulation, riskForecastsById, forwardPressure } = useRiskRegister();
   const [sortBy, setSortBy] = useState<DecisionSort>("score");
 
@@ -90,6 +93,12 @@ export function DecisionPanel() {
         <h2 className="text-lg font-semibold text-neutral-800 dark:text-neutral-200 m-0">Decision</h2>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 m-0">
           Decision-grade ranking from behavioural metrics.
+        </p>
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 m-0" title="Adjusts drift persistence and decay for scenario testing.">
+          Scenario: {getProfileLabel(scenarioProfile)}
+        </p>
+        <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500 m-0">
+          Forecast Confidence: Based on history depth, momentum stability, and volatility.
         </p>
       </div>
 
@@ -182,7 +191,7 @@ export function DecisionPanel() {
           <p className="text-sm text-neutral-500 dark:text-neutral-400">No risks. Run a simulation.</p>
         ) : (
           <ul className="list-none p-0 m-0 space-y-2">
-            {displayList.map((row) => {
+            {displayList.map((row, index) => {
               const tags = decisionById[row.riskId]?.alertTags ?? [];
               const showTags = tags.slice(0, 2);
               const extra = tags.length > 2 ? tags.length - 2 : 0;
@@ -190,6 +199,10 @@ export function DecisionPanel() {
               const showUp = typeof delta === "number" && delta > SCORE_DELTA_SHOW_THRESHOLD;
               const showDown = typeof delta === "number" && delta < -SCORE_DELTA_SHOW_THRESHOLD;
               const signals = getForwardSignals(row.riskId, riskForecastsById);
+              const forecast = riskForecastsById[row.riskId];
+              const showConfidence = index < 3 && forecast != null && typeof forecast.forecastConfidence === "number";
+              const confScore = forecast?.forecastConfidence;
+              const confBand = forecast?.confidenceBand ?? (typeof confScore === "number" ? (confScore < 40 ? "low" : confScore < 70 ? "medium" : "high") : null);
               const currentBand = getBand(row.compositeScore);
               const isCritical = currentBand === "critical";
               const showProjectedUp = signals.hasForecast && signals.projectedCritical && !isCritical;
@@ -234,6 +247,14 @@ export function DecisionPanel() {
                       <span className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" title={isCritical ? "Remains critical within horizon" : "Mitigation still crosses critical within horizon"}>
                         <span aria-hidden>⚠</span>
                         {mitigationLabel}
+                      </span>
+                    )}
+                    {showConfidence && confBand != null && (
+                      <span
+                        className="text-xs text-neutral-500 dark:text-neutral-400"
+                        title="Forecast Confidence: Based on history depth, momentum stability, and volatility."
+                      >
+                        {typeof confScore === "number" ? `${Math.round(confScore)}%` : "—"} • {confBand.charAt(0).toUpperCase() + confBand.slice(1)}
                       </span>
                     )}
                     {showTags.map((t) => (

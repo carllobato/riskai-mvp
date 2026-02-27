@@ -1,18 +1,14 @@
 /**
  * Dev-only guard checks for forward projection. Run when DEBUG_FORWARD_PROJECTION is true.
- * No test runner required; logs pass/fail to console.
+ * No test runner required; returns whether all checks passed.
  */
 
 import type { RiskSnapshot } from "@/domain/risk/risk-snapshot.types";
 import { computeMomentum } from "@/lib/riskMomentum";
 import { projectForward, buildRiskForecast, buildMitigationStressForecast } from "@/lib/riskForecast";
 
-const PREFIX = "[ForwardProjection]";
-
-function ok(label: string, pass: boolean, detail?: string): void {
-  const icon = pass ? "✓" : "✗";
-  const msg = detail ? `${label}: ${detail}` : label;
-  console.log(`${PREFIX} ${icon} ${msg}`);
+function ok(_label: string, pass: boolean, _detail?: string): boolean {
+  return pass;
 }
 
 /**
@@ -109,8 +105,7 @@ function checkMitigationFull(): boolean {
 /**
  * Run all guard checks. Call in dev when DEBUG_FORWARD_PROJECTION is true.
  */
-export function runForwardProjectionGuards(): void {
-  console.log(`${PREFIX} Running guard checks…`);
+export function runForwardProjectionGuards(): boolean {
   const results = [
     checkNoHistory(),
     checkConstantScore(),
@@ -118,6 +113,5 @@ export function runForwardProjectionGuards(): void {
     checkProjectionBounds(),
     checkMitigationFull(),
   ];
-  const allPass = results.every(Boolean);
-  console.log(`${PREFIX} ${allPass ? "All checks passed." : "Some checks failed."}`);
+  return results.every(Boolean);
 }

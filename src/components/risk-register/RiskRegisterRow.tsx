@@ -11,6 +11,7 @@ import { getForwardSignals } from "@/lib/forwardSignals";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
 import { RiskLevelBadge } from "@/components/risk-register/RiskLevelBadge";
+import { ForecastConfidenceBadge } from "@/components/risk-register/ForecastConfidenceBadge";
 
 const SCORE_DELTA_THRESHOLD = 3;
 
@@ -163,7 +164,7 @@ function DecisionCell({
       : null;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap", width: "100%" }}>
         <span
           style={{
             ...alertPillStyle,
@@ -211,6 +212,14 @@ function DecisionCell({
         {extra > 0 && (
           <span style={{ ...alertPillStyle, backgroundColor: "rgba(0,0,0,0.08)", color: "#737373" }}>
             +{extra}
+          </span>
+        )}
+        {hasForecast && (
+          <span style={{ marginLeft: "auto" }}>
+            <ForecastConfidenceBadge
+              forecastConfidence={signals.forecastConfidence}
+              insufficientHistory={signals.insufficientHistory}
+            />
           </span>
         )}
       </div>

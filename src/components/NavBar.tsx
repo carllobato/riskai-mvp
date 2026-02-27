@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
+import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
+import type { ProjectionProfile } from "@/lib/projectionProfiles";
 
 const navItems: { href: string; label: string }[] = [
   { href: "/risk-register", label: "Risk Register" },
@@ -11,9 +13,16 @@ const navItems: { href: string; label: string }[] = [
   { href: "/day0", label: "Day 0" },
 ];
 
+const SCENARIO_OPTIONS: { value: ProjectionProfile; label: string }[] = [
+  { value: "conservative", label: "Conservative" },
+  { value: "neutral", label: "Neutral" },
+  { value: "aggressive", label: "Aggressive" },
+];
+
 export function NavBar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
+  const { profile, setProfile } = useProjectionScenario();
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
@@ -47,8 +56,33 @@ export function NavBar() {
         })}
       </div>
 
-      {/* Right: theme toggle */}
-      <div className="ml-auto shrink-0">
+      {/* Right: scenario selector + theme toggle */}
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        <div
+          className="flex items-center gap-1.5"
+          title="Adjusts drift persistence and decay for scenario testing."
+        >
+          <label htmlFor="projection-scenario" className="sr-only">
+            Scenario
+          </label>
+          <select
+            id="projection-scenario"
+            aria-label="Scenario"
+            aria-describedby="projection-scenario-desc"
+            value={profile}
+            onChange={(e) => setProfile(e.target.value as ProjectionProfile)}
+            className="h-9 min-w-0 max-w-[10rem] rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)] text-sm font-medium px-2.5 py-1.5 cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+          >
+            {SCENARIO_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+          <span id="projection-scenario-desc" className="text-neutral-500 dark:text-neutral-400 text-xs hidden sm:inline">
+            Scenario
+          </span>
+        </div>
         <button
           type="button"
           onClick={toggleTheme}
