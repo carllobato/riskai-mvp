@@ -9,7 +9,8 @@ export function createRisk(partial?: Partial<Risk>): Risk {
   const category: RiskCategory = partial?.category ?? "commercial";
   const status: RiskStatus = partial?.status ?? "open";
 
-  const inherent = partial?.inherent ?? buildRating(3, 3);
+  const inherentRating = partial?.inherentRating ?? buildRating(3, 3);
+  const residualRating = partial?.residualRating ?? inherentRating;
 
   return {
     id: partial?.id ?? makeId(),
@@ -23,8 +24,8 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     mitigation: partial?.mitigation ?? "Confirm lead times, place early order, consider alternates",
     contingency: partial?.contingency,
 
-    inherent,
-    residual: partial?.residual ?? inherent,
+    inherentRating,
+    residualRating,
 
     dueDate: partial?.dueDate,
     costImpact: partial?.costImpact,

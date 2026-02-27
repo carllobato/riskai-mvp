@@ -57,8 +57,8 @@ export const RiskSchema = z.object({
   mitigation: z.string().optional(),
   contingency: z.string().optional(),
 
-  inherent: RiskRatingSchema,
-  residual: RiskRatingSchema.optional(),
+  inherentRating: RiskRatingSchema,
+  residualRating: RiskRatingSchema,
 
   dueDate: z.string().optional(), // YYYY-MM-DD (simple Day-1)
   costImpact: z.number().optional(),

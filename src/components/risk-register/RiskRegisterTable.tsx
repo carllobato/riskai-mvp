@@ -9,8 +9,8 @@ export function RiskRegisterTable({ risks }: { risks: Risk[] }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "2fr 1fr 1fr 1fr 2fr 1fr",
-          gap: 0,
+          gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr",
+          gap: 10,
           padding: "10px 12px",
           fontWeight: 600,
           background: "rgba(0,0,0,0.03)",
@@ -21,6 +21,7 @@ export function RiskRegisterTable({ risks }: { risks: Risk[] }) {
         <div>Category</div>
         <div>Owner</div>
         <div>Inherent</div>
+        <div>Residual</div>
         <div>Mitigation</div>
         <div>Status</div>
       </div>

@@ -21,7 +21,7 @@ Return ONLY a single JSON object, no markdown, no commentary. Shape:
   ]
 }
 
-Do NOT include: id, inherent, residual, score, level, timestamps, or any other fields.`;
+Do NOT include: id, inherentRating, residualRating, score, level, timestamps, or any other fields.`;
 
 export async function POST(req: Request) {
   try {

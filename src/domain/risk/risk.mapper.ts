@@ -13,7 +13,9 @@ const DEFAULT_STATUS: RiskStatus = "open";
 export function draftToRisk(draft: RiskDraft): Risk {
   const createdAt = nowIso();
 
-  const inherent = buildRating(draft.probability, draft.consequence);
+  const inherentRating = buildRating(draft.probability, draft.consequence);
+  // Day-1 choice: set residual initially equal to inherent so UI always has values
+  const residualRating = inherentRating;
 
   return {
     id: makeId(),
@@ -27,9 +29,8 @@ export function draftToRisk(draft: RiskDraft): Risk {
     mitigation: draft.mitigation,
     contingency: undefined,
 
-    inherent,
-    // Day-1 choice: set residual initially equal to inherent so UI always has values
-    residual: inherent,
+    inherentRating,
+    residualRating,
 
     dueDate: undefined,
     costImpact: undefined,

@@ -1,19 +1,34 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
-import type { Risk } from "@/domain/risk/risk.schema";
+import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
+import { buildRating } from "@/domain/risk/risk.logic";
 import { saveJson, loadJson } from "@/lib/storage";
 import { nowIso } from "@/lib/time";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
+
+/** Migrate persisted risks from legacy inherent/residual to inherentRating/residualRating. */
+function migrateRisks(risks: unknown[]): Risk[] {
+  return risks.map((r) => {
+    if (!r || typeof r !== "object") return null;
+    const raw = r as Record<string, unknown>;
+    const inherentRating = (raw.inherentRating as RiskRating | undefined) ?? (raw.inherent as RiskRating | undefined);
+    const residualRating = (raw.residualRating as RiskRating | undefined) ?? (raw.residual as RiskRating | undefined) ?? inherentRating;
+    if (!inherentRating || !residualRating) return null;
+    return { ...raw, inherentRating, residualRating } as Risk;
+  }).filter((r): r is Risk => r != null);
+}
 
 type State = {
   risks: Risk[];
 };
 
 type Action =
-  | { type: "risks/set"; risks: Risk[] }                       // replace (e.g., extraction result)
+  | { type: "risks/set"; risks: Risk[] }                       // replace (e.g., hydrate)
+  | { type: "risks/append"; risks: Risk[] }                     // append (e.g., extraction); skip duplicate ids
   | { type: "risk/update"; id: string; patch: Partial<Risk> }  // inline edit
+  | { type: "RISK_UPDATE_RATING_PC"; payload: { id: string; target: "inherent" | "residual"; probability?: number; consequence?: number } }
   | { type: "risk/add"; risk: Risk }
   | { type: "risk/delete"; id: string }
   | { type: "risks/clear" };
@@ -25,12 +40,37 @@ function reducer(state: State, action: Action): State {
     case "risks/set":
       return { ...state, risks: action.risks };
 
+    case "risks/append": {
+      const existingIds = new Set(state.risks.map((r) => r.id));
+      const newRisks = action.risks.filter((r) => !existingIds.has(r.id));
+      return { ...state, risks: [...state.risks, ...newRisks] };
+    }
+
     case "risk/update": {
       const risks = state.risks.map((r) => {
         if (r.id !== action.id) return r;
         const updated: Risk = {
           ...r,
           ...action.patch,
+          updatedAt: nowIso(),
+        };
+        return updated;
+      });
+      return { ...state, risks };
+    }
+
+    case "RISK_UPDATE_RATING_PC": {
+      const { id, target, probability: payloadP, consequence: payloadC } = action.payload;
+      const risks = state.risks.map((r) => {
+        if (r.id !== id) return r;
+        const current = target === "inherent" ? r.inherentRating : r.residualRating;
+        const nextP = payloadP ?? current.probability;
+        const nextC = payloadC ?? current.consequence;
+        const newRating = buildRating(nextP, nextC);
+        const updated: Risk = {
+          ...r,
+          inherentRating: target === "inherent" ? newRating : r.inherentRating,
+          residualRating: target === "residual" ? newRating : r.residualRating,
           updatedAt: nowIso(),
         };
         return updated;
@@ -56,7 +96,9 @@ type Ctx = {
   risks: Risk[];
   addRisk: (risk: Risk) => void;
   setRisks: (risks: Risk[]) => void;
+  appendRisks: (risks: Risk[]) => void;
   updateRisk: (id: string, patch: Partial<Risk>) => void;
+  updateRatingPc: (id: string, target: "inherent" | "residual", payload: { probability?: number; consequence?: number }) => void;
   deleteRisk: (id: string) => void;
   clearRisks: () => void;
 };
@@ -66,11 +108,12 @@ const RiskRegisterContext = createContext<Ctx | null>(null);
 export function RiskRegisterProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Hydrate once
+  // Hydrate once (migrate legacy inherent/residual → inherentRating/residualRating)
   useEffect(() => {
-    const saved = loadJson<State>(STORAGE_KEY);
+    const saved = loadJson<{ risks: unknown[] }>(STORAGE_KEY);
     if (saved?.risks?.length) {
-      dispatch({ type: "risks/set", risks: saved.risks });
+      const migrated = migrateRisks(saved.risks);
+      if (migrated.length) dispatch({ type: "risks/set", risks: migrated });
     }
   }, []);
 
@@ -84,7 +127,10 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       risks: state.risks,
       addRisk: (risk) => dispatch({ type: "risk/add", risk }),
       setRisks: (risks) => dispatch({ type: "risks/set", risks }),
+      appendRisks: (risks) => dispatch({ type: "risks/append", risks }),
       updateRisk: (id, patch) => dispatch({ type: "risk/update", id, patch }),
+      updateRatingPc: (id, target, payload) =>
+        dispatch({ type: "RISK_UPDATE_RATING_PC", payload: { id, target, ...payload } }),
       deleteRisk: (id) => dispatch({ type: "risk/delete", id }),
       clearRisks: () => dispatch({ type: "risks/clear" }),
     }),

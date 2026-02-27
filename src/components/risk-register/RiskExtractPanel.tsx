@@ -14,14 +14,14 @@ function isDraftLike(item: unknown): item is RiskDraft {
   return (
     typeof o.probability === "number" &&
     typeof o.consequence === "number" &&
-    o.inherent === undefined
+    o.inherentRating === undefined
   );
 }
 
 function isRiskLike(item: unknown): item is Risk {
   if (!item || typeof item !== "object") return false;
   const o = item as Record<string, unknown>;
-  return o.inherent != null && typeof o.inherent === "object";
+  return o.inherentRating != null && typeof o.inherentRating === "object";
 }
 
 function normalizeRisks(raw: unknown): Risk[] {
@@ -45,7 +45,7 @@ export function RiskExtractPanel() {
   const [documentText, setDocumentText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const { setRisks } = useRiskRegister();
+  const { appendRisks } = useRiskRegister();
 
   async function handleExtract() {
     setErrorMessage(null);
@@ -68,7 +68,7 @@ export function RiskExtractPanel() {
       }
 
       const risks = normalizeRisks(data?.risks);
-      setRisks(risks);
+      appendRisks(risks);
       setStatus("idle");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Network or unexpected error";

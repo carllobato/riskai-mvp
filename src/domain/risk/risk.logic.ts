@@ -7,6 +7,7 @@ export function computeRiskLevel(score: number): RiskLevel {
   return "extreme";
 }
 
+/** Returns { probability, consequence, score, level }; score/level are derived here only. */
 export function buildRating(
   probability: number,
   consequence: number
