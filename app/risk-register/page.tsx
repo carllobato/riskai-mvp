@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskRegisterHeader } from "@/components/risk-register/RiskRegisterHeader";
@@ -10,12 +10,12 @@ import { RiskRegisterTable } from "@/components/risk-register/RiskRegisterTable"
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
 
-export default function RiskRegisterPage() {
+function RiskRegisterContent() {
   const { risks } = useRiskRegister();
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
-  const highlightTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!focusRiskId) return;
@@ -46,5 +46,13 @@ export default function RiskRegisterPage() {
       <RiskExtractPanel />
       <RiskRegisterTable risks={risks} />
     </main>
+  );
+}
+
+export default function RiskRegisterPage() {
+  return (
+    <Suspense fallback={<main style={{ padding: 24 }}>Loading…</main>}>
+      <RiskRegisterContent />
+    </Suspense>
   );
 }
