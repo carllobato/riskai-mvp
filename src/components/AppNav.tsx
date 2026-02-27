@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 const navItems: { href: string; label: string }[] = [
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix" },
+  { href: "/outputs", label: "Outputs" },
 ];
 
 export function AppNav() {

@@ -2,7 +2,10 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
 import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
+import type { SimulationSnapshot, SimulationDelta } from "@/domain/simulation/simulation.types";
 import { buildRating } from "@/domain/risk/risk.logic";
+import { calculateDelta } from "@/lib/calculateDelta";
+import { simulatePortfolio } from "@/lib/simulatePortfolio";
 import { saveJson, loadJson } from "@/lib/storage";
 import { nowIso } from "@/lib/time";
 
@@ -20,8 +23,15 @@ function migrateRisks(risks: unknown[]): Risk[] {
   }).filter((r): r is Risk => r != null);
 }
 
+const SIMULATION_HISTORY_CAP = 20;
+
 type State = {
   risks: Risk[];
+  simulation: {
+    current?: SimulationSnapshot;
+    history: SimulationSnapshot[];
+    delta?: SimulationDelta | null;
+  };
 };
 
 type Action =
@@ -31,9 +41,13 @@ type Action =
   | { type: "RISK_UPDATE_RATING_PC"; payload: { id: string; target: "inherent" | "residual"; probability?: number; consequence?: number } }
   | { type: "risk/add"; risk: Risk }
   | { type: "risk/delete"; id: string }
-  | { type: "risks/clear" };
+  | { type: "risks/clear" }
+  | { type: "simulation/run"; snapshot: SimulationSnapshot }
+  | { type: "simulation/clearHistory" }
+  | { type: "simulation/setDelta"; delta: SimulationDelta | null };
 
-const initialState: State = { risks: [] };
+const initialSimulation = { history: [] as SimulationSnapshot[], delta: null as SimulationDelta | null };
+const initialState: State = { risks: [], simulation: initialSimulation };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -87,6 +101,30 @@ function reducer(state: State, action: Action): State {
     case "risks/clear":
       return { ...state, risks: [] };
 
+    case "simulation/run": {
+      const nextHistory = [action.snapshot, ...state.simulation.history].slice(0, SIMULATION_HISTORY_CAP);
+      return {
+        ...state,
+        simulation: {
+          ...state.simulation,
+          current: action.snapshot,
+          history: nextHistory,
+        },
+      };
+    }
+
+    case "simulation/clearHistory":
+      return {
+        ...state,
+        simulation: { history: [], delta: null },
+      };
+
+    case "simulation/setDelta":
+      return {
+        ...state,
+        simulation: { ...state.simulation, delta: action.delta },
+      };
+
     default:
       return state;
   }
@@ -101,6 +139,10 @@ type Ctx = {
   updateRatingPc: (id: string, target: "inherent" | "residual", payload: { probability?: number; consequence?: number }) => void;
   deleteRisk: (id: string) => void;
   clearRisks: () => void;
+  simulation: State["simulation"];
+  runSimulation: (iterations?: number) => void;
+  clearSimulationHistory: () => void;
+  setSimulationDelta: (delta: SimulationDelta | null) => void;
 };
 
 const RiskRegisterContext = createContext<Ctx | null>(null);
@@ -133,8 +175,19 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         dispatch({ type: "RISK_UPDATE_RATING_PC", payload: { id, target, ...payload } }),
       deleteRisk: (id) => dispatch({ type: "risk/delete", id }),
       clearRisks: () => dispatch({ type: "risks/clear" }),
+      simulation: state.simulation,
+      runSimulation: (iterations) => {
+        const snapshot = simulatePortfolio(state.risks, iterations);
+        dispatch({ type: "simulation/run", snapshot });
+        const previous = state.simulation.current;
+        if (previous) {
+          dispatch({ type: "simulation/setDelta", delta: calculateDelta(previous, snapshot) });
+        }
+      },
+      clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
+      setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
     }),
-    [state.risks]
+    [state.risks, state.simulation]
   );
 
   return <RiskRegisterContext.Provider value={value}>{children}</RiskRegisterContext.Provider>;
