@@ -7,10 +7,18 @@ import { buildRating } from "@/domain/risk/risk.logic";
 import { calculateDelta } from "@/lib/calculateDelta";
 import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
-import { saveJson, loadJson } from "@/lib/storage";
+import { loadState, saveState } from "@/store/persist";
 import { nowIso } from "@/lib/time";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
+const PERSIST_SCHEMA_VERSION = 1;
+
+/** Minimal persisted shape: risks + simulation (current + history only; no delta). */
+type PersistedState = {
+  schemaVersion: number;
+  risks: Risk[];
+  simulation: { current?: SimulationSnapshot; history: SimulationSnapshot[] };
+};
 
 /** Migrate persisted risks from legacy inherent/residual to inherentRating/residualRating. */
 function migrateRisks(risks: unknown[]): Risk[] {
@@ -45,7 +53,8 @@ type Action =
   | { type: "risks/clear" }
   | { type: "simulation/run"; snapshot: SimulationSnapshot }
   | { type: "simulation/clearHistory" }
-  | { type: "simulation/setDelta"; delta: SimulationDelta | null };
+  | { type: "simulation/setDelta"; delta: SimulationDelta | null }
+  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[] } };
 
 const initialSimulation = { history: [] as SimulationSnapshot[], delta: null as SimulationDelta | null };
 const initialState: State = { risks: [], simulation: initialSimulation };
@@ -137,6 +146,19 @@ function reducer(state: State, action: Action): State {
         simulation: { ...state.simulation, delta: action.delta },
       };
 
+    case "simulation/hydrate": {
+      const { current, history } = action.payload;
+      const capped = Array.isArray(history) ? history.slice(0, SIMULATION_HISTORY_CAP) : [];
+      return {
+        ...state,
+        simulation: {
+          ...state.simulation,
+          current: current ?? undefined,
+          history: capped,
+        },
+      };
+    }
+
     default:
       return state;
   }
@@ -162,19 +184,36 @@ const RiskRegisterContext = createContext<Ctx | null>(null);
 export function RiskRegisterProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, initialState);
 
-  // Hydrate once (migrate legacy inherent/residual → inherentRating/residualRating)
+  // Hydrate once: restore risks and simulation from localStorage (backward compat: old format had only risks or full state)
   useEffect(() => {
-    const saved = loadJson<{ risks: unknown[] }>(STORAGE_KEY);
-    if (saved?.risks?.length) {
-      const migrated = migrateRisks(saved.risks);
+    const saved = loadState<PersistedState | { risks?: unknown[]; simulation?: { current?: SimulationSnapshot; history?: SimulationSnapshot[] } }>(STORAGE_KEY);
+    if (!saved || typeof saved !== "object") return;
+    const risks = "risks" in saved && Array.isArray(saved.risks) ? saved.risks : [];
+    if (risks.length > 0) {
+      const migrated = migrateRisks(risks);
       if (migrated.length) dispatch({ type: "risks/set", risks: migrated });
+    }
+    const sim = "simulation" in saved && saved.simulation && Array.isArray(saved.simulation.history) ? saved.simulation : null;
+    if (sim) {
+      dispatch({
+        type: "simulation/hydrate",
+        payload: { current: sim.current, history: sim.history ?? [] },
+      });
     }
   }, []);
 
-  // Persist on change
+  // Persist on change (minimal: risks + simulation current/history only)
   useEffect(() => {
-    saveJson(STORAGE_KEY, state);
-  }, [state]);
+    const payload: PersistedState = {
+      schemaVersion: PERSIST_SCHEMA_VERSION,
+      risks: state.risks,
+      simulation: {
+        current: state.simulation.current,
+        history: state.simulation.history,
+      },
+    };
+    saveState(STORAGE_KEY, payload);
+  }, [state.risks, state.simulation.current, state.simulation.history]);
 
   const value = useMemo<Ctx>(
     () => ({

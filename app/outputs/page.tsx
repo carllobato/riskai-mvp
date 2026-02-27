@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import type { SimulationRiskDelta } from "@/domain/simulation/simulation.types";
+import { DecisionPanel } from "@/components/decision/DecisionPanel";
 
 function formatCost(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -320,6 +321,10 @@ export default function OutputsPage() {
               </div>
             )}
           </section>
+
+          <div className="mt-8">
+            <DecisionPanel />
+          </div>
         </>
       )}
     </main>

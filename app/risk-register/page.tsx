@@ -1,8 +1,9 @@
 "use client";
 
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { selectDecisionByRiskId, selectDecisionScoreDelta } from "@/store/selectors";
 import { RiskRegisterHeader } from "@/components/risk-register/RiskRegisterHeader";
 import { RiskExtractPanel } from "@/components/risk-register/RiskExtractPanel";
 import { RiskRegisterTable } from "@/components/risk-register/RiskRegisterTable";
@@ -11,11 +12,23 @@ const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
 
 function RiskRegisterContent() {
-  const { risks } = useRiskRegister();
+  const { risks, simulation } = useRiskRegister();
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
   const highlightTimeoutRef = useRef<number | null>(null);
+
+  const state = useMemo(() => ({ simulation }), [simulation]);
+  const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
+  const scoreDeltaByRiskId = useMemo(() => selectDecisionScoreDelta(state), [state]);
+  const filteredRisks = useMemo(
+    () =>
+      showFlaggedOnly
+        ? risks.filter((r) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0)
+        : risks,
+    [risks, showFlaggedOnly, decisionById]
+  );
 
   useEffect(() => {
     if (!focusRiskId) return;
@@ -44,7 +57,17 @@ function RiskRegisterContent() {
     <main style={{ padding: 24 }}>
       <RiskRegisterHeader />
       <RiskExtractPanel />
-      <RiskRegisterTable risks={risks} />
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 16, marginBottom: 0 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={showFlaggedOnly}
+            onChange={(e) => setShowFlaggedOnly(e.target.checked)}
+          />
+          Show flagged only
+        </label>
+      </div>
+      <RiskRegisterTable risks={filteredRisks} decisionById={decisionById} scoreDeltaByRiskId={scoreDeltaByRiskId} />
     </main>
   );
 }

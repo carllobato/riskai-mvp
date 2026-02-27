@@ -1,9 +1,13 @@
 "use client";
 
 import type { Risk, RiskCategory, RiskLevel, RiskStatus } from "@/domain/risk/risk.schema";
+import type { DecisionMetrics } from "@/domain/decision/decision.types";
+import { getScoreBand } from "@/lib/decisionScoreBand";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
 import { RiskLevelBadge } from "@/components/risk-register/RiskLevelBadge";
+
+const SCORE_DELTA_THRESHOLD = 3;
 
 const categories: RiskCategory[] = [
   "commercial",
@@ -73,7 +77,80 @@ function RatingCell({
   );
 }
 
-export function RiskRegisterRow({ risk }: { risk: Risk }) {
+const decisionBadgeStyle = (score: number): React.CSSProperties => {
+  const band = getScoreBand(score);
+  if (band === "critical") return { backgroundColor: "rgba(239, 68, 68, 0.15)", color: "#b91c1c" };
+  if (band === "watch") return { backgroundColor: "rgba(234, 179, 8, 0.2)", color: "#a16207" };
+  return { backgroundColor: "rgba(0,0,0,0.06)", color: "#525252" };
+};
+
+const alertPillStyle: React.CSSProperties = {
+  display: "inline-flex",
+  padding: "2px 6px",
+  borderRadius: 9999,
+  fontSize: 10,
+  fontWeight: 600,
+  textTransform: "uppercase" as const,
+  letterSpacing: "0.02em",
+};
+
+function DecisionCell({
+  decision,
+  scoreDelta,
+}: {
+  decision: DecisionMetrics | null | undefined;
+  scoreDelta?: number;
+}) {
+  if (!decision) return <span style={{ fontSize: 12, color: "#737373" }}>—</span>;
+  const tags = decision.alertTags ?? [];
+  const showTags = tags.slice(0, 2);
+  const extra = tags.length > 2 ? tags.length - 2 : 0;
+  const showUp = typeof scoreDelta === "number" && scoreDelta > SCORE_DELTA_THRESHOLD;
+  const showDown = typeof scoreDelta === "number" && scoreDelta < -SCORE_DELTA_THRESHOLD;
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+      <span
+        style={{
+          ...alertPillStyle,
+          ...decisionBadgeStyle(decision.compositeScore),
+          minWidth: 24,
+          justifyContent: "center",
+        }}
+      >
+        {Math.round(decision.compositeScore)}
+        {showUp && <span style={{ marginLeft: 2, fontSize: 10, opacity: 0.9 }}>↑</span>}
+        {showDown && <span style={{ marginLeft: 2, fontSize: 10, opacity: 0.9 }}>↓</span>}
+      </span>
+      {showTags.map((t) => (
+        <span
+          key={t}
+          style={{
+            ...alertPillStyle,
+            backgroundColor: "rgba(59, 130, 246, 0.15)",
+            color: "#1d4ed8",
+          }}
+        >
+          {t}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span style={{ ...alertPillStyle, backgroundColor: "rgba(0,0,0,0.08)", color: "#737373" }}>
+          +{extra}
+        </span>
+      )}
+    </div>
+  );
+}
+
+export function RiskRegisterRow({
+  risk,
+  decision,
+  scoreDelta,
+}: {
+  risk: Risk;
+  decision?: DecisionMetrics | null;
+  scoreDelta?: number;
+}) {
   const { updateRisk, updateRatingPc } = useRiskRegister();
 
   return (
@@ -81,7 +158,7 @@ export function RiskRegisterRow({ risk }: { risk: Risk }) {
       id={`risk-${risk.id}`}
       style={{
         display: "grid",
-        gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr",
+        gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr",
         padding: "10px 12px",
         borderBottom: "1px solid #eee",
         alignItems: "center",
@@ -156,6 +233,9 @@ export function RiskRegisterRow({ risk }: { risk: Risk }) {
           </option>
         ))}
       </select>
+
+      {/* Decision: score + alert pills */}
+      <DecisionCell decision={decision} scoreDelta={scoreDelta} />
     </div>
   );
 }
