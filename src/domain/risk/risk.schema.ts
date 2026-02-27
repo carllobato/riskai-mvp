@@ -57,6 +57,9 @@ export const RiskSchema = z.object({
   mitigation: z.string().optional(),
   contingency: z.string().optional(),
 
+  /** Timestamp (ms) of last edit to mitigation or contingency. */
+  lastMitigationUpdate: z.number().optional(),
+
   inherentRating: RiskRatingSchema,
   residualRating: RiskRatingSchema,
 
@@ -66,6 +69,11 @@ export const RiskSchema = z.object({
 
   createdAt: z.string().min(1), // ISO datetime
   updatedAt: z.string().min(1), // ISO datetime
+
+  /** Snapshot history for composite score over time (optional for backward compatibility). */
+  scoreHistory: z
+    .array(z.object({ timestamp: z.number(), compositeScore: z.number() }))
+    .optional(),
 });
 export type Risk = z.infer<typeof RiskSchema>;
 

@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { calculateMomentum, detectTrajectoryState, isMitigationIneffective, portfolioMomentumSummary } from "@/domain/risk/risk.logic";
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import type { SimulationRiskDelta } from "@/domain/simulation/simulation.types";
 import { DecisionPanel } from "@/components/decision/DecisionPanel";
@@ -50,6 +51,18 @@ function formatStabilityPctOrDash(value: number | undefined): string {
   return `${Math.round(value)}%`;
 }
 
+/** Format scoreHistory timestamp as local datetime (no external libs). */
+function formatTimestamp(ts: number): string {
+  return new Date(ts).toLocaleString();
+}
+
+/** Format number with explicit sign (+ or -), one decimal. */
+function formatSigned(value: number): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "+0.0";
+  return n >= 0 ? `+${n.toFixed(1)}` : n.toFixed(1);
+}
+
 function DeltaBadge({ delta }: { delta: SimulationRiskDelta }) {
   const { direction, deltaCost } = delta;
   if (direction === "up") {
@@ -84,8 +97,9 @@ export default function OutputsPage() {
   const [costView, setCostView] = useState<"simMean" | "expected">("simMean");
   const [intelligenceOpen, setIntelligenceOpen] = useState(false);
   const [intelligenceSort, setIntelligenceSort] = useState<"simMean" | "instability">("simMean");
-  const { simulation, runSimulation, clearSimulationHistory } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory } = useRiskRegister();
   const { current, history, delta } = simulation;
+  const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
   const intelligenceRisks = useMemo(
     () => selectLatestSnapshotRiskIntelligence(current, history ?? []),
     [current, history]
@@ -250,6 +264,14 @@ export default function OutputsPage() {
                     <div className="mt-0.5 text-sm font-semibold">{formatCostOrDash(current.simStdDev)}</div>
                   </div>
                 </div>
+                <div className="mb-4 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/50 px-3 py-2">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Portfolio momentum</div>
+                  <div className="text-sm text-neutral-700 dark:text-neutral-300 space-y-0.5">
+                    <div>Portfolio pressure: {momentumSummary.portfolioPressure}</div>
+                    <div>Escalating: {momentumSummary.escalatingCount} ({Math.round(momentumSummary.escalatingPct * 100)}%)</div>
+                    <div>Positive momentum: {momentumSummary.positiveMomentumCount} ({Math.round(momentumSummary.positiveMomentumPct * 100)}%)</div>
+                  </div>
+                </div>
                 <div className="flex flex-wrap items-center gap-2 mb-2">
                   <span className="text-sm text-neutral-600 dark:text-neutral-400">Sort:</span>
                   <div
@@ -292,6 +314,9 @@ export default function OutputsPage() {
                         <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">velocity</th>
                         <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">volatility</th>
                         <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">stability</th>
+                        <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Score history</th>
+                        <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Momentum</th>
+                        <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Mitigation</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -302,19 +327,52 @@ export default function OutputsPage() {
                             : a.stability - b.stability
                         )
                         .slice(0, 10)
-                        .map((risk) => (
-                          <tr key={risk.id} className="border-b border-neutral-100 dark:border-neutral-800">
-                            <td className="py-2 px-3">{risk.title}</td>
-                            <td className="py-2 px-3 text-right">{formatCost(risk.simMeanCost)}</td>
-                            <td className="py-2 px-3 text-right">{formatCost(risk.simStdDev)}</td>
-                            <td className="py-2 px-3 text-right">{(risk.triggerRate * 100).toFixed(1)}%</td>
-                            <td className="py-2 px-3 text-right">{formatVelocityOrDash(risk.velocity)}</td>
-                            <td className="py-2 px-3 text-right">{formatVolatilityOrDash(risk.volatility)}</td>
-                            <td className={`py-2 px-3 text-right ${stabilityCellClass(risk.stability)}`}>
-                              {formatStabilityPctOrDash(risk.stability)}
-                            </td>
-                          </tr>
-                        ))}
+                        .map((risk) => {
+                          const fullRisk = risks.find((r) => r.id === risk.id);
+                          const scoreHistory = fullRisk?.scoreHistory ?? [];
+                          const count = scoreHistory.length;
+                          const lastSnapshot = count > 0 ? scoreHistory[scoreHistory.length - 1] : null;
+                          const momentum = fullRisk ? calculateMomentum(fullRisk) : { shortDelta: 0, mediumDelta: 0, momentumScore: 0 };
+                          const trajectory = fullRisk ? detectTrajectoryState(fullRisk) : "NEUTRAL";
+                          const lastMitigationUpdate = fullRisk?.lastMitigationUpdate;
+                          const postMitigationSnaps =
+                            lastMitigationUpdate != null
+                              ? scoreHistory.filter((s) => s.timestamp > lastMitigationUpdate).length
+                              : 0;
+                          const ineffectiveMitigation = fullRisk ? isMitigationIneffective(fullRisk) : false;
+                          return (
+                            <tr key={risk.id} className="border-b border-neutral-100 dark:border-neutral-800">
+                              <td className="py-2 px-3">{risk.title}</td>
+                              <td className="py-2 px-3 text-right">{formatCost(risk.simMeanCost)}</td>
+                              <td className="py-2 px-3 text-right">{formatCost(risk.simStdDev)}</td>
+                              <td className="py-2 px-3 text-right">{(risk.triggerRate * 100).toFixed(1)}%</td>
+                              <td className="py-2 px-3 text-right">{formatVelocityOrDash(risk.velocity)}</td>
+                              <td className="py-2 px-3 text-right">{formatVolatilityOrDash(risk.volatility)}</td>
+                              <td className={`py-2 px-3 text-right ${stabilityCellClass(risk.stability)}`}>
+                                {formatStabilityPctOrDash(risk.stability)}
+                              </td>
+                              <td className="py-2 px-3 text-left text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                                <div>History: {count}</div>
+                                <div>Last snapshot: {lastSnapshot ? formatTimestamp(lastSnapshot.timestamp) : "—"}</div>
+                                {lastSnapshot != null && (
+                                  <div>Last score: {Math.round(lastSnapshot.compositeScore)}</div>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-left text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                                <div>Δ short: {formatSigned(momentum.shortDelta)}</div>
+                                <div>Δ medium: {formatSigned(momentum.mediumDelta)}</div>
+                                <div>Momentum: {formatSigned(momentum.momentumScore)}</div>
+                                <div>State: {trajectory}</div>
+                              </td>
+                              <td className="py-2 px-3 text-left text-xs text-neutral-600 dark:text-neutral-400 whitespace-nowrap">
+                                <div>Mitigation updated: {lastMitigationUpdate != null ? new Date(lastMitigationUpdate).toLocaleString() : "—"}</div>
+                                <div>lastMitigationUpdate (raw): {lastMitigationUpdate ?? "—"}</div>
+                                <div>Post-mitigation snaps: {postMitigationSnaps}</div>
+                                <div>Ineffective mitigation: {ineffectiveMitigation ? "YES" : "NO"}</div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>

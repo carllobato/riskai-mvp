@@ -3,7 +3,8 @@
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
 import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
 import type { SimulationSnapshot, SimulationDelta } from "@/domain/simulation/simulation.types";
-import { buildRating } from "@/domain/risk/risk.logic";
+import { buildRating, appendScoreSnapshot } from "@/domain/risk/risk.logic";
+import { computeCompositeScore } from "@/domain/decision/decision.score";
 import { calculateDelta } from "@/lib/calculateDelta";
 import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
@@ -20,7 +21,22 @@ type PersistedState = {
   simulation: { current?: SimulationSnapshot; history: SimulationSnapshot[] };
 };
 
-/** Migrate persisted risks from legacy inherent/residual to inherentRating/residualRating. */
+/** Keys that count as mitigation-related; when one of these is updated and value changed, set lastMitigationUpdate. */
+const MITIGATION_FIELDS = new Set<keyof Risk>([
+  "mitigation",
+  "contingency",
+  // extend with more keys if schema gains mitigationPlan, responseStrategy, etc.
+]);
+
+/** Ensure risk has scoreHistory (empty array if missing). */
+function ensureScoreHistory(risk: Risk): Risk {
+  return {
+    ...risk,
+    scoreHistory: Array.isArray(risk.scoreHistory) ? risk.scoreHistory : [],
+  };
+}
+
+/** Migrate persisted risks from legacy inherent/residual to inherentRating/residualRating. Optional fields (lastMitigationUpdate, scoreHistory, etc.) preserved from raw; undefined is safe. */
 function migrateRisks(risks: unknown[]): Risk[] {
   return risks.map((r) => {
     if (!r || typeof r !== "object") return null;
@@ -28,7 +44,8 @@ function migrateRisks(risks: unknown[]): Risk[] {
     const inherentRating = (raw.inherentRating as RiskRating | undefined) ?? (raw.inherent as RiskRating | undefined);
     const residualRating = (raw.residualRating as RiskRating | undefined) ?? (raw.residual as RiskRating | undefined) ?? inherentRating;
     if (!inherentRating || !residualRating) return null;
-    return { ...raw, inherentRating, residualRating } as Risk;
+    const risk = { ...raw, inherentRating, residualRating } as Risk;
+    return ensureScoreHistory(risk);
   }).filter((r): r is Risk => r != null);
 }
 
@@ -62,22 +79,30 @@ const initialState: State = { risks: [], simulation: initialSimulation };
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "risks/set":
-      return { ...state, risks: action.risks };
+      return { ...state, risks: action.risks.map(ensureScoreHistory) };
 
     case "risks/append": {
       const existingIds = new Set(state.risks.map((r) => r.id));
-      const newRisks = action.risks.filter((r) => !existingIds.has(r.id));
+      const newRisks = action.risks
+        .filter((r) => !existingIds.has(r.id))
+        .map(ensureScoreHistory);
       return { ...state, risks: [...state.risks, ...newRisks] };
     }
 
     case "risk/update": {
+      const patchKeys = Object.keys(action.patch) as (keyof Risk)[];
       const risks = state.risks.map((r) => {
         if (r.id !== action.id) return r;
-        const updated: Risk = {
+        const hasMitigationValueChange = patchKeys.some((k) => {
+          if (!MITIGATION_FIELDS.has(k)) return false;
+          return (r as Record<string, unknown>)[k] !== (action.patch as Record<string, unknown>)[k];
+        });
+        const updated: Risk = ensureScoreHistory({
           ...r,
           ...action.patch,
+          ...(hasMitigationValueChange ? { lastMitigationUpdate: Date.now() } : {}),
           updatedAt: nowIso(),
-        };
+        });
         return updated;
       });
       return { ...state, risks };
@@ -103,7 +128,7 @@ function reducer(state: State, action: Action): State {
     }
 
     case "risk/add":
-      return { ...state, risks: [action.risk, ...state.risks] };
+      return { ...state, risks: [ensureScoreHistory(action.risk), ...state.risks] };
 
     case "risk/delete":
       return { ...state, risks: state.risks.filter((r) => r.id !== action.id) };
@@ -124,8 +149,27 @@ function reducer(state: State, action: Action): State {
         0,
         SIMULATION_HISTORY_CAP
       );
+
+      // Day 6: append compositeScore snapshot per risk (before persisting)
+      const scoreByRiskId = new Map<string, number>();
+      for (const r of enriched.risks ?? []) {
+        const { score } = computeCompositeScore({
+          triggerRate: r.triggerRate,
+          velocity: r.velocity,
+          volatility: r.volatility,
+          stabilityScore: r.stability,
+        });
+        scoreByRiskId.set(r.id, score);
+      }
+      const risksWithSnapshot = state.risks.map((risk) => {
+        const compositeScore = scoreByRiskId.get(risk.id);
+        if (compositeScore === undefined) return risk;
+        return appendScoreSnapshot(risk, compositeScore, 10);
+      });
+
       return {
         ...state,
+        risks: risksWithSnapshot,
         simulation: {
           ...state.simulation,
           current: enriched,

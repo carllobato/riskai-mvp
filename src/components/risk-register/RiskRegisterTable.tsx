@@ -31,7 +31,25 @@ export function RiskRegisterTable({
         <div>Owner</div>
         <div>Inherent</div>
         <div>Residual</div>
-        <div>Mitigation</div>
+        <div
+          style={{
+            paddingTop: 10,
+            marginTop: 6,
+            borderTop: "1px solid #e8e8e8",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            alignItems: "flex-start",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 14, fontWeight: 600, color: "#525252" }}>
+            <span style={{ fontSize: 14 }} aria-hidden>🛠</span>
+            <span>Mitigation Strategy</span>
+          </div>
+          <div style={{ fontSize: 11, fontWeight: 400, color: "#737373", lineHeight: 1.3 }}>
+            Updates to these fields reset mitigation effectiveness tracking.
+          </div>
+        </div>
         <div>Status</div>
         <div>Decision</div>
       </div>
