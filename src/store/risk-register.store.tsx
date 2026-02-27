@@ -5,6 +5,7 @@ import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
 import type { SimulationSnapshot, SimulationDelta } from "@/domain/simulation/simulation.types";
 import { buildRating } from "@/domain/risk/risk.logic";
 import { calculateDelta } from "@/lib/calculateDelta";
+import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
 import { saveJson, loadJson } from "@/lib/storage";
 import { nowIso } from "@/lib/time";
@@ -102,12 +103,23 @@ function reducer(state: State, action: Action): State {
       return { ...state, risks: [] };
 
     case "simulation/run": {
-      const nextHistory = [action.snapshot, ...state.simulation.history].slice(0, SIMULATION_HISTORY_CAP);
+      const nextHistoryRaw = [action.snapshot, ...state.simulation.history].slice(
+        0,
+        SIMULATION_HISTORY_CAP
+      );
+      const enriched = enrichSnapshotWithIntelligenceMetrics(
+        action.snapshot,
+        nextHistoryRaw
+      );
+      const nextHistory = [enriched, ...state.simulation.history].slice(
+        0,
+        SIMULATION_HISTORY_CAP
+      );
       return {
         ...state,
         simulation: {
           ...state.simulation,
-          current: action.snapshot,
+          current: enriched,
           history: nextHistory,
         },
       };

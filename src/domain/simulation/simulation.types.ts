@@ -6,6 +6,12 @@ export type SimulationRiskSnapshot = {
   expectedDays: number;
   simMeanCost: number;
   simMeanDays: number;
+  /** Day 5 intelligence (backend-only) */
+  simStdDev?: number;
+  triggerRate?: number;
+  velocity?: number;
+  volatility?: number;
+  stability?: number;
 };
 
 export type SimulationSnapshot = {
@@ -18,6 +24,12 @@ export type SimulationSnapshot = {
   totalExpectedCost: number;
   totalExpectedDays: number;
   risks: SimulationRiskSnapshot[];
+  /** Day 5 intelligence (backend-only) */
+  simStdDev?: number;
+  triggerRate?: number;
+  velocity?: number;
+  volatility?: number;
+  stability?: number;
 };
 
 export type SimulationRiskDelta = {

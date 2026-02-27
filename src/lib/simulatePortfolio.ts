@@ -4,6 +4,7 @@ import { makeId } from "@/lib/id";
 
 const DEFAULT_ITERATIONS = 1000;
 const DEFAULT_COST_SPREAD_PCT = 0.2;
+const DEBUG_SIM = false;
 
 /** Sample from triangular distribution (min, mode, max). Returns mode if min === max. */
 function triangular(min: number, mode: number, max: number): number {
@@ -41,6 +42,14 @@ function costFromConsequence(consequence: unknown): number {
 const mean = (arr: number[]) =>
   arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
 
+function stdDev(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const m = mean(arr);
+  const sumSqDiff = arr.reduce((s, x) => s + (x - m) ** 2, 0);
+  const variance = sumSqDiff / arr.length;
+  return Math.sqrt(variance);
+}
+
 export type SimulatePortfolioOptions = {
   costSpreadPct?: number;
 };
@@ -57,9 +66,25 @@ export function simulatePortfolio(
 
   const costSamples: number[] = [];
   const daysSamples: number[] = [];
-  const perRiskSums = new Map<string, { costSum: number; daysSum: number }>();
+  let portfolioTriggeredCount = 0;
+  type PerRiskAccum = {
+    costSum: number;
+    daysSum: number;
+    triggeredCount: number;
+    welfordN: number;
+    welfordMean: number;
+    welfordM2: number;
+  };
+  const perRiskSums = new Map<string, PerRiskAccum>();
   for (const risk of risks) {
-    perRiskSums.set(risk.id, { costSum: 0, daysSum: 0 });
+    perRiskSums.set(risk.id, {
+      costSum: 0,
+      daysSum: 0,
+      triggeredCount: 0,
+      welfordN: 0,
+      welfordMean: 0,
+      welfordM2: 0,
+    });
   }
 
   for (let i = 0; i < iterations; i++) {
@@ -91,13 +116,27 @@ export function simulatePortfolio(
       if (costTriggers) totalCost += sampledCost;
       if (daysTriggers) totalDays += sampledDays;
 
-      const sums = perRiskSums.get(risk.id)!;
-      if (costTriggers) sums.costSum += sampledCost;
-      if (daysTriggers) sums.daysSum += sampledDays;
+      const acc = perRiskSums.get(risk.id)!;
+      if (costTriggers) {
+        acc.costSum += sampledCost;
+        acc.triggeredCount += 1;
+      }
+      if (daysTriggers) acc.daysSum += sampledDays;
+      const costContrib = costTriggers ? sampledCost : 0;
+      const n = acc.welfordN + 1;
+      const delta = costContrib - acc.welfordMean;
+      acc.welfordMean += delta / n;
+      acc.welfordM2 += delta * (costContrib - acc.welfordMean);
+      acc.welfordN = n;
     }
+    if (totalCost !== 0) portfolioTriggeredCount += 1;
     costSamples.push(totalCost);
     daysSamples.push(totalDays);
   }
+
+  const portfolioSimStdDev = stdDev(costSamples);
+  const portfolioTriggerRate =
+    iterations > 0 ? portfolioTriggeredCount / iterations : undefined;
 
   costSamples.sort((a, b) => a - b);
   const p50 = costSamples[Math.floor(iterations * 0.5)] ?? 0;
@@ -118,15 +157,29 @@ export function simulatePortfolio(
     const scheduleDaysML = risk.scheduleImpactDays ?? 0;
     const expectedCost = probability * costML;
     const expectedDays = probability * scheduleDaysML;
-    const sums = perRiskSums.get(risk.id)!;
+    const acc = perRiskSums.get(risk.id)!;
+    const variance = acc.welfordN > 0 ? acc.welfordM2 / acc.welfordN : 0;
+    const simStdDev = Math.sqrt(variance);
+    const triggerRate = acc.triggeredCount / iterations;
+    if (DEBUG_SIM && risk.id === risks[0]?.id) {
+      // eslint-disable-next-line no-console
+      console.log("[DEBUG_SIM] per-risk sample", {
+        riskId: risk.id,
+        simMeanCost: acc.costSum / iterations,
+        simStdDev,
+        triggerRate,
+      });
+    }
     return {
       id: risk.id,
       title: risk.title,
       category: risk.category,
       expectedCost,
       expectedDays,
-      simMeanCost: sums.costSum / iterations,
-      simMeanDays: sums.daysSum / iterations,
+      simMeanCost: acc.costSum / iterations,
+      simMeanDays: acc.daysSum / iterations,
+      simStdDev,
+      triggerRate,
     };
   });
 
@@ -140,5 +193,7 @@ export function simulatePortfolio(
     totalExpectedCost: mean(costSamples),
     totalExpectedDays: mean(daysSamples),
     risks: riskSnapshots,
+    simStdDev: portfolioSimStdDev,
+    triggerRate: portfolioTriggerRate,
   };
 }
