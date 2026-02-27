@@ -78,6 +78,7 @@ export function RiskRegisterRow({ risk }: { risk: Risk }) {
 
   return (
     <div
+      id={`risk-${risk.id}`}
       style={{
         display: "grid",
         gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr",

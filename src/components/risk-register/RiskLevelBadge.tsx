@@ -2,7 +2,7 @@
 
 import type { RiskLevel } from "@/domain/risk/risk.schema";
 
-const LEVEL_STYLES: Record<
+export const LEVEL_STYLES: Record<
   RiskLevel,
   { bg: string; dot: string; text: string }
 > = {
