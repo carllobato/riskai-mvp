@@ -22,6 +22,7 @@ export function createRisk(partial?: Partial<Risk>): Risk {
 
   return {
     id: partial?.id ?? makeId(),
+    riskNumber: partial?.riskNumber,
     title: partial?.title ?? "Sample risk: Long lead switchgear",
     description: partial?.description,
 
@@ -38,6 +39,23 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     dueDate: partial?.dueDate,
     costImpact: partial?.costImpact,
     scheduleImpactDays: partial?.scheduleImpactDays,
+
+    appliesTo: partial?.appliesTo ?? "both",
+    preMitigationProbabilityPct: partial?.preMitigationProbabilityPct,
+    preMitigationCostMin: partial?.preMitigationCostMin,
+    preMitigationCostML: partial?.preMitigationCostML,
+    preMitigationCostMax: partial?.preMitigationCostMax,
+    preMitigationTimeMin: partial?.preMitigationTimeMin,
+    preMitigationTimeML: partial?.preMitigationTimeML,
+    preMitigationTimeMax: partial?.preMitigationTimeMax,
+    mitigationCost: partial?.mitigationCost,
+    postMitigationProbabilityPct: partial?.postMitigationProbabilityPct,
+    postMitigationCostMin: partial?.postMitigationCostMin,
+    postMitigationCostML: partial?.postMitigationCostML,
+    postMitigationCostMax: partial?.postMitigationCostMax,
+    postMitigationTimeMin: partial?.postMitigationTimeMin,
+    postMitigationTimeML: partial?.postMitigationTimeML,
+    postMitigationTimeMax: partial?.postMitigationTimeMax,
 
     baseCostImpact: partial?.baseCostImpact ?? 50_000,
     probability: partial?.probability ?? 0.4,

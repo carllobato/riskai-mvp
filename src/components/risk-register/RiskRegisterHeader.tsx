@@ -9,7 +9,15 @@ import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrde
 import { getDemoRisks } from "@/data/demoRisks";
 import type { ProjectContext } from "@/lib/projectContext";
 
-export function RiskRegisterHeader({ projectContext }: { projectContext: ProjectContext | null }) {
+export function RiskRegisterHeader({
+  projectContext,
+  showReviewRisksButton,
+  onReviewRisks,
+}: {
+  projectContext: ProjectContext | null;
+  showReviewRisksButton?: boolean;
+  onReviewRisks?: () => void;
+}) {
   const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
@@ -76,15 +84,17 @@ export function RiskRegisterHeader({ projectContext }: { projectContext: Project
           {!isMeeting && projectContext == null && (
             <span
               className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
-              title="Complete Project Information to use the Risk Register"
+              title="Complete Project Settings to use the Risk Register"
             >
               Project context: Incomplete
             </span>
           )}
         </div>
-        <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
-          {risks.length} risk{risks.length === 1 ? "" : "s"}
-        </p>
+        {!isMeeting && (
+          <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
+            {risks.length} risk{risks.length === 1 ? "" : "s"}
+          </p>
+        )}
         {!isMeeting && (
           <>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
@@ -113,6 +123,15 @@ export function RiskRegisterHeader({ projectContext }: { projectContext: Project
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {showReviewRisksButton && onReviewRisks && (
+          <button
+            type="button"
+            onClick={onReviewRisks}
+            className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          >
+            Review risks
+          </button>
+        )}
         <button
           type="button"
           onClick={() => setRisks(getDemoRisks())}

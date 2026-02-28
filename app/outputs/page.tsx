@@ -123,7 +123,7 @@ export default function OutputsPage() {
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("forecast");
   const [forwardExposureSubTab, setForwardExposureSubTab] = useState<ForwardExposureSubTab>("decomposition");
   const { profile: scenarioProfile, lensMode, uiMode } = useProjectionScenario();
-  const { risks, simulation, runSimulation, clearSimulationHistory, riskForecastsById, forwardPressure } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, riskForecastsById, forwardPressure } = useRiskRegister();
   /** Single scenario state from dropdown; drives Forward Exposure, simulation display, and P-value. */
   const selectedScenarioId: EngineScenarioId = normalizeScenarioId(scenarioProfile);
   const manualScenario = profileToScenarioName(scenarioProfile);
@@ -301,7 +301,8 @@ export default function OutputsPage() {
         <button
           type="button"
           onClick={() => runSimulation(1000)}
-          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+          disabled={hasDraftRisks}
+          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Run Simulation
         </button>
@@ -312,6 +313,11 @@ export default function OutputsPage() {
         >
           Clear History
         </button>
+        {hasDraftRisks && (
+          <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
+            Review and save all draft risks in the Risk Register before running simulation.
+          </p>
+        )}
       </div>
 
       {isMeeting && selectedScenarioId !== "neutral" && (

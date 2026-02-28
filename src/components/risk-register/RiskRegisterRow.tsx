@@ -21,7 +21,7 @@ import type { RiskWithInstability } from "@/lib/instability/selectScenarioLens";
 import type { ScenarioLensMode, ScenarioName } from "@/lib/instability/selectScenarioLens";
 import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
-import { RiskLevelBadge } from "@/components/risk-register/RiskLevelBadge";
+import { RiskLevelBadge, LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
 import { ForecastConfidenceBadge } from "@/components/risk-register/ForecastConfidenceBadge";
 import { InstabilityBadge } from "@/components/risk-register/InstabilityBadge";
 
@@ -39,7 +39,43 @@ const categories: RiskCategory[] = [
   "other",
 ];
 
-const statuses: RiskStatus[] = ["open", "monitoring", "closed"];
+const statuses: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed"];
+
+function formatStatusLabel(status: RiskStatus): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+function formatCategoryLabel(category: RiskCategory): string {
+  return category.charAt(0).toUpperCase() + category.slice(1);
+}
+
+/** Map risk level to single letter for Pre/Post Rating column. */
+function levelToLetter(level: RiskLevel): "L" | "M" | "H" | "E" {
+  const map: Record<RiskLevel, "L" | "M" | "H" | "E"> = {
+    low: "L",
+    medium: "M",
+    high: "H",
+    extreme: "E",
+  };
+  return map[level] ?? "M";
+}
+
+/** Risk movement: compare inherent vs residual score. */
+function getRiskMovement(preScore: number, postScore: number): "↑" | "↓" | "→" {
+  if (postScore > preScore) return "↑";
+  if (postScore < preScore) return "↓";
+  return "→";
+}
+
+/** Tailwind classes for Δ movement pill (worsening / improving / stable). */
+const MOVEMENT_PILL_CLASS: Record<"↑" | "↓" | "→", string> = {
+  "↑":
+    "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
+  "↓":
+    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
+  "→":
+    "bg-neutral-100 text-[var(--foreground)] dark:bg-neutral-700/50 dark:text-neutral-300",
+};
 
 const selectStyle: React.CSSProperties = {
   padding: "6px 8px",
@@ -56,6 +92,7 @@ function RatingCell({
   score,
   level,
   updateRatingPc,
+  readOnly,
 }: {
   riskId: string;
   target: "inherent" | "residual";
@@ -64,7 +101,17 @@ function RatingCell({
   score: number;
   level: RiskLevel;
   updateRatingPc: (id: string, target: "inherent" | "residual", payload: { probability?: number; consequence?: number }) => void;
+  readOnly?: boolean;
 }) {
+  if (readOnly) {
+    return (
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13 }}>P{probability} × C{consequence}</span>
+        <span style={{ fontSize: 13, opacity: 0.85 }}>{score}</span>
+        <RiskLevelBadge level={level} />
+      </div>
+    );
+  }
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
       <select
@@ -386,244 +433,180 @@ function ApplyRecommendedButton({
 
 export function RiskRegisterRow({
   risk,
-  decision,
-  scoreDelta,
+  rowIndex = 0,
+  onRiskClick,
 }: {
   risk: Risk;
+  rowIndex?: number;
   decision?: DecisionMetrics | null;
   scoreDelta?: number;
+  onRiskClick?: (risk: Risk) => void;
 }) {
-  const { updateRisk, updateRatingPc, riskForecastsById } = useRiskRegister();
-  const { profile, setProfile, lensMode, uiMode } = useProjectionScenario();
-  const momentum = calculateMomentum(risk);
-  const trajectoryState = detectTrajectoryState(risk);
-  const forecast = riskForecastsById[risk.id];
-  const manualScenario = profileToScenarioName(profile);
-  const scenarioToUse = selectScenarioForRisk(
-    { instability: forecast?.instability },
-    lensMode,
-    manualScenario
-  );
-  const baseSignals = getForwardSignals(risk.id, riskForecastsById);
-  const scenarioTTC = forecast?.scenarioTTC;
-  let timeToCritical = baseSignals.timeToCritical ?? null;
-  let projectedCritical = baseSignals.projectedCritical ?? false;
-  let fallbackToNeutral = false;
-  if (scenarioTTC) {
-    const block = getTTCForScenario(scenarioTTC, scenarioToUse);
-    const neutralBlock = getTTCForScenario(scenarioTTC, "Neutral");
-    fallbackToNeutral = block.fallbackToNeutral;
-    const ttc: number | null = !block.fallbackToNeutral
-      ? block.ttc
-      : !neutralBlock.fallbackToNeutral
-        ? neutralBlock.ttc
-        : null;
-    timeToCritical = ttc;
-    projectedCritical = ttc !== null;
-  }
-  const signals = {
-    ...baseSignals,
-    timeToCritical,
-    projectedCritical,
-    ...(fallbackToNeutral && { fallbackToNeutral: true }),
-  };
-  const currentBand = getBand(decision?.compositeScore ?? 0);
-  const rowTint =
-    uiMode === "Diagnostic" && signals.hasForecast
-      ? rowTintForBand(signals.projectedPeakBand)
-      : undefined;
-  const recommendedScenario = forecast?.instability?.recommendedScenario;
-  const showLensMismatch =
-    lensMode === "Manual" &&
-    recommendedScenario != null &&
-    manualScenario !== recommendedScenario;
+  const { updateRisk } = useRiskRegister();
+  const readOnly = Boolean(onRiskClick);
 
-  const isMeeting = uiMode === "Meeting";
+  const cellTextClass = "text-sm text-[var(--foreground)] truncate min-w-0";
+  const cellMutedClass = "text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0";
+
+  const handleRowClick = (e: React.MouseEvent) => {
+    if (!onRiskClick) return;
+    const target = e.target as Node;
+    if (target instanceof Element && (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a"))) return;
+    onRiskClick(risk);
+  };
+
+  const riskIdDisplay =
+    risk.riskNumber != null ? String(risk.riskNumber).padStart(3, "0") : "—";
+  const preLetter = levelToLetter(risk.inherentRating.level);
+  const postLetter = levelToLetter(risk.residualRating.level);
+  const movement = getRiskMovement(risk.inherentRating.score, risk.residualRating.score);
+  const movementPillClass = MOVEMENT_PILL_CLASS[movement];
+  const gridCols = onRiskClick
+    ? "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr) minmax(96px, 96px)"
+    : "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr)";
+
   return (
     <div
       id={`risk-${risk.id}`}
+      role={onRiskClick ? "row" : undefined}
+      onClick={handleRowClick}
       style={{
         display: "grid",
-        gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr 0.9fr",
-        padding: isMeeting ? "8px 12px" : "10px 12px",
+        gridTemplateColumns: gridCols,
+        padding: "10px 12px",
         borderBottom: "1px solid #eee",
         alignItems: "center",
-        gap: isMeeting ? 8 : 10,
-        backgroundColor: rowTint,
+        gap: 10,
+        minWidth: 0,
+        cursor: onRiskClick ? "pointer" : undefined,
       }}
     >
+      {/* Risk ID (persistent 001, 002, …) */}
+      <span className={cellTextClass} title={risk.id}>
+        {riskIdDisplay}
+      </span>
+
       {/* Title */}
-      <RiskEditCell
-        value={risk.title}
-        placeholder="Risk title"
-        onChange={(title) => updateRisk(risk.id, { title })}
-      />
+      {readOnly ? (
+        <span className={cellTextClass} title={risk.title}>
+          {risk.title || "—"}
+        </span>
+      ) : (
+        <RiskEditCell
+          value={risk.title}
+          placeholder="Risk title"
+          onChange={(title) => updateRisk(risk.id, { title })}
+        />
+      )}
 
       {/* Category */}
-      <select
-        value={risk.category}
-        onChange={(e) => updateRisk(risk.id, { category: e.target.value as RiskCategory })}
-        style={selectStyle}
-      >
-        {categories.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
+      {readOnly ? (
+        <span className={cellTextClass}>{formatCategoryLabel(risk.category)}</span>
+      ) : (
+        <select
+          value={risk.category}
+          onChange={(e) => updateRisk(risk.id, { category: e.target.value as RiskCategory })}
+          style={selectStyle}
+        >
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {formatCategoryLabel(c)}
+            </option>
+          ))}
+        </select>
+      )}
 
       {/* Owner */}
-      <RiskEditCell
-        value={risk.owner ?? ""}
-        placeholder="Owner"
-        onChange={(owner) => updateRisk(risk.id, { owner: owner || undefined })}
-      />
+      {readOnly ? (
+        <span className={cellMutedClass}>{risk.owner ?? "—"}</span>
+      ) : (
+        <RiskEditCell
+          value={risk.owner ?? ""}
+          placeholder="Owner"
+          onChange={(owner) => updateRisk(risk.id, { owner: owner || undefined })}
+        />
+      )}
 
-      {/* Inherent: P/C dropdowns + read-only score · level */}
-      <RatingCell
-        riskId={risk.id}
-        target="inherent"
-        probability={risk.inherentRating.probability}
-        consequence={risk.inherentRating.consequence}
-        score={risk.inherentRating.score}
-        level={risk.inherentRating.level}
-        updateRatingPc={updateRatingPc}
-      />
-
-      {/* Residual: P/C dropdowns + read-only score · level */}
-      <RatingCell
-        riskId={risk.id}
-        target="residual"
-        probability={risk.residualRating.probability}
-        consequence={risk.residualRating.consequence}
-        score={risk.residualRating.score}
-        level={risk.residualRating.level}
-        updateRatingPc={updateRatingPc}
-      />
-
-      {/* Mitigation */}
-      <RiskEditCell
-        value={risk.mitigation ?? ""}
-        placeholder="Mitigation"
-        onChange={(mitigation) => updateRisk(risk.id, { mitigation: mitigation || undefined })}
-      />
-
-      {/* Status */}
-      <select
-        value={risk.status}
-        onChange={(e) => updateRisk(risk.id, { status: e.target.value as RiskStatus })}
-        style={selectStyle}
-      >
-        {statuses.map((s) => (
-          <option key={s} value={s}>
-            {s}
-          </option>
-        ))}
-      </select>
-
-      {/* Decision: score + momentum arrow + trajectory badge + alert pills + projection signals */}
-      <DecisionCell
-        decision={decision}
-        scoreDelta={scoreDelta}
-        momentumScore={momentum.momentumScore}
-        trajectoryState={trajectoryState}
-        signals={signals}
-        currentBand={currentBand}
-        scenarioToUse={scenarioToUse}
-        uiMode={uiMode}
-        lensDebug={
-          uiMode === "Diagnostic"
-            ? { risk: { instability: forecast?.instability }, lensMode, manualScenario }
-            : undefined
-        }
-      />
-
-      {/* Instability: Meeting = one badge only; Diagnostic = full breakdown */}
-      <div
+      {/* Pre Rating (L / M / H / E) */}
+      <span
+        title={`Inherent: ${risk.inherentRating.level} (score ${risk.inherentRating.score})`}
         style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: isMeeting ? 0 : 4,
-          alignItems: "flex-start",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 28,
+          padding: "2px 6px",
+          borderRadius: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          backgroundColor: LEVEL_STYLES[risk.inherentRating.level].bg,
+          color: LEVEL_STYLES[risk.inherentRating.level].text,
         }}
       >
-        {isMeeting ? (
-          <InstabilityBadge
-            instability={forecast?.instability}
-            lensUsed={scenarioToUse}
-            manualScenario={manualScenario}
-            lensMode={lensMode}
-            uiMode={uiMode}
-          />
+        {preLetter}
+      </span>
+
+      {/* Post Rating (L / M / H / E) */}
+      <span
+        title={`Residual: ${risk.residualRating.level} (score ${risk.residualRating.score})`}
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          minWidth: 28,
+          padding: "2px 6px",
+          borderRadius: 6,
+          fontSize: 13,
+          fontWeight: 600,
+          backgroundColor: LEVEL_STYLES[risk.residualRating.level].bg,
+          color: LEVEL_STYLES[risk.residualRating.level].text,
+        }}
+      >
+        {postLetter}
+      </span>
+
+      {/* Mitigation Movement (coloured pill like Pre/Post) */}
+      <span
+        title={movement === "↑" ? "Worsening" : movement === "↓" ? "Improving" : "Stable"}
+        className={`inline-flex items-center justify-center min-w-[28px] py-0.5 px-1.5 rounded-md text-[13px] font-semibold ${movementPillClass} ${movement === "→" ? "opacity-80" : ""}`}
+      >
+        {movement}
+      </span>
+
+      {/* Status */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {readOnly ? (
+          <span className={cellTextClass}>{formatStatusLabel(risk.status)}</span>
         ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-              <InstabilityBadge
-                instability={forecast?.instability}
-                lensUsed={scenarioToUse}
-                manualScenario={manualScenario}
-                lensMode={lensMode}
-                uiMode={uiMode}
-              />
-              {forecast?.earlyWarning && (
-                <span
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 500,
-                    color: "#a16207",
-                    opacity: 0.9,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 2,
-                  }}
-                  title={forecast?.earlyWarningReason?.join(" ") ?? "Early warning"}
-                >
-                  <span aria-hidden style={{ opacity: 0.85 }}>⚠</span>
-                  Early Warning
-                </span>
-              )}
-            </div>
-            {recommendedScenario != null && (
-              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "var(--foreground)",
-                    opacity: 0.8,
-                  }}
-                  title={showLensMismatch ? "Recommended lens differs due to instability signals." : undefined}
-                >
-                  Recommended: {recommendedScenario}
-                  {showLensMismatch && (
-                    <span style={{ marginLeft: 4, color: "#737373" }} title="Recommended lens differs due to instability signals.">
-                      · Viewing: {manualScenario} (differs)
-                    </span>
-                  )}
-                </span>
-                {lensMode === "Manual" && (
-                  <ApplyRecommendedButton
-                    recommendedScenario={recommendedScenario}
-                    manualScenario={manualScenario}
-                    onApply={() => setProfile(scenarioNameToProfile(recommendedScenario))}
-                  />
-                )}
-              </div>
-            )}
-            {forecast?.fragility != null && (
-              <span
-                style={{
-                  fontSize: 10,
-                  color: "var(--foreground)",
-                  opacity: 0.65,
-                }}
-                title="Structural fragility: differentiates temporary instability from persistent structural fragility."
-              >
-                Fragility: {forecast.fragility.level}
-              </span>
-            )}
-          </>
+          <select
+            value={risk.status}
+            onChange={(e) => updateRisk(risk.id, { status: e.target.value as RiskStatus })}
+            style={selectStyle}
+          >
+            {statuses.map((s) => (
+              <option key={s} value={s}>
+                {formatStatusLabel(s)}
+              </option>
+            ))}
+          </select>
         )}
       </div>
+
+      {onRiskClick && (
+        <div className="flex items-center justify-end min-w-0 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRiskClick(risk);
+            }}
+            className="px-2 py-1.5 text-xs font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 shrink-0 whitespace-nowrap"
+            title="View and edit details"
+          >
+            View / Edit
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Project Information page: define baseline project context used to interpret risk outputs.
+ * Project Settings page: define baseline project context used to interpret risk outputs.
  * Data is persisted in localStorage under key "riskai_project_context_v1" (see src/lib/projectContext.ts).
  * Optional server sync: POST /api/project-context (same style as simulation-context).
  */
@@ -22,6 +22,13 @@ import {
   computeValueM,
 } from "@/lib/projectContext";
 import { ProjectExcelUploadSection } from "@/components/project/ProjectExcelUploadSection";
+
+const CogIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
 
 const RISK_APPETITE_OPTIONS: { value: RiskAppetite; label: string }[] = [
   { value: "P10", label: "P10" },
@@ -171,7 +178,10 @@ export default function ProjectInformationPage() {
 
   return (
     <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">Project Information</h1>
+      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1 flex items-center gap-2">
+        <CogIcon />
+        Project Settings
+      </h1>
       <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6">
         Define the baseline project context used to interpret risk outputs.
       </p>

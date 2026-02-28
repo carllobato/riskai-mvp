@@ -23,6 +23,36 @@ export function buildRating(
   };
 }
 
+/** Map probability % (0–100) to 1–5 scale. */
+export function probabilityPctToScale(pct: number): number {
+  if (pct <= 0) return 1;
+  if (pct <= 20) return 1;
+  if (pct <= 40) return 2;
+  if (pct <= 60) return 3;
+  if (pct <= 80) return 4;
+  return 5;
+}
+
+/** Map cost $ to consequence 1–5 scale (rough bands). */
+export function costToConsequenceScale(cost: number): number {
+  if (cost <= 0) return 1;
+  if (cost <= 50_000) return 1;
+  if (cost <= 200_000) return 2;
+  if (cost <= 500_000) return 3;
+  if (cost <= 1_500_000) return 4;
+  return 5;
+}
+
+/** Map time (days) to consequence 1–5 scale. */
+export function timeDaysToConsequenceScale(days: number): number {
+  if (days <= 0) return 1;
+  if (days <= 7) return 1;
+  if (days <= 30) return 2;
+  if (days <= 90) return 3;
+  if (days <= 180) return 4;
+  return 5;
+}
+
 /**
  * Appends a composite-score snapshot to the risk's scoreHistory.
  * Keeps only the last maxSnapshots entries. Returns a new Risk; does not mutate.

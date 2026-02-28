@@ -11,8 +11,15 @@ import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 
 const isDev = process.env.NODE_ENV === "development";
 
-const navItems: { href: string; label: string }[] = [
-  { href: "/project", label: "Project Information" },
+const CogIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+  </svg>
+);
+
+const navItems: { href: string; label: string; icon?: "cog" }[] = [
+  { href: "/project", label: "Project Settings", icon: "cog" },
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix" },
   { href: "/outputs", label: "Outputs" },
@@ -73,20 +80,21 @@ export function NavBar() {
 
       {/* Center/left: main nav links */}
       <div className="flex items-center gap-1">
-        {navItems.map(({ href, label }) => {
+        {navItems.map(({ href, label, icon }) => {
           const isActive = pathname === href;
           return (
             <Link
               key={href}
               href={href}
               className={`
-                px-3 py-2 rounded-md text-sm font-medium no-underline transition-colors
+                inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium no-underline transition-colors
                 ${isActive
                   ? "bg-neutral-200 dark:bg-neutral-700 text-[var(--foreground)] underline underline-offset-4"
                   : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800"
                 }
               `}
             >
+              {icon === "cog" && <CogIcon />}
               {label}
             </Link>
           );

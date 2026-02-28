@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Enums (tight + explicit = consistency everywhere)
  */
-export const RiskStatusSchema = z.enum(["open", "monitoring", "closed"]);
+export const RiskStatusSchema = z.enum(["draft", "open", "monitoring", "mitigating", "closed"]);
 export type RiskStatus = z.infer<typeof RiskStatusSchema>;
 
 export const RiskCategorySchema = z.enum([
@@ -21,6 +21,10 @@ export type RiskCategory = z.infer<typeof RiskCategorySchema>;
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high", "extreme"]);
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
+
+/** Whether risk impact applies to time, cost, or both. */
+export const AppliesToSchema = z.enum(["time", "cost", "both"]);
+export type AppliesTo = z.infer<typeof AppliesToSchema>;
 
 /**
  * Forward exposure: time profile — either named profile or weights by month.
@@ -70,6 +74,8 @@ export type RiskRating = z.infer<typeof RiskRatingSchema>;
  */
 export const RiskSchema = z.object({
   id: z.string().min(1),
+  /** Stable display ID (e.g. 001, 002); assigned on creation and never changed. */
+  riskNumber: z.number().int().min(1).optional(),
 
   title: z.string().min(1),
   description: z.string().optional(),
@@ -94,6 +100,31 @@ export const RiskSchema = z.object({
   dueDate: z.string().optional(), // YYYY-MM-DD (simple Day-1)
   costImpact: z.number().optional(),
   scheduleImpactDays: z.number().int().optional(),
+
+  /** User-facing: impact applies to Time, Cost, or Both. */
+  appliesTo: AppliesToSchema.optional(),
+  /** Pre-mitigation probability 0–100 %. */
+  preMitigationProbabilityPct: z.number().min(0).max(100).optional(),
+  /** Pre-mitigation cost range ($). */
+  preMitigationCostMin: z.number().min(0).optional(),
+  preMitigationCostML: z.number().min(0).optional(),
+  preMitigationCostMax: z.number().min(0).optional(),
+  /** Pre-mitigation time range (days). */
+  preMitigationTimeMin: z.number().int().min(0).optional(),
+  preMitigationTimeML: z.number().int().min(0).optional(),
+  preMitigationTimeMax: z.number().int().min(0).optional(),
+  /** Mitigation cost ($). */
+  mitigationCost: z.number().min(0).optional(),
+  /** Post-mitigation probability 0–100 %. */
+  postMitigationProbabilityPct: z.number().min(0).max(100).optional(),
+  /** Post-mitigation cost range ($). */
+  postMitigationCostMin: z.number().min(0).optional(),
+  postMitigationCostML: z.number().min(0).optional(),
+  postMitigationCostMax: z.number().min(0).optional(),
+  /** Post-mitigation time range (days). */
+  postMitigationTimeMin: z.number().int().min(0).optional(),
+  postMitigationTimeML: z.number().int().min(0).optional(),
+  postMitigationTimeMax: z.number().int().min(0).optional(),
 
   /** Forward exposure: base cost impact (e.g. expected value basis). */
   baseCostImpact: z.number().optional(),

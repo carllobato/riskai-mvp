@@ -74,6 +74,20 @@ function migrateRisks(risks: unknown[]): Risk[] {
   }).filter((r): r is Risk => r != null);
 }
 
+/** Max riskNumber in list, or 0 if none. */
+function maxRiskNumber(risks: Risk[]): number {
+  return risks.reduce((max, r) => (r.riskNumber != null && r.riskNumber > max ? r.riskNumber : max), 0);
+}
+
+/** Assign riskNumber to risks that lack it (backfill). Order preserved; unnumbered get next sequential. */
+function backfillRiskNumbers(risks: Risk[]): Risk[] {
+  let next = maxRiskNumber(risks) + 1;
+  return risks.map((r) => {
+    if (r.riskNumber != null) return r;
+    return { ...r, riskNumber: next++ };
+  });
+}
+
 const SIMULATION_HISTORY_CAP = 20;
 
 type State = {
@@ -108,14 +122,21 @@ const initialState: State = { risks: [], simulation: initialSimulation, riskFore
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "risks/set":
-      return { ...state, risks: action.risks.map(ensureScoreHistory) };
+    case "risks/set": {
+      const withHistory = action.risks.map(ensureScoreHistory);
+      const withNumbers = backfillRiskNumbers(withHistory);
+      return { ...state, risks: withNumbers };
+    }
 
     case "risks/append": {
       const existingIds = new Set(state.risks.map((r) => r.id));
+      let nextNum = maxRiskNumber(state.risks) + 1;
       const newRisks = action.risks
         .filter((r) => !existingIds.has(r.id))
-        .map(ensureScoreHistory);
+        .map((r) => {
+          const risk = ensureScoreHistory({ ...r, riskNumber: r.riskNumber ?? nextNum++ });
+          return risk;
+        });
       return { ...state, risks: [...state.risks, ...newRisks] };
     }
 
@@ -157,8 +178,14 @@ function reducer(state: State, action: Action): State {
       return { ...state, risks };
     }
 
-    case "risk/add":
-      return { ...state, risks: [ensureScoreHistory(action.risk), ...state.risks] };
+    case "risk/add": {
+      const nextNum = maxRiskNumber(state.risks) + 1;
+      const risk = ensureScoreHistory({
+        ...action.risk,
+        riskNumber: action.risk.riskNumber ?? nextNum,
+      });
+      return { ...state, risks: [risk, ...state.risks] };
+    }
 
     case "risk/delete":
       return { ...state, risks: state.risks.filter((r) => r.id !== action.id) };
@@ -258,6 +285,8 @@ type Ctx = {
   runSimulation: (iterations?: number) => void;
   clearSimulationHistory: () => void;
   setSimulationDelta: (delta: SimulationDelta | null) => void;
+  /** True when any risk has status "draft"; simulation must not run until user saves drafts to open. */
+  hasDraftRisks: boolean;
   /** Portfolio forward pressure from mitigation stress forecasts (derived from risks + snapshot history). */
   forwardPressure: PortfolioForwardPressure;
   /** Per-risk mitigation stress forecast keyed by riskId (for row-level projection signals). */
@@ -455,6 +484,8 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       clearRisks: () => dispatch({ type: "risks/clear" }),
       simulation: state.simulation,
       runSimulation: (iterations) => {
+        const hasDraft = state.risks.some((r) => r.status === "draft");
+        if (hasDraft) return; // Do not run simulation while any risk is in draft
         const profiles: ProjectionProfile[] = ["conservative", "neutral", "aggressive"];
         const scenarioSnapshots = Object.fromEntries(
           profiles.map((profile) => {
@@ -471,6 +502,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
+      hasDraftRisks: state.risks.some((r) => r.status === "draft"),
       forwardPressure,
       riskForecastsById,
     }),

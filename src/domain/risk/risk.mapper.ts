@@ -3,12 +3,14 @@ import { buildRating } from "./risk.logic";
 import { makeId } from "@/lib/id";
 import { nowIso } from "@/lib/time";
 
-const DEFAULT_STATUS: RiskStatus = "open";
+/** AI-generated risks start as draft; user must review and save to move to open. */
+const AI_DRAFT_STATUS: RiskStatus = "draft";
 
 /**
  * Convert an AI draft into a full production Risk object.
  * - deterministic scoring happens here
  * - id + timestamps controlled by app, not AI
+ * - status is always "draft" so user must review and save to open
  */
 export function draftToRisk(draft: RiskDraft): Risk {
   const createdAt = nowIso();
@@ -23,7 +25,7 @@ export function draftToRisk(draft: RiskDraft): Risk {
     description: undefined,
 
     category: draft.category,
-    status: draft.status ?? DEFAULT_STATUS,
+    status: AI_DRAFT_STATUS,
 
     owner: draft.owner,
     mitigation: draft.mitigation,

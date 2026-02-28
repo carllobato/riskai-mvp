@@ -41,7 +41,9 @@ function normalizeRisks(raw: unknown): Risk[] {
   return result;
 }
 
-export function RiskExtractPanel() {
+type RiskExtractPanelProps = { hideTitle?: boolean; showStatus?: boolean };
+
+export function RiskExtractPanel({ hideTitle, showStatus = false }: RiskExtractPanelProps = {}) {
   const [documentText, setDocumentText] = useState("");
   const [status, setStatus] = useState<Status>("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -80,9 +82,10 @@ export function RiskExtractPanel() {
 
   return (
     <div
-      className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 mb-4"
-      style={{ marginBottom: 16 }}
+      className={hideTitle ? "" : "rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 mb-4"}
+      style={hideTitle ? undefined : { marginBottom: 16 }}
     >
+      {!hideTitle && (
       <div className="flex flex-wrap items-center gap-2 mb-0">
         <h2 className="text-lg font-semibold text-neutral-800 dark:text-neutral-200">
           Generate Risks from text entry
@@ -106,13 +109,14 @@ export function RiskExtractPanel() {
           )}
         </button>
       </div>
+      )}
 
       {expanded && (
         <div className="space-y-3 mt-3">
           <textarea
             value={documentText}
             onChange={(e) => setDocumentText(e.target.value)}
-            placeholder="Paste document text here..."
+            placeholder="Describe your risk including any mitigation, cost and time data."
             rows={6}
             className="w-full box-border px-3 py-2.5 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-sm font-[inherit] resize-y focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-transparent"
           />
@@ -121,17 +125,19 @@ export function RiskExtractPanel() {
               type="button"
               onClick={handleExtract}
               disabled={status === "loading"}
-              className="px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:pointer-events-none"
+              className="w-full px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:pointer-events-none"
             >
               Extract
             </button>
-            <span
-              className={`text-sm ${status === "error" ? "text-red-600 dark:text-red-400" : "text-neutral-500 dark:text-neutral-400"}`}
-            >
-              {status === "idle" && "Idle"}
-              {status === "loading" && "Loading…"}
-              {status === "error" && errorMessage}
-            </span>
+            {showStatus && (
+              <span
+                className={`text-sm ${status === "error" ? "text-red-600 dark:text-red-400" : "text-neutral-500 dark:text-neutral-400"}`}
+              >
+                {status === "idle" && "Idle"}
+                {status === "loading" && "Loading…"}
+                {status === "error" && errorMessage}
+              </span>
+            )}
           </div>
         </div>
       )}
