@@ -100,6 +100,7 @@ export function RiskDetailModal({
   const [postMitigationTimeML, setPostMitigationTimeML] = useState("");
   const [postMitigationTimeMax, setPostMitigationTimeMax] = useState("");
   const modalRef = useRef<HTMLDivElement>(null);
+  const didInitialSyncRef = useRef(false);
 
   const currentRisk = risks[currentIndex] ?? null;
   const totalSlots = risks.length + 1; // last slot is "Add new risk"
@@ -147,29 +148,23 @@ export function RiskDetailModal({
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-    const idx = getInitialIndex();
-    setCurrentIndex(idx);
-    const risk = risks[idx];
-    if (risk) syncFormFromRisk(risk);
+    if (!open) {
+      didInitialSyncRef.current = false;
+      return;
+    }
+    if (!didInitialSyncRef.current) {
+      didInitialSyncRef.current = true;
+      const idx = getInitialIndex();
+      setCurrentIndex(idx);
+      const risk = risks[idx];
+      if (risk) syncFormFromRisk(risk);
+    }
   }, [open, getInitialIndex, risks, syncFormFromRisk]);
 
   useEffect(() => {
     if (!open || !currentRisk || currentIndex === risks.length) return;
     syncFormFromRisk(currentRisk);
   }, [currentIndex, open, currentRisk?.id, risks.length, syncFormFromRisk]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
 
   useEffect(() => {
     if (!open || !modalRef.current) return;
@@ -284,16 +279,76 @@ export function RiskDetailModal({
     postMitigationTimeMax,
   ]);
 
+  /** Normalize a risk the same way buildUpdatedRisk normalizes form output, so we can compare without false positives (e.g. "" vs undefined). */
+  const normalizeRiskForComparison = useCallback((risk: Risk): Risk => {
+    const prePct = risk.preMitigationProbabilityPct ?? (risk.inherentRating.probability / 5) * 100;
+    const postPct = risk.postMitigationProbabilityPct ?? (risk.residualRating.probability / 5) * 100;
+    const preCostML = risk.preMitigationCostML ?? risk.baseCostImpact ?? 0;
+    const preTimeML = risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
+    const postCostML = risk.postMitigationCostML ?? risk.costImpact ?? preCostML;
+    const postTimeML = risk.postMitigationTimeML ?? 0;
+    const applies = risk.appliesTo ?? "both";
+    const preP = probabilityPctToScale(prePct);
+    const preC =
+      applies === "time"
+        ? timeDaysToConsequenceScale(preTimeML)
+        : applies === "cost"
+          ? costToConsequenceScale(preCostML)
+          : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
+    const postP = probabilityPctToScale(postPct);
+    const postC =
+      applies === "time"
+        ? timeDaysToConsequenceScale(postTimeML)
+        : applies === "cost"
+          ? costToConsequenceScale(postCostML)
+          : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
+    const inherentRating = buildRating(preP, preC);
+    const residualRating = buildRating(postP, postC);
+    return {
+      ...risk,
+      title: risk.title.trim() || risk.title,
+      description: risk.description?.trim() || undefined,
+      category: risk.category,
+      status: risk.status,
+      owner: risk.owner?.trim() || undefined,
+      appliesTo: applies,
+      preMitigationProbabilityPct: prePct,
+      preMitigationCostMin: risk.preMitigationCostMin ?? undefined,
+      preMitigationCostML: preCostML || undefined,
+      preMitigationCostMax: risk.preMitigationCostMax ?? undefined,
+      preMitigationTimeMin: risk.preMitigationTimeMin ?? undefined,
+      preMitigationTimeML: preTimeML || undefined,
+      preMitigationTimeMax: risk.preMitigationTimeMax ?? undefined,
+      mitigation: risk.mitigation?.trim() || undefined,
+      mitigationCost: risk.mitigationCost ?? undefined,
+      postMitigationProbabilityPct: postPct,
+      postMitigationCostMin: risk.postMitigationCostMin ?? undefined,
+      postMitigationCostML: postCostML || undefined,
+      postMitigationCostMax: risk.postMitigationCostMax ?? undefined,
+      postMitigationTimeMin: risk.postMitigationTimeMin ?? undefined,
+      postMitigationTimeML: postTimeML || undefined,
+      postMitigationTimeMax: risk.postMitigationTimeMax ?? undefined,
+      inherentRating,
+      residualRating,
+      baseCostImpact: preCostML || undefined,
+      costImpact: postCostML || undefined,
+      scheduleImpactDays: postTimeML || undefined,
+      probability: postPct / 100,
+      updatedAt: "",
+    };
+  }, []);
+
   const isDirty = (() => {
     if (!currentRisk || currentIndex === risks.length) return false;
     const updated = buildUpdatedRisk();
     if (!updated) return false;
-    const a = { ...currentRisk, updatedAt: "" };
+    const normalizedOriginal = normalizeRiskForComparison(currentRisk);
+    const a = { ...normalizedOriginal, updatedAt: "" };
     const b = { ...updated, updatedAt: "" };
     return JSON.stringify(a) !== JSON.stringify(b);
   })();
 
-  const [pendingNav, setPendingNav] = useState<"prev" | "next" | null>(null);
+  const [pendingNav, setPendingNav] = useState<"prev" | "next" | "close" | null>(null);
   const showSavePrompt = pendingNav !== null;
 
   const handleSave = useCallback(() => {
@@ -310,17 +365,39 @@ export function RiskDetailModal({
     handleSave();
     if (pendingNav === "prev" && currentIndex > 0) setCurrentIndex((i) => i - 1);
     else if (pendingNav === "next" && currentIndex < risks.length) setCurrentIndex((i) => i + 1);
+    else if (pendingNav === "close") onClose();
     setPendingNav(null);
-  }, [pendingNav, handleSave, currentIndex, risks.length]);
+  }, [pendingNav, handleSave, currentIndex, risks.length, onClose]);
 
   const handleDiscardThenNav = useCallback(() => {
     if (pendingNav === null) return;
     if (pendingNav === "prev" && currentIndex > 0) setCurrentIndex((i) => i - 1);
     else if (pendingNav === "next" && currentIndex < risks.length) setCurrentIndex((i) => i + 1);
+    else if (pendingNav === "close") onClose();
     setPendingNav(null);
-  }, [pendingNav, currentIndex, risks.length]);
+  }, [pendingNav, currentIndex, risks.length, onClose]);
 
   const handleCancelNav = useCallback(() => setPendingNav(null), []);
+
+  const requestClose = useCallback(() => {
+    if (isDirty && currentRisk && currentIndex !== risks.length) {
+      setPendingNav("close");
+      return;
+    }
+    onClose();
+  }, [isDirty, currentRisk, currentIndex, risks.length, onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        requestClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, requestClose]);
 
   const goPrev = () => {
     if (currentIndex <= 0) return;
@@ -341,7 +418,7 @@ export function RiskDetailModal({
   };
 
   const handleBackdropClick = (e: React.MouseEvent) => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget) requestClose();
   };
 
   if (!open) return null;
@@ -405,7 +482,7 @@ export function RiskDetailModal({
             )}
             <button
               type="button"
-              onClick={onClose}
+              onClick={requestClose}
               className="p-2 rounded-md border border-transparent text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
               aria-label="Close dialog"
             >
@@ -736,7 +813,7 @@ export function RiskDetailModal({
               )}
             </div>
             <div className="flex gap-2 ml-auto">
-              <button type="button" onClick={onClose} className={btnSecondary}>
+              <button type="button" onClick={requestClose} className={btnSecondary}>
                 Close
               </button>
               {!isAddNewSlot && (
