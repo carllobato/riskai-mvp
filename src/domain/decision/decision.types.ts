@@ -16,7 +16,7 @@ export type AlertTag =
 export type DecisionMetrics = {
   /** 0–100 composite score (higher = higher concern). */
   compositeScore: number;
-  /** 1-based rank within portfolio (1 = highest concern). */
+  /** 1-based rank among risks (project-level); 1 = highest concern. */
   rank: number;
   /** Applied alert tags from tunable rules. */
   alertTags: AlertTag[];

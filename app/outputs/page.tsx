@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { calculateMomentum, detectTrajectoryState, isMitigationIneffective, portfolioMomentumSummary } from "@/domain/risk/risk.logic";
@@ -165,13 +165,19 @@ export default function OutputsPage() {
         ? `Forecast Lens: Auto (risk-based) — C:${autoLensDistribution.conservative} N:${autoLensDistribution.neutral} A:${autoLensDistribution.aggressive}`
         : "Forecast Lens: Auto (risk-based)";
 
-  /** Simulation result for selected scenario (P-value and cost distribution from same scenario). */
+  /** Simulation result for selected scenario (P-value and cost distribution from same scenario). Used in Diagnostic and for scenario-specific views. */
   const baselineSummary = snapshotForScenario
     ? { p50Cost: snapshotForScenario.p50Cost, p80Cost: snapshotForScenario.p80Cost, p90Cost: snapshotForScenario.p90Cost, totalExpectedCost: snapshotForScenario.totalExpectedCost, totalExpectedDays: snapshotForScenario.totalExpectedDays }
     : null;
   const baselineEvSum = snapshotForScenario?.risks?.length
     ? snapshotForScenario.risks.reduce((s, r) => s + r.expectedCost, 0)
     : 0;
+
+  /** Neutral baseline snapshot: always used for Meeting mode "Cost Exposure" block so project cost is scenario-invariant. */
+  const snapshotNeutral = scenarioSnapshots?.neutral ?? current;
+  const baselineSummaryNeutral = snapshotNeutral
+    ? { p50Cost: snapshotNeutral.p50Cost, p80Cost: snapshotNeutral.p80Cost, p90Cost: snapshotNeutral.p90Cost, totalExpectedCost: snapshotNeutral.totalExpectedCost, totalExpectedDays: snapshotNeutral.totalExpectedDays }
+    : null;
 
   const isMeeting = uiMode === "Meeting";
 
@@ -268,6 +274,19 @@ export default function OutputsPage() {
   /** Portfolio result for selected scenario (Forward Exposure tiles, chart, top drivers). */
   const selectedResult = forwardExposure.results[selectedScenarioId];
 
+  // Dev assertion: Meeting mode Cost Exposure block must always show neutral baseline; scenario toggle must not change these tiles.
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development" || !isMeeting || !snapshotNeutral) return;
+    const neutralP80 = snapshotNeutral.p80Cost;
+    const displayedP80 = baselineSummaryNeutral?.p80Cost;
+    if (selectedScenarioId !== "neutral" && neutralP80 !== displayedP80) {
+      console.error(
+        "[Outputs] Meeting cost block must use neutral baseline. When selectedScenarioId !== neutral, displayed P80 should match neutral snapshot.",
+        { selectedScenarioId, neutralP80, displayedP80 }
+      );
+    }
+  }, [isMeeting, selectedScenarioId, snapshotNeutral, baselineSummaryNeutral?.p80Cost]);
+
   return (
     <main className="p-6">
       <h1 className="text-2xl font-semibold m-0">Outputs</h1>
@@ -294,95 +313,66 @@ export default function OutputsPage() {
         </button>
       </div>
 
+      {isMeeting && selectedScenarioId !== "neutral" && (
+        <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400" role="status">
+          Scenario Overlay — baseline cost remains Neutral
+        </p>
+      )}
+
       {!current ? (
         <p className="mt-8 text-neutral-600 dark:text-neutral-400">
           No simulation run yet. Add risks in the Risk Register, then run a simulation.
         </p>
       ) : isMeeting ? (
-        /* Meeting mode: minimal layout — Are we in trouble? What is exposure? Why? */
+        /* Meeting mode: project-first — Project Cost (baseline) first, then Scenario Exposure, then Forecast Summary. */
         <>
-          {/* 1) Forecast Summary */}
-          <section className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 overflow-hidden">
+          {/* 1) Project Cost (Baseline – Neutral) — always first; scenario selector does not change these tiles. */}
+          <section className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
             <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Forecast Summary
-            </h2>
-            <div className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
-                <div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Forward pressure</div>
-                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{meetingPressureLabel}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Projected critical</div>
-                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{forwardPressure.projectedCriticalCount}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Escalating</div>
-                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{momentumSummary.escalatingCount}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Early warning</div>
-                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{earlyWarningCount}</div>
-                </div>
-                <div>
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Median TTC</div>
-                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{meetingMedianTtc != null ? meetingMedianTtc : "—"}</div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* 2) Cost Exposure */}
-          <section className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
-            <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Cost Exposure
+              Project Cost <span className="font-normal text-neutral-500 dark:text-neutral-400">(Baseline – Neutral)</span>
             </h2>
             <div className="p-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P50</div>
-                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummary?.p50Cost ?? 0)}</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.p50Cost ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P80</div>
-                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummary?.p80Cost ?? 0)}</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.p80Cost ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P90</div>
-                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummary?.p90Cost ?? 0)}</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.p90Cost ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Mean</div>
-                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummary?.totalExpectedCost ?? 0)}</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.totalExpectedCost ?? 0)}</div>
                 </div>
               </div>
             </div>
           </section>
 
-          {/* 3) Forward Capital Intelligence — selected scenario CaR, comparison, concentration, chart, top 5 (Meeting only) */}
+          {/* 2) Scenario Exposure — forward exposure for selected scenario; concentration in secondary row. */}
           <section className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
             <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Forward Capital Intelligence
+              Scenario Exposure
             </h2>
             <div className="p-4">
-              <div className="grid grid-cols-3 gap-4 text-sm mb-4">
+              <div className="grid grid-cols-2 gap-4 text-sm mb-3">
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                    {selectedScenarioId === "conservative" ? "Upside" : selectedScenarioId === "aggressive" ? "Downside" : "Base"} CaR
+                    {selectedScenarioId === "conservative" ? "Upside" : selectedScenarioId === "aggressive" ? "Downside" : "Base"} exposure
                   </div>
                   <div className="mt-1 text-lg font-semibold">{formatCost(selectedResult?.total ?? 0)}</div>
                 </div>
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Downside CaR</div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Downside exposure</div>
                   <div className="mt-1 text-lg font-semibold">{formatCost(forwardExposure.results.aggressive?.total ?? 0)}</div>
                 </div>
-                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Concentration %</div>
-                  <div className="mt-1 text-lg font-semibold">
-                    {((selectedResult?.concentration?.top3Share ?? 0) * 100).toFixed(1)}%
-                  </div>
-                  <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Top-3 share</div>
-                </div>
+              </div>
+              <div className="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
+                Concentration: Top-3 share {((selectedResult?.concentration?.top3Share ?? 0) * 100).toFixed(1)}% · HHI {(selectedResult?.concentration?.hhi ?? 0).toFixed(3)}
               </div>
               <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3 mb-4">
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
@@ -447,6 +437,37 @@ export default function OutputsPage() {
             </div>
           </section>
 
+          {/* 3) Forecast Summary — pressure, projected critical, early warning, median TTC. */}
+          <section className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 overflow-hidden">
+            <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
+              Forecast Summary
+            </h2>
+            <div className="p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
+                <div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Forward pressure</div>
+                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{meetingPressureLabel}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Projected critical</div>
+                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{forwardPressure.projectedCriticalCount}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Escalating</div>
+                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{momentumSummary.escalatingCount}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Early warning</div>
+                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{earlyWarningCount}</div>
+                </div>
+                <div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Median TTC</div>
+                  <div className="mt-0.5 font-medium text-neutral-800 dark:text-neutral-200">{meetingMedianTtc != null ? meetingMedianTtc : "—"}</div>
+                </div>
+              </div>
+            </div>
+          </section>
+
         </>
       ) : (
         <>
@@ -491,7 +512,7 @@ export default function OutputsPage() {
                   {tab === "forecast" && "Forecast Engine"}
                   {tab === "simulation" && "Simulation Engine"}
                   {tab === "analytics" && "Risk Analytics"}
-                  {tab === "forwardExposure" && "Forward Exposure"}
+                  {tab === "forwardExposure" && "Scenario Exposure"}
                 </button>
               ))}
             </div>
@@ -509,7 +530,7 @@ export default function OutputsPage() {
                     {confidenceWeighted && <span className="ml-1 text-neutral-500">(confidence-weighted)</span>}
                   </div>
                   <div className="text-sm text-neutral-700 dark:text-neutral-300">
-                    Portfolio momentum: {momentumSummary.portfolioPressure} · Escalating: {momentumSummary.escalatingCount} · Positive momentum: {momentumSummary.positiveMomentumCount}
+                    Momentum: {momentumSummary.portfolioPressure} · Escalating: {momentumSummary.escalatingCount} · Positive momentum: {momentumSummary.positiveMomentumCount}
                   </div>
                   <div className="flex flex-wrap items-center gap-2 mt-1">
                     <LensDebugIcon lensMode={lensMode} manualScenario={manualScenario} aggregate uiMode={uiMode} />
@@ -668,9 +689,9 @@ export default function OutputsPage() {
                   </div>
                 </div>
                 <div className="mb-4 rounded border border-neutral-200 dark:border-neutral-700 bg-neutral-100/50 dark:bg-neutral-800/50 px-3 py-2">
-                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Portfolio momentum (forecast / lens-aware)</div>
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Momentum (forecast / lens-aware)</div>
                   <div className="text-sm text-neutral-700 dark:text-neutral-300 space-y-0.5">
-                    <div>Portfolio pressure: {momentumSummary.portfolioPressure}</div>
+                    <div>Pressure: {momentumSummary.portfolioPressure}</div>
                     <div>Escalating: {momentumSummary.escalatingCount} ({Math.round(momentumSummary.escalatingPct * 100)}%)</div>
                     <div>Positive momentum: {momentumSummary.positiveMomentumCount} ({Math.round(momentumSummary.positiveMomentumPct * 100)}%)</div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -771,7 +792,7 @@ export default function OutputsPage() {
             {diagnosticTab === "forwardExposure" && (
               <div className="rounded-b-lg border border-t-0 border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-4">
                 <p className="text-sm text-neutral-600 dark:text-neutral-400 m-0 mb-2">
-                  Forward Capital Intelligence — conservative (Upside), neutral (Base), aggressive (Downside). Horizon: {forwardExposure.horizonMonths} months. Selected scenario: {selectedScenarioId}.
+                  Scenario Exposure — conservative (Upside), neutral (Base), aggressive (Downside). Horizon: {forwardExposure.horizonMonths} months. Selected scenario: {selectedScenarioId}.
                 </p>
                 <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-4 italic">
                   Scenario selection drives Forward Exposure, simulation distribution, and P-value.

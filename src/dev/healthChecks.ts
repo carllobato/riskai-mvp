@@ -469,6 +469,7 @@ export const groupedHealthChecks: GroupedCheck[] = [
     },
   },
   // ---------- Baseline Lock (Governance Integrity) ----------
+  // Meeting mode headline cost tiles (P50/P80/P90/Mean) must remain neutral baseline; scenario overlay must not change them.
   {
     group: "Baseline Lock (Governance Integrity)",
     name: "P90 baseline locked to neutral when lens changes",
@@ -478,7 +479,7 @@ export const groupedHealthChecks: GroupedCheck[] = [
       return {
         status: "warn",
         message: "Baseline lock not enforced yet; upgrade to FAIL when governance is locked to neutral.",
-        details: { note: "P90 baseline is currently scenario-dependent; governance may require neutral-only baseline." },
+        details: { note: "P90 baseline is currently scenario-dependent; governance may require neutral-only baseline. Meeting mode headline cost tiles must remain neutral baseline." },
       };
     },
   },
