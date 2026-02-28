@@ -11,6 +11,7 @@ import { computeScenarioComparison } from "@/lib/riskForecast";
 import { getBand } from "@/config/riskThresholds";
 import type { SimulationRiskDelta } from "@/domain/simulation/simulation.types";
 import { DecisionPanel } from "@/components/decision/DecisionPanel";
+import { MitigationOptimisationPanel } from "@/components/outputs/MitigationOptimisationPanel";
 import { profileToScenarioName } from "@/lib/instability/selectScenarioLens";
 import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
@@ -467,6 +468,15 @@ export default function OutputsPage() {
               </div>
             </div>
           </section>
+
+          {/* 4) Mitigation leverage — API only; requires simulation snapshot. */}
+          {snapshotNeutral ? (
+            <MitigationOptimisationPanel />
+          ) : (
+            <p className="mt-6 text-sm text-neutral-500 dark:text-neutral-400">
+              Run simulation to see mitigation leverage.
+            </p>
+          )}
 
         </>
       ) : (

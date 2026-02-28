@@ -27,6 +27,7 @@ import {
 import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
 import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
+import { dlog, dwarn } from "@/lib/debug";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const PERSIST_SCHEMA_VERSION = 1;
@@ -305,6 +306,27 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     };
     saveState(STORAGE_KEY, payload);
   }, [state.risks, state.simulation.current, state.simulation.history, state.simulation.scenarioSnapshots]);
+
+  // Sync simulation context to server (same as Outputs: neutral = scenarioSnapshots?.neutral ?? current) for mitigation-optimisation API (debounced 300ms)
+  useEffect(() => {
+    const neutralSnapshot = state.simulation.scenarioSnapshots?.neutral ?? state.simulation.current;
+    const riskCount = state.risks.length;
+    const hasSnapshot = !!neutralSnapshot;
+    const neutralP80 = neutralSnapshot?.p80Cost ?? null;
+    const t = setTimeout(() => {
+      dlog("[store] sync -> /api/simulation-context", { riskCount, hasSnapshot, neutralP80 });
+      fetch("/api/simulation-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ risks: state.risks, neutralSnapshot: neutralSnapshot ?? null }),
+      })
+        .then((res) => {
+          if (!res.ok) dwarn("[store] sync failed", { status: res.status });
+        })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [state.risks, state.simulation.current, state.simulation.scenarioSnapshots]);
 
   const { profile: projectionProfile } = useProjectionScenario();
 
