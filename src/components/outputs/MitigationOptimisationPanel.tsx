@@ -68,8 +68,12 @@ export function MitigationOptimisationPanel() {
     }
   }, []);
 
+  // Wait for store sync (300ms debounce) to complete before first fetch so API sees current context.
   useEffect(() => {
-    fetchData();
+    const t = setTimeout(() => {
+      fetchData();
+    }, 400);
+    return () => clearTimeout(t);
   }, [fetchData]);
 
   if (loading && !data) {
