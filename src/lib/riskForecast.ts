@@ -219,6 +219,45 @@ export function buildMitigationStressForecast(
   };
 }
 
+/** Per-risk scenario TTCs for Day 11 EII (scenario delta summary). */
+export type PerRiskScenarioTTC = {
+  conservativeTTC: number | null;
+  neutralTTC: number | null;
+  aggressiveTTC: number | null;
+};
+
+/**
+ * Returns baseline timeToCritical under conservative, neutral, and aggressive profiles for one risk.
+ * Used for Day 11 scenario delta summary and EII; does not modify scenario/projection logic.
+ */
+export function getPerRiskScenarioTTC(
+  riskId: string,
+  getLatestSnapshot: (id: string) => RiskSnapshot | null,
+  getRiskHistory: (id: string) => RiskSnapshot[],
+  mitigationStrength?: number | null
+): PerRiskScenarioTTC {
+  const profiles: ProjectionProfile[] = ["conservative", "neutral", "aggressive"];
+  const result: PerRiskScenarioTTC = {
+    conservativeTTC: null,
+    neutralTTC: null,
+    aggressiveTTC: null,
+  };
+  for (const profile of profiles) {
+    const f = buildMitigationStressForecast(
+      riskId,
+      getLatestSnapshot(riskId),
+      getRiskHistory(riskId),
+      mitigationStrength,
+      profile
+    );
+    const ttc = f.baselineForecast.timeToCritical;
+    if (profile === "conservative") result.conservativeTTC = ttc;
+    else if (profile === "neutral") result.neutralTTC = ttc;
+    else result.aggressiveTTC = ttc;
+  }
+  return result;
+}
+
 /** Minimal risk shape needed for forward projection (id + mitigationStrength). */
 export type RiskForProjection = {
   id: string;

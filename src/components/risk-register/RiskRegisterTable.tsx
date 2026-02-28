@@ -17,7 +17,7 @@ export function RiskRegisterTable({
     <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-700 overflow-hidden bg-[var(--background)]">
       <div
         className="grid gap-2.5 py-2.5 px-3 font-semibold border-b border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 text-neutral-700 dark:text-neutral-300"
-        style={{ gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr" }}
+        style={{ gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr 0.9fr" }}
       >
         <div>Title</div>
         <div>Category</div>
@@ -35,6 +35,7 @@ export function RiskRegisterTable({
         </div>
         <div>Status</div>
         <div>Decision</div>
+        <div>Instability</div>
       </div>
 
       {risks.length === 0 ? (

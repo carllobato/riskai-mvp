@@ -8,11 +8,16 @@ import { computeCompositeScore } from "@/domain/decision/decision.score";
 import { calculateDelta } from "@/lib/calculateDelta";
 import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
+import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { loadState, saveState } from "@/store/persist";
 import { nowIso } from "@/lib/time";
 import { getLatestSnapshot, getRiskHistory, addRiskSnapshot } from "@/lib/riskSnapshotHistory";
-import { runForwardProjection } from "@/lib/riskForecast";
+import { runForwardProjection, getPerRiskScenarioTTC } from "@/lib/riskForecast";
 import { selectDecisionByRiskId } from "@/store/selectors";
+import { calcScenarioDeltaSummary, calcInstabilityIndex, calcFragility } from "@/lib/instability/calcInstabilityIndex";
+import { computeEarlyWarning } from "@/lib/instability/earlyWarning";
+import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
+import { computeForecastConfidence } from "@/lib/forecastConfidence";
 import type { RiskMitigationForecast } from "@/domain/risk/risk-forecast.types";
 import {
   computePortfolioForwardPressure,
@@ -25,11 +30,18 @@ import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const PERSIST_SCHEMA_VERSION = 1;
 
-/** Minimal persisted shape: risks + simulation (current + history only; no delta). */
+/** Scenario snapshots keyed by Day 10 profile (one engine, scenario changes parameters). */
+export type ScenarioSnapshotsMap = Record<ProjectionProfile, SimulationSnapshot>;
+
+/** Minimal persisted shape: risks + simulation (current + history + scenarioSnapshots). */
 type PersistedState = {
   schemaVersion: number;
   risks: Risk[];
-  simulation: { current?: SimulationSnapshot; history: SimulationSnapshot[] };
+  simulation: {
+    current?: SimulationSnapshot;
+    history: SimulationSnapshot[];
+    scenarioSnapshots?: ScenarioSnapshotsMap;
+  };
 };
 
 /** Keys that count as mitigation-related; when one of these is updated and value changed, set lastMitigationUpdate. */
@@ -68,6 +80,8 @@ type State = {
     current?: SimulationSnapshot;
     history: SimulationSnapshot[];
     delta?: SimulationDelta | null;
+    /** Per-scenario snapshots (same engine, profile changes spread); used for Outputs tiles. */
+    scenarioSnapshots?: ScenarioSnapshotsMap;
   };
   /** Per-risk Day 8 forecast (score-based); updated when intelligence/simulation updates. */
   riskForecastsById: Record<string, RiskMitigationForecast>;
@@ -81,10 +95,10 @@ type Action =
   | { type: "risk/add"; risk: Risk }
   | { type: "risk/delete"; id: string }
   | { type: "risks/clear" }
-  | { type: "simulation/run"; snapshot: SimulationSnapshot }
+  | { type: "simulation/run"; payload: { snapshot: SimulationSnapshot; scenarioSnapshots?: ScenarioSnapshotsMap } }
   | { type: "simulation/clearHistory" }
   | { type: "simulation/setDelta"; delta: SimulationDelta | null }
-  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[] } }
+  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[]; scenarioSnapshots?: ScenarioSnapshotsMap } }
   | { type: "riskForecasts/set"; payload: Record<string, RiskMitigationForecast> };
 
 const initialSimulation = { history: [] as SimulationSnapshot[], delta: null as SimulationDelta | null };
@@ -151,12 +165,14 @@ function reducer(state: State, action: Action): State {
       return { ...state, risks: [] };
 
     case "simulation/run": {
-      const nextHistoryRaw = [action.snapshot, ...state.simulation.history].slice(
+      const snapshot = action.payload.snapshot;
+      const scenarioSnapshots = action.payload.scenarioSnapshots;
+      const nextHistoryRaw = [snapshot, ...state.simulation.history].slice(
         0,
         SIMULATION_HISTORY_CAP
       );
       const enriched = enrichSnapshotWithIntelligenceMetrics(
-        action.snapshot,
+        snapshot,
         nextHistoryRaw
       );
       const nextHistory = [enriched, ...state.simulation.history].slice(
@@ -188,6 +204,7 @@ function reducer(state: State, action: Action): State {
           ...state.simulation,
           current: enriched,
           history: nextHistory,
+          ...(scenarioSnapshots != null && { scenarioSnapshots }),
         },
       };
     }
@@ -195,7 +212,7 @@ function reducer(state: State, action: Action): State {
     case "simulation/clearHistory":
       return {
         ...state,
-        simulation: { history: [], delta: null },
+        simulation: { history: [], delta: null, scenarioSnapshots: undefined },
       };
 
     case "simulation/setDelta":
@@ -205,7 +222,7 @@ function reducer(state: State, action: Action): State {
       };
 
     case "simulation/hydrate": {
-      const { current, history } = action.payload;
+      const { current, history, scenarioSnapshots } = action.payload;
       const capped = Array.isArray(history) ? history.slice(0, SIMULATION_HISTORY_CAP) : [];
       return {
         ...state,
@@ -213,6 +230,7 @@ function reducer(state: State, action: Action): State {
           ...state.simulation,
           current: current ?? undefined,
           history: capped,
+          ...(scenarioSnapshots != null && { scenarioSnapshots }),
         },
       };
     }
@@ -264,16 +282,16 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       const migrated = migrateRisks(risks);
       if (migrated.length) dispatch({ type: "risks/set", risks: migrated });
     }
-    const sim = "simulation" in saved && saved.simulation && Array.isArray(saved.simulation.history) ? saved.simulation : null;
+    const sim = "simulation" in saved && saved.simulation && Array.isArray((saved.simulation as PersistedState["simulation"]).history) ? saved.simulation as PersistedState["simulation"] : null;
     if (sim) {
       dispatch({
         type: "simulation/hydrate",
-        payload: { current: sim.current, history: sim.history ?? [] },
+        payload: { current: sim.current, history: sim.history ?? [], scenarioSnapshots: sim.scenarioSnapshots },
       });
     }
   }, []);
 
-  // Persist on change (minimal: risks + simulation current/history only)
+  // Persist on change (risks + simulation current/history/scenarioSnapshots)
   useEffect(() => {
     const payload: PersistedState = {
       schemaVersion: PERSIST_SCHEMA_VERSION,
@@ -281,10 +299,11 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       simulation: {
         current: state.simulation.current,
         history: state.simulation.history,
+        scenarioSnapshots: state.simulation.scenarioSnapshots,
       },
     };
     saveState(STORAGE_KEY, payload);
-  }, [state.risks, state.simulation.current, state.simulation.history]);
+  }, [state.risks, state.simulation.current, state.simulation.history, state.simulation.scenarioSnapshots]);
 
   const { profile: projectionProfile } = useProjectionScenario();
 
@@ -314,7 +333,83 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       getRiskHistory,
       { profile: projectionProfile }
     );
-    dispatch({ type: "riskForecasts/set", payload: byId });
+    // Day 11: enrich each forecast with scenario delta summary and EII (additive; no change to scenario/projection logic)
+    const enrichedById: Record<string, RiskMitigationForecast> = {};
+    const simRisks = state.simulation.current?.risks ?? [];
+    const scenarioTTCsForValidation: { conservativeTTC: number | null; neutralTTC: number | null; aggressiveTTC: number | null }[] = [];
+    for (const risk of risks) {
+      const forecast = byId[risk.id];
+      if (!forecast) continue;
+      const scenarioTTC = getPerRiskScenarioTTC(
+        risk.id,
+        getLatestSnapshot,
+        getRiskHistory,
+        risk.mitigationStrength
+      );
+      if (process.env.NODE_ENV === "development") {
+        scenarioTTCsForValidation.push({
+          conservativeTTC: scenarioTTC.conservativeTTC,
+          neutralTTC: scenarioTTC.neutralTTC,
+          aggressiveTTC: scenarioTTC.aggressiveTTC,
+        });
+      }
+      const scenarioDeltaSummary = calcScenarioDeltaSummary({
+        conservativeTTC: scenarioTTC.conservativeTTC,
+        neutralTTC: scenarioTTC.neutralTTC,
+        aggressiveTTC: scenarioTTC.aggressiveTTC,
+      });
+      const simRisk = simRisks.find((r) => r.id === risk.id);
+      const velocity = simRisk?.velocity ?? 0;
+      const volatility = simRisk?.volatility ?? 0;
+      const history = getRiskHistory(risk.id);
+      const confidenceResult = computeForecastConfidence(history, { includeBreakdown: true });
+      const momentumStability = (confidenceResult.breakdown?.stabilityScore ?? 0) / 100;
+      const confidence = confidenceResult.score / 100;
+      const instability = calcInstabilityIndex({
+        velocity,
+        volatility,
+        momentumStability,
+        scenarioSensitivity: scenarioDeltaSummary.normalizedSpread,
+        confidence,
+        historyDepth: history.length,
+      });
+      const { earlyWarning, earlyWarningReason } = computeEarlyWarning({
+        eiiIndex: instability.index,
+        timeToCritical: forecast.baselineForecast.timeToCritical,
+        confidence,
+      });
+      const previousEii = state.riskForecastsById[risk.id]?.instability?.index;
+      const eiiDelta = previousEii !== undefined ? instability.index - previousEii : 0;
+      const momentum =
+        eiiDelta > 5 ? "Rising" : eiiDelta < -5 ? "Falling" : "Stable";
+      const fragility = calcFragility({
+        currentEii: instability.index,
+        previousEii,
+        confidencePenalty: instability.breakdown.confidencePenalty,
+      });
+      enrichedById[risk.id] = {
+        ...forecast,
+        forecastConfidence: confidenceResult.score,
+        scenarioDeltaSummary,
+        scenarioTTC: {
+          conservative: scenarioTTC.conservativeTTC,
+          neutral: scenarioTTC.neutralTTC,
+          aggressive: scenarioTTC.aggressiveTTC,
+        },
+        instability: { ...instability, momentum },
+        fragility,
+        earlyWarning,
+        earlyWarningReason,
+      };
+    }
+    // Ensure every forecast from runForwardProjection is present (fallback to un-enriched)
+    for (const id of Object.keys(byId)) {
+      if (!(id in enrichedById)) enrichedById[id] = byId[id]!;
+    }
+    if (process.env.NODE_ENV === "development" && scenarioTTCsForValidation.length > 0) {
+      validateScenarioOrdering(scenarioTTCsForValidation);
+    }
+    dispatch({ type: "riskForecasts/set", payload: enrichedById });
   }, [state.risks, state.simulation.current, state.simulation.history, projectionProfile]);
 
   const riskForecastsById = state.riskForecastsById;
@@ -337,8 +432,15 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       clearRisks: () => dispatch({ type: "risks/clear" }),
       simulation: state.simulation,
       runSimulation: (iterations) => {
-        const snapshot = simulatePortfolio(state.risks, iterations);
-        dispatch({ type: "simulation/run", snapshot });
+        const profiles: ProjectionProfile[] = ["conservative", "neutral", "aggressive"];
+        const scenarioSnapshots = Object.fromEntries(
+          profiles.map((profile) => [
+            profile,
+            simulatePortfolio(state.risks, iterations, { profile }),
+          ])
+        ) as ScenarioSnapshotsMap;
+        const snapshot = scenarioSnapshots.neutral;
+        dispatch({ type: "simulation/run", payload: { snapshot, scenarioSnapshots } });
         const previous = state.simulation.current;
         if (previous) {
           dispatch({ type: "simulation/setDelta", delta: calculateDelta(previous, snapshot) });

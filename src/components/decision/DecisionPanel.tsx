@@ -15,6 +15,8 @@ import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors"
 import { getScoreBand } from "@/lib/decisionScoreBand";
 import { getForwardSignals } from "@/lib/forwardSignals";
 import { getProfileLabel } from "@/context/ProjectionScenarioContext";
+import { selectScenarioForRisk, profileToScenarioName } from "@/lib/instability/selectScenarioLens";
+import { calculateInstabilityDrivers } from "@/lib/instability/portfolioDrivers";
 import { getBand } from "@/config/riskThresholds";
 import type { RankedRiskRow } from "@/store/selectors";
 import type { AlertTag } from "@/domain/decision/decision.types";
@@ -45,8 +47,9 @@ function scoreBadgeClass(score: number): string {
 }
 
 export function DecisionPanel() {
-  const { profile: scenarioProfile } = useProjectionScenario();
-  const { simulation, riskForecastsById, forwardPressure } = useRiskRegister();
+  const { profile: scenarioProfile, lensMode } = useProjectionScenario();
+  const { risks, simulation, riskForecastsById, forwardPressure } = useRiskRegister();
+  const manualScenario = profileToScenarioName(scenarioProfile);
   const [sortBy, setSortBy] = useState<DecisionSort>("score");
 
   const state = useMemo(() => ({ simulation }), [simulation]);
@@ -87,6 +90,39 @@ export function DecisionPanel() {
 
   const displayList = sortedTop10.length > 0 ? sortedTop10 : selectTopCriticalRisks(10)(state);
 
+  const eiiSummary = useMemo(() => {
+    const withEii = Object.entries(riskForecastsById)
+      .filter(([, f]) => f?.instability != null)
+      .map(([riskId, f]) => ({ riskId, index: f!.instability!.index }));
+    if (withEii.length === 0) {
+      return { avgEii: 0, highCount: 0, criticalCount: 0, top3: [] };
+    }
+    const sum = withEii.reduce((s, x) => s + x.index, 0);
+    const avgEii = Math.round(sum / withEii.length);
+    const highCount = withEii.filter((x) => x.index >= 50).length;
+    const criticalCount = withEii.filter((x) => x.index >= 75).length;
+    const top3 = [...withEii]
+      .sort((a, b) => b.index - a.index)
+      .slice(0, 3)
+      .map(({ riskId, index }) => ({
+        riskId,
+        title: risks.find((r) => r.id === riskId)?.title ?? "—",
+        index,
+      }));
+    return { avgEii, highCount, criticalCount, top3 };
+  }, [riskForecastsById, risks]);
+
+  const instabilityDrivers = useMemo(() => {
+    const risksWithInstability = risks
+      .map((r) => {
+        const f = riskForecastsById[r.id];
+        if (!f?.instability) return null;
+        return { id: r.id, title: r.title, instability: f.instability };
+      })
+      .filter((r): r is NonNullable<typeof r> => r != null);
+    return calculateInstabilityDrivers(risksWithInstability);
+  }, [risks, riskForecastsById]);
+
   return (
     <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
       <div className="p-4 border-b border-neutral-200 dark:border-neutral-700">
@@ -94,8 +130,8 @@ export function DecisionPanel() {
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 m-0">
           Decision-grade ranking from behavioural metrics.
         </p>
-        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 m-0" title="Adjusts drift persistence and decay for scenario testing.">
-          Scenario: {getProfileLabel(scenarioProfile)}
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 m-0" title="Forecast scenario adjusts drift persistence and decay for projections.">
+          Forecast Scenario: {getProfileLabel(scenarioProfile)}
         </p>
         <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500 m-0">
           Forecast Confidence: Based on history depth, momentum stability, and volatility.
@@ -156,6 +192,57 @@ export function DecisionPanel() {
             </div>
           )}
         </div>
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+            EII Summary
+          </div>
+          <div className="mt-0.5 text-lg font-semibold">{eiiSummary.avgEii}</div>
+          <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+            # High (≥50): {eiiSummary.highCount} · # Critical (≥75): {eiiSummary.criticalCount}
+          </div>
+          {eiiSummary.top3.length > 0 && (
+            <div className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">
+              <div className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Top 3 unstable</div>
+              <ul className="list-none p-0 m-0 space-y-0.5">
+                {eiiSummary.top3.map(({ riskId, title, index }) => (
+                  <li key={riskId} className="truncate" title={title}>
+                    {title || "—"} (EII {index})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="px-4 pb-4">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-3">
+            Instability Drivers
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm text-neutral-700 dark:text-neutral-300">
+            <div>High Volatility: {instabilityDrivers.highVolatilityCount} risks</div>
+            <div>Low Confidence: {instabilityDrivers.lowConfidenceCount} risks</div>
+            <div>High Scenario Spread: {instabilityDrivers.highSensitivityCount} risks</div>
+            <div>High Velocity: {instabilityDrivers.highVelocityCount} risks</div>
+          </div>
+          {instabilityDrivers.topContributors.length > 0 && (
+            <div className="mt-4 pt-3 border-t border-neutral-200 dark:border-neutral-700">
+              <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
+                Top Contributors
+              </div>
+              <ul className="list-none p-0 m-0 space-y-1.5 text-sm text-neutral-700 dark:text-neutral-300">
+                {instabilityDrivers.topContributors.map(({ riskId, title, eii, level }) => (
+                  <li key={riskId} className="truncate flex items-center gap-2 flex-wrap">
+                    <span className="font-medium truncate min-w-0" title={title}>{title}</span>
+                    <span className="text-neutral-500 dark:text-neutral-400 shrink-0">EII {eii}</span>
+                    <span className="shrink-0 text-xs font-medium text-neutral-600 dark:text-neutral-400">{level}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="px-4 pb-2 flex flex-wrap items-center gap-2">
@@ -198,8 +285,13 @@ export function DecisionPanel() {
               const delta = scoreDeltaByRiskId[row.riskId];
               const showUp = typeof delta === "number" && delta > SCORE_DELTA_SHOW_THRESHOLD;
               const showDown = typeof delta === "number" && delta < -SCORE_DELTA_SHOW_THRESHOLD;
-              const signals = getForwardSignals(row.riskId, riskForecastsById);
               const forecast = riskForecastsById[row.riskId];
+              const scenarioToUse = selectScenarioForRisk(
+                { instability: forecast?.instability },
+                lensMode,
+                manualScenario
+              );
+              const signals = getForwardSignals(row.riskId, riskForecastsById, scenarioToUse);
               const showConfidence = index < 3 && forecast != null && typeof forecast.forecastConfidence === "number";
               const confScore = forecast?.forecastConfidence;
               const confBand = forecast?.confidenceBand ?? (typeof confScore === "number" ? (confScore < 40 ? "low" : confScore < 70 ? "medium" : "high") : null);

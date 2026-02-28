@@ -1,5 +1,6 @@
 "use client";
 
+import { useState, useRef, useEffect } from "react";
 import type { Risk, RiskCategory, RiskLevel, RiskStatus } from "@/domain/risk/risk.schema";
 import type { TrajectoryState } from "@/domain/risk/risk.logic";
 import type { DecisionMetrics } from "@/domain/decision/decision.types";
@@ -9,9 +10,20 @@ import { getBand } from "@/config/riskThresholds";
 import { getScoreBand } from "@/lib/decisionScoreBand";
 import { getForwardSignals } from "@/lib/forwardSignals";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { useProjectionScenario, type UiMode } from "@/context/ProjectionScenarioContext";
+import {
+  selectScenarioForRisk,
+  profileToScenarioName,
+  scenarioNameToProfile,
+  getTTCForScenario,
+} from "@/lib/instability/selectScenarioLens";
+import type { RiskWithInstability } from "@/lib/instability/selectScenarioLens";
+import type { ScenarioLensMode, ScenarioName } from "@/lib/instability/selectScenarioLens";
+import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
 import { RiskLevelBadge } from "@/components/risk-register/RiskLevelBadge";
 import { ForecastConfidenceBadge } from "@/components/risk-register/ForecastConfidenceBadge";
+import { InstabilityBadge } from "@/components/risk-register/InstabilityBadge";
 
 const SCORE_DELTA_THRESHOLD = 3;
 
@@ -117,13 +129,49 @@ function trajectoryLabelStyle(state: TrajectoryState): React.CSSProperties {
   return {};
 }
 
-/** Faint row tint by highest projected band (restrained; low opacity for light and dark). */
+/** Faint row tint by highest projected band (restrained; low opacity for light and dark). Hidden in Meeting mode. */
 function rowTintForBand(band: EscalationBand): React.CSSProperties["backgroundColor"] {
   if (band === "normal") return undefined;
   if (band === "watch") return "rgba(128, 128, 128, 0.04)"; // faint neutral
   if (band === "high") return "rgba(249, 115, 22, 0.05)"; // faint amber
   return "rgba(239, 68, 68, 0.05)"; // faint red (critical)
 }
+
+/** Single governance status for Meeting mode: Stable | Escalating | At Risk | Critical */
+type MeetingStatus = "Stable" | "Escalating" | "At Risk" | "Critical";
+
+function getMeetingStatus(
+  currentBand: EscalationBand,
+  signals: { hasForecast: boolean; projectedCritical?: boolean; mitigationInsufficient?: boolean },
+  trajectoryState: TrajectoryState | undefined,
+  momentumScore: number | undefined
+): MeetingStatus {
+  if (currentBand === "critical") return "Critical";
+  if (signals.hasForecast && (signals.projectedCritical || signals.mitigationInsufficient)) return "At Risk";
+  if (trajectoryState === "ESCALATING" || (typeof momentumScore === "number" && momentumScore > 2)) return "Escalating";
+  return "Stable";
+}
+
+const meetingStatusStyle: Record<MeetingStatus, React.CSSProperties> = {
+  Stable: {
+    backgroundColor: "rgba(0,0,0,0.05)",
+    color: "var(--foreground)",
+    opacity: 0.9,
+  },
+  Escalating: {
+    backgroundColor: "rgba(128, 128, 128, 0.12)",
+    color: "var(--foreground)",
+    opacity: 0.95,
+  },
+  "At Risk": {
+    backgroundColor: "rgba(234, 179, 8, 0.12)",
+    color: "#a16207",
+  },
+  Critical: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    color: "#b91c1c",
+  },
+};
 
 function DecisionCell({
   decision,
@@ -132,6 +180,9 @@ function DecisionCell({
   trajectoryState,
   signals,
   currentBand,
+  lensDebug,
+  scenarioToUse,
+  uiMode,
 }: {
   decision: DecisionMetrics | null | undefined;
   scoreDelta?: number;
@@ -139,6 +190,9 @@ function DecisionCell({
   trajectoryState?: TrajectoryState;
   signals: ReturnType<typeof getForwardSignals>;
   currentBand: EscalationBand;
+  lensDebug?: { risk: RiskWithInstability; lensMode: ScenarioLensMode; manualScenario: ScenarioName };
+  scenarioToUse?: ScenarioName;
+  uiMode?: UiMode;
 }) {
   const { hasForecast, projectedCritical, timeToCritical, mitigationInsufficient } = signals;
   const showProjectedUp = hasForecast && projectedCritical && currentBand !== "critical";
@@ -151,6 +205,29 @@ function DecisionCell({
     : null;
 
   if (!decision) return <span style={{ fontSize: 12, color: "#737373" }}>—</span>;
+
+  // Meeting mode: single clean status badge only
+  if (uiMode === "Meeting") {
+    const meetingStatus = getMeetingStatus(
+      currentBand,
+      { hasForecast, projectedCritical, mitigationInsufficient },
+      trajectoryState,
+      momentumScore
+    );
+    const style = {
+      ...alertPillStyle,
+      ...meetingStatusStyle[meetingStatus],
+      minWidth: 56,
+      justifyContent: "center" as const,
+    };
+    return (
+      <div style={{ display: "flex", alignItems: "center" }}>
+        <span style={style}>{meetingStatus}</span>
+      </div>
+    );
+  }
+
+  // Diagnostic mode: full indicators
   const tags = decision.alertTags ?? [];
   const showTags = tags.slice(0, 2);
   const extra = tags.length > 2 ? tags.length - 2 : 0;
@@ -187,8 +264,32 @@ function DecisionCell({
           </span>
         )}
         {cyclesLabel != null && (
-          <span style={{ fontSize: 10, color: "#a3a3a3" }} title={isCritical ? "Already critical" : `Reaches critical in ${timeToCritical} cycles`}>
-            {isCritical ? "0 cycles" : `in ${timeToCritical} cycles`}
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 2 }}>
+            <span
+              style={{ fontSize: 10, color: "#a3a3a3" }}
+              title={
+                signals.fallbackToNeutral
+                  ? "Fallback to Neutral (missing scenario output)"
+                  : isCritical
+                    ? "Already critical"
+                    : `Reaches critical in ${timeToCritical} cycles`
+              }
+            >
+              {isCritical ? "0 cycles" : `in ${timeToCritical} cycles`}
+              {signals.fallbackToNeutral && (
+                <span style={{ marginLeft: 2, opacity: 0.7 }} title="Fallback to Neutral (missing scenario output)">
+                  ·
+                </span>
+              )}
+            </span>
+            {lensDebug && (
+              <LensDebugIcon
+                risk={lensDebug.risk}
+                lensMode={lensDebug.lensMode}
+                manualScenario={lensDebug.manualScenario}
+                uiMode={uiMode}
+              />
+            )}
           </span>
         )}
         {mitigationLabel != null && (
@@ -227,6 +328,62 @@ function DecisionCell({
   );
 }
 
+function ApplyRecommendedButton({
+  recommendedScenario,
+  manualScenario,
+  onApply,
+}: {
+  recommendedScenario: ScenarioName;
+  manualScenario: ScenarioName;
+  onApply: () => void;
+}) {
+  const [appliedAt, setAppliedAt] = useState<number | null>(null);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (appliedAt == null) return;
+    timeoutRef.current = setTimeout(() => setAppliedAt(null), 1500);
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
+  }, [appliedAt]);
+
+  const isAligned = recommendedScenario === manualScenario;
+  const handleClick = () => {
+    if (isAligned) return;
+    onApply();
+    setAppliedAt(Date.now());
+  };
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+      <button
+        type="button"
+        disabled={isAligned}
+        title={isAligned ? "Already aligned" : "Set global scenario to recommended"}
+        onClick={handleClick}
+        style={{
+          fontSize: 10,
+          fontWeight: 500,
+          padding: "2px 6px",
+          border: "1px solid rgba(0,0,0,0.15)",
+          borderRadius: 4,
+          background: isAligned ? "rgba(0,0,0,0.02)" : "rgba(0,0,0,0.04)",
+          cursor: isAligned ? "default" : "pointer",
+          opacity: isAligned ? 0.7 : 1,
+        }}
+      >
+        Apply
+      </button>
+      {appliedAt != null && (
+        <span style={{ fontSize: 10, color: "#22c55e", opacity: 0.9 }} aria-live="polite">
+          Applied
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function RiskRegisterRow({
   risk,
   decision,
@@ -237,22 +394,61 @@ export function RiskRegisterRow({
   scoreDelta?: number;
 }) {
   const { updateRisk, updateRatingPc, riskForecastsById } = useRiskRegister();
+  const { profile, setProfile, lensMode, uiMode } = useProjectionScenario();
   const momentum = calculateMomentum(risk);
   const trajectoryState = detectTrajectoryState(risk);
-  const signals = getForwardSignals(risk.id, riskForecastsById);
+  const forecast = riskForecastsById[risk.id];
+  const manualScenario = profileToScenarioName(profile);
+  const scenarioToUse = selectScenarioForRisk(
+    { instability: forecast?.instability },
+    lensMode,
+    manualScenario
+  );
+  const baseSignals = getForwardSignals(risk.id, riskForecastsById);
+  const scenarioTTC = forecast?.scenarioTTC;
+  let timeToCritical = baseSignals.timeToCritical ?? null;
+  let projectedCritical = baseSignals.projectedCritical ?? false;
+  let fallbackToNeutral = false;
+  if (scenarioTTC) {
+    const block = getTTCForScenario(scenarioTTC, scenarioToUse);
+    const neutralBlock = getTTCForScenario(scenarioTTC, "Neutral");
+    fallbackToNeutral = block.fallbackToNeutral;
+    const ttc: number | null = !block.fallbackToNeutral
+      ? block.ttc
+      : !neutralBlock.fallbackToNeutral
+        ? neutralBlock.ttc
+        : null;
+    timeToCritical = ttc;
+    projectedCritical = ttc !== null;
+  }
+  const signals = {
+    ...baseSignals,
+    timeToCritical,
+    projectedCritical,
+    ...(fallbackToNeutral && { fallbackToNeutral: true }),
+  };
   const currentBand = getBand(decision?.compositeScore ?? 0);
-  const rowTint = signals.hasForecast ? rowTintForBand(signals.projectedPeakBand) : undefined;
+  const rowTint =
+    uiMode === "Diagnostic" && signals.hasForecast
+      ? rowTintForBand(signals.projectedPeakBand)
+      : undefined;
+  const recommendedScenario = forecast?.instability?.recommendedScenario;
+  const showLensMismatch =
+    lensMode === "Manual" &&
+    recommendedScenario != null &&
+    manualScenario !== recommendedScenario;
 
+  const isMeeting = uiMode === "Meeting";
   return (
     <div
       id={`risk-${risk.id}`}
       style={{
         display: "grid",
-        gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr",
-        padding: "10px 12px",
+        gridTemplateColumns: "2fr 1fr 1fr 1.5fr 1.5fr 2fr 1fr 1.2fr 0.9fr",
+        padding: isMeeting ? "8px 12px" : "10px 12px",
         borderBottom: "1px solid #eee",
         alignItems: "center",
-        gap: 10,
+        gap: isMeeting ? 8 : 10,
         backgroundColor: rowTint,
       }}
     >
@@ -333,7 +529,101 @@ export function RiskRegisterRow({
         trajectoryState={trajectoryState}
         signals={signals}
         currentBand={currentBand}
+        scenarioToUse={scenarioToUse}
+        uiMode={uiMode}
+        lensDebug={
+          uiMode === "Diagnostic"
+            ? { risk: { instability: forecast?.instability }, lensMode, manualScenario }
+            : undefined
+        }
       />
+
+      {/* Instability: Meeting = one badge only; Diagnostic = full breakdown */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: isMeeting ? 0 : 4,
+          alignItems: "flex-start",
+        }}
+      >
+        {isMeeting ? (
+          <InstabilityBadge
+            instability={forecast?.instability}
+            lensUsed={scenarioToUse}
+            manualScenario={manualScenario}
+            lensMode={lensMode}
+            uiMode={uiMode}
+          />
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+              <InstabilityBadge
+                instability={forecast?.instability}
+                lensUsed={scenarioToUse}
+                manualScenario={manualScenario}
+                lensMode={lensMode}
+                uiMode={uiMode}
+              />
+              {forecast?.earlyWarning && (
+                <span
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 500,
+                    color: "#a16207",
+                    opacity: 0.9,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 2,
+                  }}
+                  title={forecast?.earlyWarningReason?.join(" ") ?? "Early warning"}
+                >
+                  <span aria-hidden style={{ opacity: 0.85 }}>⚠</span>
+                  Early Warning
+                </span>
+              )}
+            </div>
+            {recommendedScenario != null && (
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: "var(--foreground)",
+                    opacity: 0.8,
+                  }}
+                  title={showLensMismatch ? "Recommended lens differs due to instability signals." : undefined}
+                >
+                  Recommended: {recommendedScenario}
+                  {showLensMismatch && (
+                    <span style={{ marginLeft: 4, color: "#737373" }} title="Recommended lens differs due to instability signals.">
+                      · Viewing: {manualScenario} (differs)
+                    </span>
+                  )}
+                </span>
+                {lensMode === "Manual" && (
+                  <ApplyRecommendedButton
+                    recommendedScenario={recommendedScenario}
+                    manualScenario={manualScenario}
+                    onApply={() => setProfile(scenarioNameToProfile(recommendedScenario))}
+                  />
+                )}
+              </div>
+            )}
+            {forecast?.fragility != null && (
+              <span
+                style={{
+                  fontSize: 10,
+                  color: "var(--foreground)",
+                  opacity: 0.65,
+                }}
+                title="Structural fragility: differentiates temporary instability from persistent structural fragility."
+              >
+                Fragility: {forecast.fragility.level}
+              </span>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

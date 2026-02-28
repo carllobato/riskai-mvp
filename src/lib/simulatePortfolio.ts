@@ -1,10 +1,21 @@
 import type { Risk } from "@/domain/risk/risk.schema";
 import type { SimulationRiskSnapshot, SimulationSnapshot } from "@/domain/simulation/simulation.types";
 import { makeId } from "@/lib/id";
+import type { ProjectionProfile } from "@/lib/projectionProfiles";
 
 const DEFAULT_ITERATIONS = 1000;
 const DEFAULT_COST_SPREAD_PCT = 0.2;
 const DEBUG_SIM = false;
+
+/** Spread multiplier by profile (same Day 10 intent: conservative = more uncertainty/wider spread, aggressive = tighter). 0.5–1.5x of neutral. */
+function costSpreadMultiplier(profile: ProjectionProfile): number {
+  const map: Record<ProjectionProfile, number> = {
+    conservative: 1.25,
+    neutral: 1,
+    aggressive: 0.85,
+  };
+  return map[profile];
+}
 
 /** Sample from triangular distribution (min, mode, max). Returns mode if min === max. */
 function triangular(min: number, mode: number, max: number): number {
@@ -52,17 +63,23 @@ function stdDev(arr: number[]): number {
 
 export type SimulatePortfolioOptions = {
   costSpreadPct?: number;
+  /** When set, uses same Day 10 profile to scale cost spread (conservative = wider, aggressive = tighter). */
+  profile?: ProjectionProfile;
 };
 
 /**
  * Monte Carlo-style portfolio simulation. No UI; returns a SimulationSnapshot.
+ * When options.profile is set, cost spread is scaled by the same Day 10 projection profile (one engine, scenario changes parameters).
  */
 export function simulatePortfolio(
   risks: Risk[],
   iterations: number = DEFAULT_ITERATIONS,
   options: SimulatePortfolioOptions = {}
 ): SimulationSnapshot {
-  const spread = options.costSpreadPct ?? DEFAULT_COST_SPREAD_PCT;
+  const baseSpread = options.costSpreadPct ?? DEFAULT_COST_SPREAD_PCT;
+  const spread = options.profile
+    ? baseSpread * costSpreadMultiplier(options.profile)
+    : baseSpread;
 
   const costSamples: number[] = [];
   const daysSamples: number[] = [];

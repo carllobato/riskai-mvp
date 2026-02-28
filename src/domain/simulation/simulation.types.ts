@@ -54,3 +54,12 @@ export type SimulationDelta = {
   portfolioDeltaDaysPct: number;
   riskDeltas: SimulationRiskDelta[];
 };
+
+/** Portfolio summary metrics by scenario (same shape as snapshot totals; used for Outputs tiles). */
+export type PortfolioSummaryByScenario = {
+  p50Cost: number;
+  p80Cost: number;
+  p90Cost: number;
+  totalExpectedCost: number;
+  totalExpectedDays: number;
+};
