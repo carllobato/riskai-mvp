@@ -7,8 +7,9 @@ import { createRisk } from "@/domain/risk/risk.factory";
 import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
 import { getDemoRisks } from "@/data/demoRisks";
+import type { ProjectContext } from "@/lib/projectContext";
 
-export function RiskRegisterHeader() {
+export function RiskRegisterHeader({ projectContext }: { projectContext: ProjectContext | null }) {
   const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
@@ -62,7 +63,25 @@ export function RiskRegisterHeader() {
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
       <div>
-        <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Risk Register</h1>
+        <div className="flex items-center gap-2 flex-wrap">
+          <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Risk Register</h1>
+          {!isMeeting && projectContext != null && (
+            <span
+              className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
+              title="Project context is saved and complete"
+            >
+              Project context: Complete
+            </span>
+          )}
+          {!isMeeting && projectContext == null && (
+            <span
+              className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
+              title="Complete Project Information to use the Risk Register"
+            >
+              Project context: Incomplete
+            </span>
+          )}
+        </div>
         <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
           {risks.length} risk{risks.length === 1 ? "" : "s"}
         </p>
@@ -93,10 +112,28 @@ export function RiskRegisterHeader() {
         )}
       </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <button onClick={() => setRisks(getDemoRisks())}>Load demo</button>
-        <button onClick={() => addRisk(createRisk())}>Add sample</button>
-        <button onClick={clearRisks}>Clear</button>
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setRisks(getDemoRisks())}
+          className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+        >
+          Load demo
+        </button>
+        <button
+          type="button"
+          onClick={() => addRisk(createRisk())}
+          className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+        >
+          Add sample
+        </button>
+        <button
+          type="button"
+          onClick={clearRisks}
+          className="px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30"
+        >
+          Clear
+        </button>
       </div>
     </div>
   );

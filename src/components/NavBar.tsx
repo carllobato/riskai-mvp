@@ -12,6 +12,7 @@ import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 const isDev = process.env.NODE_ENV === "development";
 
 const navItems: { href: string; label: string }[] = [
+  { href: "/project", label: "Project Information" },
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix" },
   { href: "/outputs", label: "Outputs" },
@@ -64,7 +65,7 @@ export function NavBar() {
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
       {/* Left: app name / logo */}
       <Link
-        href="/risk-register"
+        href="/project"
         className="text-lg font-semibold text-[var(--foreground)] no-underline shrink-0 hover:opacity-80 transition-opacity"
       >
         RiskAI

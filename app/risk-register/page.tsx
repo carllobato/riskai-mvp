@@ -1,16 +1,28 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { selectDecisionByRiskId, selectDecisionScoreDelta } from "@/store/selectors";
 import { getForwardSignals } from "@/lib/forwardSignals";
+import { loadProjectContext, isProjectContextComplete, formatMoneyMillions } from "@/lib/projectContext";
 import { RiskRegisterHeader } from "@/components/risk-register/RiskRegisterHeader";
+import { RiskRegisterImportCard } from "@/components/risk-register/RiskRegisterImportCard";
 import { RiskExtractPanel } from "@/components/risk-register/RiskExtractPanel";
 import { RiskRegisterTable } from "@/components/risk-register/RiskRegisterTable";
 
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
+
+function formatProjectSummaryDate(isoDate: string): string {
+  if (!isoDate) return "—";
+  try {
+    return new Date(isoDate).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  } catch {
+    return isoDate;
+  }
+}
 
 function RiskRegisterContent() {
   const { risks, simulation, riskForecastsById } = useRiskRegister();
@@ -19,10 +31,26 @@ function RiskRegisterContent() {
   const [showEarlyWarningOnly, setShowEarlyWarningOnly] = useState(false);
   const [showCriticalInstabilityOnly, setShowCriticalInstabilityOnly] = useState(false);
   const [sortByInstability, setSortByInstability] = useState(false);
+  const [projectContext, setProjectContext] = useState<ReturnType<typeof loadProjectContext>>(null);
+  const [gateChecked, setGateChecked] = useState(false);
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
   const highlightTimeoutRef = useRef<number | null>(null);
+
+  // Gate: redirect to /project if project context is missing or incomplete
+  useEffect(() => {
+    const ctx = loadProjectContext();
+    setProjectContext(ctx);
+    setGateChecked(true);
+  }, []);
+  useEffect(() => {
+    if (!gateChecked) return;
+    if (!isProjectContextComplete(projectContext)) {
+      router.replace("/project");
+      return;
+    }
+  }, [gateChecked, projectContext, router]);
 
   const state = useMemo(() => ({ simulation }), [simulation]);
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
@@ -90,9 +118,38 @@ function RiskRegisterContent() {
     };
   }, [focusRiskId, router]);
 
+  // Show loading until gate is checked; if incomplete we redirect in useEffect
+  if (!gateChecked || !isProjectContextComplete(projectContext)) {
+    return (
+      <main style={{ padding: 24 }}>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
+      </main>
+    );
+  }
+
+  const name = projectContext?.projectName ?? "—";
+  const base =
+    projectContext?.projectValue_m != null ? formatMoneyMillions(projectContext.projectValue_m) : "—";
+  const contingency =
+    projectContext?.contingencyValue_m != null
+      ? formatMoneyMillions(projectContext.contingencyValue_m)
+      : "—";
+  const appetite = projectContext?.riskAppetite ?? "—";
+  const targetDate = projectContext?.targetCompletionDate
+    ? formatProjectSummaryDate(projectContext.targetCompletionDate)
+    : "—";
+
   return (
     <main style={{ padding: 24 }}>
-      <RiskRegisterHeader />
+      <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 px-4 py-2.5 mb-4 text-sm text-neutral-700 dark:text-neutral-300">
+        Project: {name} • Base: {base} • Contingency: {contingency} • Appetite: {appetite} • Target: {targetDate}
+        {" · "}
+        <Link href="/project" className="underline underline-offset-2 hover:no-underline text-neutral-600 dark:text-neutral-400">
+          Edit project
+        </Link>
+      </div>
+      <RiskRegisterHeader projectContext={projectContext} />
+      <RiskRegisterImportCard />
       <RiskExtractPanel />
       {earlyWarningCount > 0 && (
         <button
