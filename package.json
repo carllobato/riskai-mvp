@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "check:forwardExposure": "tsx __dev__/forwardExposureCheck.ts"
   },
   "dependencies": {
     "next": "16.1.6",

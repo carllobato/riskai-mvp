@@ -36,6 +36,28 @@ function normalizeProbability(p: unknown): number {
   return 0;
 }
 
+/** Probability for simulation: prefer risk.probability (0–1, scenario-adjusted) when present. */
+function getSimProbability(risk: Risk): number {
+  if (typeof risk.probability === "number" && Number.isFinite(risk.probability) && risk.probability >= 0 && risk.probability <= 1)
+    return risk.probability;
+  return normalizeProbability(
+    risk.residualRating?.probability ?? risk.inherentRating?.probability
+  );
+}
+
+/** Cost for simulation: prefer baseCostImpact/costImpact (scenario-adjusted) when present. */
+function getSimCostML(risk: Risk): number {
+  const explicit = typeof risk.costImpact === "number" ? risk.costImpact : Number(risk.costImpact);
+  if (Number.isFinite(explicit) && explicit > 0) return explicit;
+  const base = typeof risk.baseCostImpact === "number" && Number.isFinite(risk.baseCostImpact) && risk.baseCostImpact > 0
+    ? risk.baseCostImpact
+    : 0;
+  if (base > 0) return base;
+  return costFromConsequence(
+    risk.residualRating?.consequence ?? risk.inherentRating?.consequence
+  );
+}
+
 function costFromConsequence(consequence: unknown): number {
   const c = typeof consequence === "number" ? consequence : Number(consequence);
   if (!Number.isFinite(c)) return 0;
@@ -108,16 +130,8 @@ export function simulatePortfolio(
     let totalCost = 0;
     let totalDays = 0;
     for (const risk of risks) {
-      const probability = normalizeProbability(
-        risk.residualRating?.probability ?? risk.inherentRating?.probability
-      );
-      const explicitCost =
-        typeof risk.costImpact === "number" ? risk.costImpact : Number(risk.costImpact);
-      const costML =
-        (Number.isFinite(explicitCost) && explicitCost > 0 ? explicitCost : 0) ||
-        costFromConsequence(
-          risk.residualRating?.consequence ?? risk.inherentRating?.consequence
-        );
+      const probability = getSimProbability(risk);
+      const costML = getSimCostML(risk);
       const scheduleDaysML = risk.scheduleImpactDays ?? 0;
 
       const costMin = costML * (1 - spread);
@@ -161,16 +175,8 @@ export function simulatePortfolio(
   const p90 = costSamples[Math.floor(iterations * 0.9)] ?? 0;
 
   const riskSnapshots: SimulationRiskSnapshot[] = risks.map((risk) => {
-    const probability = normalizeProbability(
-      risk.residualRating?.probability ?? risk.inherentRating?.probability
-    );
-    const explicitCost =
-      typeof risk.costImpact === "number" ? risk.costImpact : Number(risk.costImpact);
-    const costML =
-      (Number.isFinite(explicitCost) && explicitCost > 0 ? explicitCost : 0) ||
-      costFromConsequence(
-        risk.residualRating?.consequence ?? risk.inherentRating?.consequence
-      );
+    const probability = getSimProbability(risk);
+    const costML = getSimCostML(risk);
     const scheduleDaysML = risk.scheduleImpactDays ?? 0;
     const expectedCost = probability * costML;
     const expectedDays = probability * scheduleDaysML;

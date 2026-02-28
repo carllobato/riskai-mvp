@@ -14,8 +14,20 @@ import { DecisionPanel } from "@/components/decision/DecisionPanel";
 import { profileToScenarioName } from "@/lib/instability/selectScenarioLens";
 import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
+import { computePortfolioExposure, computeRiskExposureCurve } from "@/engine/forwardExposure";
+import type { PortfolioExposure } from "@/engine/forwardExposure";
+import { normalizeScenarioId, ENGINE_SCENARIO_IDS, type EngineScenarioId } from "@/lib/scenarioId";
 
-type DiagnosticTab = "forecast" | "simulation" | "analytics";
+type DiagnosticTab = "forecast" | "simulation" | "analytics" | "forwardExposure";
+
+/** Sub-tabs for Diagnostic Forward Exposure: Decomposition, Sensitivity, Mitigation */
+type ForwardExposureSubTab = "decomposition" | "sensitivity" | "mitigation";
+
+/** Forward exposure payload keyed by engine scenario IDs (conservative, neutral, aggressive). */
+type ForwardExposurePayload = {
+  horizonMonths: number;
+  results: Record<EngineScenarioId, PortfolioExposure>;
+};
 
 function formatCost(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -108,8 +120,11 @@ export default function OutputsPage() {
   const [intelligenceSort, setIntelligenceSort] = useState<"simMean" | "instability">("simMean");
   const [confidenceWeighted, setConfidenceWeighted] = useState(false);
   const [diagnosticTab, setDiagnosticTab] = useState<DiagnosticTab>("forecast");
+  const [forwardExposureSubTab, setForwardExposureSubTab] = useState<ForwardExposureSubTab>("decomposition");
   const { profile: scenarioProfile, lensMode, uiMode } = useProjectionScenario();
   const { risks, simulation, runSimulation, clearSimulationHistory, riskForecastsById, forwardPressure } = useRiskRegister();
+  /** Single scenario state from dropdown; drives Forward Exposure, simulation display, and P-value. */
+  const selectedScenarioId: EngineScenarioId = normalizeScenarioId(scenarioProfile);
   const manualScenario = profileToScenarioName(scenarioProfile);
   const scenarioComparison = useMemo(
     () => computeScenarioComparison(
@@ -122,11 +137,13 @@ export default function OutputsPage() {
   const pressureDisplay = confidenceWeighted && forwardPressure.forwardPressureWeighted
     ? forwardPressure.forwardPressureWeighted
     : forwardPressure;
-  const { current, history, delta } = simulation;
+  const { current, history, delta, scenarioSnapshots } = simulation;
+  /** Snapshot for selected scenario (cache: scenarioSnapshots keyed by scenarioId; no rerun when switching dropdown). */
+  const snapshotForScenario = scenarioSnapshots?.[selectedScenarioId] ?? current;
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
   const intelligenceRisks = useMemo(
-    () => selectLatestSnapshotRiskIntelligence(current, history ?? []),
-    [current, history]
+    () => selectLatestSnapshotRiskIntelligence(snapshotForScenario ?? current, history ?? []),
+    [snapshotForScenario, current, history]
   );
 
   const autoLensDistribution = useMemo(() => {
@@ -148,12 +165,12 @@ export default function OutputsPage() {
         ? `Forecast Lens: Auto (risk-based) — C:${autoLensDistribution.conservative} N:${autoLensDistribution.neutral} A:${autoLensDistribution.aggressive}`
         : "Forecast Lens: Auto (risk-based)";
 
-  /** Baseline simulation only (not affected by Forecast Lens). */
-  const baselineSummary = current
-    ? { p50Cost: current.p50Cost, p80Cost: current.p80Cost, p90Cost: current.p90Cost, totalExpectedCost: current.totalExpectedCost, totalExpectedDays: current.totalExpectedDays }
+  /** Simulation result for selected scenario (P-value and cost distribution from same scenario). */
+  const baselineSummary = snapshotForScenario
+    ? { p50Cost: snapshotForScenario.p50Cost, p80Cost: snapshotForScenario.p80Cost, p90Cost: snapshotForScenario.p90Cost, totalExpectedCost: snapshotForScenario.totalExpectedCost, totalExpectedDays: snapshotForScenario.totalExpectedDays }
     : null;
-  const baselineEvSum = current?.risks?.length
-    ? current.risks.reduce((s, r) => s + r.expectedCost, 0)
+  const baselineEvSum = snapshotForScenario?.risks?.length
+    ? snapshotForScenario.risks.reduce((s, r) => s + r.expectedCost, 0)
     : 0;
 
   const isMeeting = uiMode === "Meeting";
@@ -172,8 +189,8 @@ export default function OutputsPage() {
     return current.risks.filter((r) => riskForecastsById[r.id]?.earlyWarning === true).length;
   }, [current?.risks, riskForecastsById]);
 
-  /** Meeting mode: median TTC for current scenario */
-  const meetingMedianTtc = scenarioProfile ? scenarioComparison[scenarioProfile]?.medianTtC ?? null : null;
+  /** Meeting mode: median TTC for selected scenario. */
+  const meetingMedianTtc = scenarioComparison[selectedScenarioId]?.medianTtC ?? null;
 
   /** Diagnostic: scenario ordering validation (for Forecast Engine tab) */
   const scenarioOrderingViolation = useMemo(() => {
@@ -190,6 +207,66 @@ export default function OutputsPage() {
     const result = validateScenarioOrdering(snapshots);
     return result.flag === "ScenarioOrderingViolation";
   }, [uiMode, current?.risks, riskForecastsById]);
+
+  /** Forward exposure: one result per engine scenario (conservative, neutral, aggressive). */
+  const forwardExposure: ForwardExposurePayload = useMemo(() => {
+    const horizonMonths = 12;
+    const results = {} as Record<EngineScenarioId, PortfolioExposure>;
+    for (const id of ENGINE_SCENARIO_IDS) {
+      results[id] = computePortfolioExposure(risks, id, horizonMonths, {
+        topN: 10,
+        includeDebug: !isMeeting,
+      });
+    }
+    return { horizonMonths, results };
+  }, [risks, isMeeting]);
+
+  /** Diagnostic only: sensitivity ranking by (Downside - Base) exposure delta per risk */
+  const sensitivityRanking = useMemo(() => {
+    const horizon = 12;
+    return risks
+      .map((risk) => {
+        const baseCurve = computeRiskExposureCurve(risk, "neutral", horizon);
+        const downCurve = computeRiskExposureCurve(risk, "aggressive", horizon);
+        return {
+          riskId: risk.id,
+          title: risk.title,
+          baseTotal: baseCurve.total,
+          downTotal: downCurve.total,
+          delta: downCurve.total - baseCurve.total,
+        };
+      })
+      .sort((a, b) => b.delta - a.delta);
+  }, [risks]);
+
+  /** Diagnostic only: mitigation impact — before (no mitigation) vs after (current), and top reductions */
+  const mitigationData = useMemo(() => {
+    const horizon = 12;
+    const noMitigationProfile = { status: "none" as const, effectiveness: 0, confidence: 0, reduces: 0, lagMonths: 0 };
+    const perRisk: Array<{ riskId: string; title: string; before: number; after: number; reduced: number }> = [];
+    for (const risk of risks) {
+      const riskNoMitigation = { ...risk, mitigationProfile: noMitigationProfile };
+      const before = computeRiskExposureCurve(riskNoMitigation, "neutral", horizon).total;
+      const after = computeRiskExposureCurve(risk, "neutral", horizon).total;
+      perRisk.push({ riskId: risk.id, title: risk.title, before, after, reduced: before - after });
+    }
+    const totalBefore = perRisk.reduce((s, r) => s + r.before, 0);
+    const totalAfter = perRisk.reduce((s, r) => s + r.after, 0);
+    const topMitigations = [...perRisk].sort((a, b) => b.reduced - a.reduced);
+    return { totalBefore, totalAfter, topMitigations };
+  }, [risks]);
+
+  /** Diagnostic: invariant — if all three scenario totals are identical, scenario may not be applied. */
+  const scenarioTotalsIdentical = useMemo(() => {
+    const c = forwardExposure.results.conservative?.total ?? 0;
+    const n = forwardExposure.results.neutral?.total ?? 0;
+    const a = forwardExposure.results.aggressive?.total ?? 0;
+    const tol = 1e-9;
+    return Math.abs(c - n) <= tol && Math.abs(n - a) <= tol;
+  }, [forwardExposure.results]);
+
+  /** Portfolio result for selected scenario (Forward Exposure tiles, chart, top drivers). */
+  const selectedResult = forwardExposure.results[selectedScenarioId];
 
   return (
     <main className="p-6">
@@ -282,13 +359,123 @@ export default function OutputsPage() {
             </div>
           </section>
 
+          {/* 3) Forward Capital Intelligence — selected scenario CaR, comparison, concentration, chart, top 5 (Meeting only) */}
+          <section className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
+            <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
+              Forward Capital Intelligence
+            </h2>
+            <div className="p-4">
+              <div className="grid grid-cols-3 gap-4 text-sm mb-4">
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                    {selectedScenarioId === "conservative" ? "Upside" : selectedScenarioId === "aggressive" ? "Downside" : "Base"} CaR
+                  </div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(selectedResult?.total ?? 0)}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Downside CaR</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(forwardExposure.results.aggressive?.total ?? 0)}</div>
+                </div>
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Concentration %</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {((selectedResult?.concentration?.top3Share ?? 0) * 100).toFixed(1)}%
+                  </div>
+                  <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Top-3 share</div>
+                </div>
+              </div>
+              <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3 mb-4">
+                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
+                  Monthly exposure — selected vs Downside
+                </div>
+                <div className="w-full" style={{ height: 140 }}>
+                  {(() => {
+                    const selectedMonthly = (selectedResult?.monthlyTotal ?? []).slice(0, 12);
+                    const down = (forwardExposure.results.aggressive?.monthlyTotal ?? []).slice(0, 12);
+                    const maxVal = Math.max(1, ...selectedMonthly, ...down);
+                    const w = 100;
+                    const h = 100;
+                    const toPoints = (arr: number[]) =>
+                      arr.map((v, i) => `${(i / 11) * w},${h - (v / maxVal) * h}`);
+                    const areaPath = (arr: number[]) => {
+                      const pts = toPoints(arr);
+                      if (pts.length === 0) return `M 0,${h} L ${w},${h} Z`;
+                      return `M 0,${h} L ${pts.join(" L ")} L ${w},${h} Z`;
+                    };
+                    return (
+                      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full h-full min-h-[100px]">
+                        <defs>
+                          <linearGradient id="areaBase" x1="0" y1="1" x2="0" y2="0">
+                            <stop offset="0%" stopColor="rgb(59 130 246 / 0.3)" />
+                            <stop offset="100%" stopColor="rgb(59 130 246 / 0)" />
+                          </linearGradient>
+                          <linearGradient id="areaDown" x1="0" y1="1" x2="0" y2="0">
+                            <stop offset="0%" stopColor="rgb(234 88 12 / 0.25)" />
+                            <stop offset="100%" stopColor="rgb(234 88 12 / 0)" />
+                          </linearGradient>
+                        </defs>
+                        <path fill="url(#areaDown)" d={areaPath(down)} />
+                        <path fill="url(#areaBase)" d={areaPath(selectedMonthly)} />
+                        <polyline fill="none" stroke="rgb(234 88 12)" strokeWidth="0.8" points={toPoints(down).join(" ")} />
+                        <polyline fill="none" stroke="rgb(59 130 246)" strokeWidth="0.8" points={toPoints(selectedMonthly).join(" ")} />
+                      </svg>
+                    );
+                  })()}
+                </div>
+                <div className="mt-1.5 flex items-center gap-4 text-xs text-neutral-500 dark:text-neutral-400">
+                  <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-blue-500 rounded" /> {selectedScenarioId === "conservative" ? "Upside" : selectedScenarioId === "aggressive" ? "Downside" : "Base"}</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="inline-block w-3 h-0.5 bg-orange-500 rounded" /> Downside</span>
+                </div>
+              </div>
+              <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
+                <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Top 5 drivers</div>
+                <ul className="space-y-2 text-sm">
+                  {(selectedResult?.topDrivers ?? []).slice(0, 5).map((d) => {
+                    const title = risks.find((r) => r.id === d.riskId)?.title ?? d.riskId;
+                    return (
+                      <li key={d.riskId} className="flex justify-between items-baseline gap-2">
+                        <span className="text-neutral-800 dark:text-neutral-200 truncate">{title}</span>
+                        <span className="font-medium text-neutral-700 dark:text-neutral-300 shrink-0">{formatCost(d.total)}</span>
+                      </li>
+                    );
+                  })}
+                  {(selectedResult?.topDrivers ?? []).length === 0 && (
+                    <li className="text-neutral-500 dark:text-neutral-400">No drivers</li>
+                  )}
+                </ul>
+              </div>
+            </div>
+          </section>
+
         </>
       ) : (
         <>
+          {/* Diagnostic: invariant warning when scenario has no effect */}
+          {scenarioTotalsIdentical && (
+            <div className="mt-6 rounded-lg border border-amber-300 dark:border-amber-600 bg-amber-50 dark:bg-amber-900/20 px-4 py-3">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200 m-0">
+                Scenario totals identical — scenario may not be applied or inputs insensitive.
+              </p>
+              <p className="text-xs text-amber-700 dark:text-amber-300 mt-1 m-0">
+                Conservative, neutral, and aggressive exposure totals are the same. Check risk sensitivity or engine inputs.
+              </p>
+            </div>
+          )}
+          {/* Scenario Debug Strip (Diagnostic only): proves scenario selection flows into Outputs */}
+          <div className="mt-6 rounded border border-neutral-300 dark:border-neutral-600 bg-neutral-100 dark:bg-neutral-800/80 px-3 py-2 font-mono text-xs">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+              <span><strong>selectedScenarioId:</strong> {selectedScenarioId}</span>
+              <span><strong>conservative total:</strong> {formatCost(forwardExposure.results.conservative?.total ?? 0)}</span>
+              <span><strong>neutral total:</strong> {formatCost(forwardExposure.results.neutral?.total ?? 0)}</span>
+              <span><strong>aggressive total:</strong> {formatCost(forwardExposure.results.aggressive?.total ?? 0)}</span>
+              <span><strong>main tile (rendered):</strong> {formatCost(selectedResult?.total ?? 0)}</span>
+            </div>
+          </div>
+
           {/* Diagnostic mode: tabbed layout */}
           <div className="mt-8">
             <div className="flex border-b border-neutral-200 dark:border-neutral-700" role="tablist" aria-label="Diagnostic tabs">
-              {(["forecast", "simulation", "analytics"] as const).map((tab) => (
+              {(["forecast", "simulation", "analytics", "forwardExposure"] as const).map((tab) => (
                 <button
                   key={tab}
                   type="button"
@@ -304,6 +491,7 @@ export default function OutputsPage() {
                   {tab === "forecast" && "Forecast Engine"}
                   {tab === "simulation" && "Simulation Engine"}
                   {tab === "analytics" && "Risk Analytics"}
+                  {tab === "forwardExposure" && "Forward Exposure"}
                 </button>
               ))}
             </div>
@@ -375,7 +563,7 @@ export default function OutputsPage() {
 
             {diagnosticTab === "simulation" && (
               <div className="rounded-b-lg border border-t-0 border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-4">
-                <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-4">Baseline simulation (not affected by Forecast Lens).</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-4">Simulation result for selected scenario ({selectedScenarioId}). P-value and cost distribution from same scenario.</p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-4">
                   <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                     <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P50 Cost</div>
@@ -392,9 +580,9 @@ export default function OutputsPage() {
                   <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                     <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Mean Total Cost</div>
                     <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummary?.totalExpectedCost ?? 0)}</div>
-                    {current.risks.length > 0 && (
+                    {(snapshotForScenario?.risks?.length ?? current?.risks?.length) ? (
                       <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">EV {formatCost(baselineEvSum)}</div>
-                    )}
+                    ) : null}
                   </div>
                   <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                     <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Sim StdDev</div>
@@ -577,6 +765,174 @@ export default function OutputsPage() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            )}
+
+            {diagnosticTab === "forwardExposure" && (
+              <div className="rounded-b-lg border border-t-0 border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-4">
+                <p className="text-sm text-neutral-600 dark:text-neutral-400 m-0 mb-2">
+                  Forward Capital Intelligence — conservative (Upside), neutral (Base), aggressive (Downside). Horizon: {forwardExposure.horizonMonths} months. Selected scenario: {selectedScenarioId}.
+                </p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0 mb-4 italic">
+                  Scenario selection drives Forward Exposure, simulation distribution, and P-value.
+                </p>
+                <div className="grid grid-cols-3 gap-4 mb-2">
+                  {ENGINE_SCENARIO_IDS.map((id) => {
+                    const r = forwardExposure.results[id];
+                    return (
+                      <div key={id} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                        <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">{id}</div>
+                        <div className="mt-1 text-lg font-semibold">{formatCost(r?.total ?? 0)}</div>
+                        <div className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{forwardExposure.horizonMonths} months</div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+                  Concentration ({selectedScenarioId}): Top-3 share {((selectedResult?.concentration?.top3Share ?? 0) * 100).toFixed(1)}% · HHI {(selectedResult?.concentration?.hhi ?? 0).toFixed(3)}
+                </div>
+                {selectedResult?.debugWarnings && selectedResult.debugWarnings.length > 0 && (
+                  <div className="mb-4 rounded border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/20 px-3 py-2">
+                    <div className="text-xs font-medium text-amber-800 dark:text-amber-200 uppercase tracking-wide mb-1">Debug warnings</div>
+                    <ul className="text-xs text-amber-700 dark:text-amber-300 space-y-0.5 list-disc list-inside">
+                      {selectedResult.debugWarnings.map((w, i) => (
+                        <li key={i}>{w}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <div className="flex border-b border-neutral-200 dark:border-neutral-700 mb-4" role="tablist" aria-label="Forward exposure views">
+                  {(["decomposition", "sensitivity", "mitigation"] as const).map((tab) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      role="tab"
+                      aria-selected={forwardExposureSubTab === tab}
+                      onClick={() => setForwardExposureSubTab(tab)}
+                      className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                        forwardExposureSubTab === tab
+                          ? "border-neutral-700 dark:border-neutral-300 text-neutral-900 dark:text-neutral-100"
+                          : "border-transparent text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200"
+                      }`}
+                    >
+                      {tab === "decomposition" && "Decomposition"}
+                      {tab === "sensitivity" && "Sensitivity"}
+                      {tab === "mitigation" && "Mitigation"}
+                    </button>
+                  ))}
+                </div>
+
+                {forwardExposureSubTab === "decomposition" && (
+                  <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
+                    <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">By category ({selectedScenarioId}) — total exposure, share %, trend</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Category</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Total exposure</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Share %</th>
+                            <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Trend</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {Object.entries(selectedResult?.byCategory ?? {}).length === 0 ? (
+                            <tr><td colSpan={4} className="py-3 px-3 text-neutral-500 dark:text-neutral-400">No categories</td></tr>
+                          ) : (
+                            (() => {
+                              const total = selectedResult?.total ?? 1;
+                              return Object.entries(selectedResult?.byCategory ?? {}).map(([cat, val]) => (
+                                <tr key={cat} className="border-b border-neutral-100 dark:border-neutral-800">
+                                  <td className="py-2 px-3 capitalize">{cat}</td>
+                                  <td className="py-2 px-3 text-right">{formatCost(val)}</td>
+                                  <td className="py-2 px-3 text-right">{total > 0 ? ((val / total) * 100).toFixed(1) : "0"}%</td>
+                                  <td className="py-2 px-3 text-neutral-500 dark:text-neutral-400">—</td>
+                                </tr>
+                              ));
+                            })()
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {forwardExposureSubTab === "sensitivity" && (
+                  <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
+                    <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">Ranking by (Downside − Base) exposure delta</div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full border-collapse text-sm">
+                        <thead>
+                          <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                            <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Risk</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Base</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Downside</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Delta</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {sensitivityRanking.length === 0 ? (
+                            <tr><td colSpan={4} className="py-3 px-3 text-neutral-500 dark:text-neutral-400">No risks</td></tr>
+                          ) : (
+                            sensitivityRanking.map((row) => (
+                              <tr key={row.riskId} className="border-b border-neutral-100 dark:border-neutral-800">
+                                <td className="py-2 px-3 text-neutral-800 dark:text-neutral-200 truncate max-w-[200px]" title={row.title}>{row.title}</td>
+                                <td className="py-2 px-3 text-right">{formatCost(row.baseTotal)}</td>
+                                <td className="py-2 px-3 text-right">{formatCost(row.downTotal)}</td>
+                                <td className={`py-2 px-3 text-right font-medium ${row.delta >= 0 ? "text-red-600 dark:text-red-400" : "text-green-600 dark:text-green-400"}`}>
+                                  {row.delta >= 0 ? "+" : ""}{formatCost(row.delta)}
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {forwardExposureSubTab === "mitigation" && (
+                  <>
+                    <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3 mb-4">
+                      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Total exposure — before vs after mitigation</div>
+                      <div className="text-sm text-neutral-700 dark:text-neutral-300">
+                        {formatCost(mitigationData.totalBefore)} → {formatCost(mitigationData.totalAfter)}
+                        <span className="ml-2 text-neutral-500 dark:text-neutral-400">
+                          (reduced by {formatCost(mitigationData.totalBefore - mitigationData.totalAfter)})
+                        </span>
+                      </div>
+                    </div>
+                    <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
+                      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide px-3 py-2 border-b border-neutral-200 dark:border-neutral-700">Top mitigations by $ reduced</div>
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                          <thead>
+                            <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                              <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Risk</th>
+                              <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Before</th>
+                              <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">After</th>
+                              <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">$ reduced</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mitigationData.topMitigations.length === 0 ? (
+                              <tr><td colSpan={4} className="py-3 px-3 text-neutral-500 dark:text-neutral-400">No risks</td></tr>
+                            ) : (
+                              mitigationData.topMitigations.map((row) => (
+                                <tr key={row.riskId} className="border-b border-neutral-100 dark:border-neutral-800">
+                                  <td className="py-2 px-3 text-neutral-800 dark:text-neutral-200 truncate max-w-[200px]" title={row.title}>{row.title}</td>
+                                  <td className="py-2 px-3 text-right">{formatCost(row.before)}</td>
+                                  <td className="py-2 px-3 text-right">{formatCost(row.after)}</td>
+                                  <td className="py-2 px-3 text-right font-medium text-green-600 dark:text-green-400">{formatCost(row.reduced)}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>

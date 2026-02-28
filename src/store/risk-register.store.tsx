@@ -9,6 +9,7 @@ import { calculateDelta } from "@/lib/calculateDelta";
 import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
+import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
 import { loadState, saveState } from "@/store/persist";
 import { nowIso } from "@/lib/time";
 import { getLatestSnapshot, getRiskHistory, addRiskSnapshot } from "@/lib/riskSnapshotHistory";
@@ -48,7 +49,7 @@ type PersistedState = {
 const MITIGATION_FIELDS = new Set<keyof Risk>([
   "mitigation",
   "contingency",
-  // extend with more keys if schema gains mitigationPlan, responseStrategy, etc.
+  "mitigationProfile",
 ]);
 
 /** Ensure risk has scoreHistory (empty array if missing). */
@@ -434,10 +435,10 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       runSimulation: (iterations) => {
         const profiles: ProjectionProfile[] = ["conservative", "neutral", "aggressive"];
         const scenarioSnapshots = Object.fromEntries(
-          profiles.map((profile) => [
-            profile,
-            simulatePortfolio(state.risks, iterations, { profile }),
-          ])
+          profiles.map((profile) => {
+            const scenarioRisks = state.risks.map((r) => applyScenarioToRiskInputs(r, profile));
+            return [profile, simulatePortfolio(scenarioRisks, iterations, { profile })];
+          })
         ) as ScenarioSnapshotsMap;
         const snapshot = scenarioSnapshots.neutral;
         dispatch({ type: "simulation/run", payload: { snapshot, scenarioSnapshots } });

@@ -3,6 +3,14 @@ import { buildRating } from "./risk.logic";
 import { makeId } from "@/lib/id";
 import { nowIso } from "@/lib/time";
 
+const DEFAULT_MITIGATION_PROFILE = {
+  status: "active" as const,
+  effectiveness: 0.6,
+  confidence: 0.7,
+  reduces: 0.5,
+  lagMonths: 3,
+};
+
 export function createRisk(partial?: Partial<Risk>): Risk {
   const createdAt = nowIso();
 
@@ -30,6 +38,13 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     dueDate: partial?.dueDate,
     costImpact: partial?.costImpact,
     scheduleImpactDays: partial?.scheduleImpactDays,
+
+    baseCostImpact: partial?.baseCostImpact ?? 50_000,
+    probability: partial?.probability ?? 0.4,
+    escalationPersistence: partial?.escalationPersistence ?? 0.5,
+    sensitivity: partial?.sensitivity ?? 0.5,
+    timeProfile: partial?.timeProfile ?? "mid",
+    mitigationProfile: partial?.mitigationProfile ?? DEFAULT_MITIGATION_PROFILE,
 
     createdAt: partial?.createdAt ?? createdAt,
     updatedAt: partial?.updatedAt ?? createdAt,

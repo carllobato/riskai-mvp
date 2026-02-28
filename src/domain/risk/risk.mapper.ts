@@ -36,6 +36,13 @@ export function draftToRisk(draft: RiskDraft): Risk {
     costImpact: undefined,
     scheduleImpactDays: undefined,
 
+    baseCostImpact: undefined,
+    probability: undefined,
+    escalationPersistence: undefined,
+    sensitivity: undefined,
+    timeProfile: undefined,
+    mitigationProfile: undefined,
+
     createdAt,
     updatedAt: createdAt,
   };

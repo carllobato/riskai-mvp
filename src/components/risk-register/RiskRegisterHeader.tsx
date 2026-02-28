@@ -6,9 +6,10 @@ import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { createRisk } from "@/domain/risk/risk.factory";
 import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
+import { getDemoRisks } from "@/data/demoRisks";
 
 export function RiskRegisterHeader() {
-  const { risks, clearRisks, addRisk, forwardPressure, riskForecastsById } = useRiskRegister();
+  const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
   const isElevated = forwardPressure.pressureClass === "High" || forwardPressure.pressureClass === "Severe";
@@ -93,6 +94,7 @@ export function RiskRegisterHeader() {
       </div>
 
       <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setRisks(getDemoRisks())}>Load demo</button>
         <button onClick={() => addRisk(createRisk())}>Add sample</button>
         <button onClick={clearRisks}>Clear</button>
       </div>

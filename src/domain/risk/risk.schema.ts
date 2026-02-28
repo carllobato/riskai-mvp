@@ -23,6 +23,31 @@ export const RiskLevelSchema = z.enum(["low", "medium", "high", "extreme"]);
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 
 /**
+ * Forward exposure: time profile — either named profile or weights by month.
+ */
+export const TimeProfileKindSchema = z.enum(["front", "mid", "back"]);
+export type TimeProfileKind = z.infer<typeof TimeProfileKindSchema>;
+export const TimeProfileSchema = z.union([
+  TimeProfileKindSchema,
+  z.array(z.number()), // weights by month
+]);
+export type TimeProfile = z.infer<typeof TimeProfileSchema>;
+
+/**
+ * Forward exposure: structured mitigation (status, effectiveness, lag).
+ */
+export const MitigationStatusSchema = z.enum(["none", "planned", "active", "completed"]);
+export type MitigationStatus = z.infer<typeof MitigationStatusSchema>;
+export const MitigationProfileSchema = z.object({
+  status: MitigationStatusSchema,
+  effectiveness: z.number().min(0).max(1),
+  confidence: z.number().min(0).max(1),
+  reduces: z.number().min(0).max(1), // fraction of impact reduced
+  lagMonths: z.number().int().min(0),
+});
+export type MitigationProfile = z.infer<typeof MitigationProfileSchema>;
+
+/**
  * Scales (Day-1: 1–5)
  */
 export const RiskScoreValueSchema = z.number().int().min(1).max(5);
@@ -69,6 +94,19 @@ export const RiskSchema = z.object({
   dueDate: z.string().optional(), // YYYY-MM-DD (simple Day-1)
   costImpact: z.number().optional(),
   scheduleImpactDays: z.number().int().optional(),
+
+  /** Forward exposure: base cost impact (e.g. expected value basis). */
+  baseCostImpact: z.number().optional(),
+  /** Forward exposure: trigger probability 0..1 (distinct from inherent 1–5 scale). */
+  probability: z.number().min(0).max(1).optional(),
+  /** Forward exposure: how much escalation persists over time (0..1). */
+  escalationPersistence: z.number().min(0).max(1).optional(),
+  /** Forward exposure: sensitivity to drivers (0..1). */
+  sensitivity: z.number().min(0).max(1).optional(),
+  /** Forward exposure: timing — 'front'|'mid'|'back' or weights array by month. */
+  timeProfile: TimeProfileSchema.optional(),
+  /** Forward exposure: structured mitigation (status, effectiveness, lag). */
+  mitigationProfile: MitigationProfileSchema.optional(),
 
   createdAt: z.string().min(1), // ISO datetime
   updatedAt: z.string().min(1), // ISO datetime

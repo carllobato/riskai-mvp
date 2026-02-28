@@ -9,11 +9,14 @@ import { useRiskRegister } from "@/store/risk-register.store";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 
+const isDev = process.env.NODE_ENV === "development";
+
 const navItems: { href: string; label: string }[] = [
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix" },
   { href: "/outputs", label: "Outputs" },
   { href: "/day0", label: "Day 0" },
+  ...(isDev ? [{ href: "/dev/health", label: "Engine Health" }] : []),
 ];
 
 const SCENARIO_OPTIONS: { value: ProjectionProfile; label: string }[] = [
