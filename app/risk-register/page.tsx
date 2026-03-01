@@ -19,15 +19,54 @@ import {
   RiskRegisterTable,
   type SortColumn,
   type TableSortState,
+  type ColumnFilters,
 } from "@/components/risk-register/RiskRegisterTable";
 import { AddRiskModal } from "@/components/risk-register/AddRiskModal";
 import { RiskDetailModal, ADD_NEW_RISK_ID } from "@/components/risk-register/RiskDetailModal";
 import { CreateRiskFileModal } from "@/components/risk-register/CreateRiskFileModal";
 import { CreateRiskAIModal } from "@/components/risk-register/CreateRiskAIModal";
-import { matchesFilter } from "@/components/risk-register/riskFilter";
-
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
+
+const LEVEL_LETTER: Record<string, string> = { low: "L", medium: "M", high: "H", extreme: "E" };
+function getRiskColumnValue(risk: Risk, column: SortColumn): string {
+  switch (column) {
+    case "riskId":
+      return risk.riskNumber != null ? String(risk.riskNumber).padStart(3, "0") : "";
+    case "title":
+      return risk.title?.trim() ?? "";
+    case "category":
+      return risk.category;
+    case "owner":
+      return risk.owner ?? "—";
+    case "preRating":
+      return LEVEL_LETTER[risk.inherentRating.level] ?? "L";
+    case "postRating":
+      return risk.mitigation?.trim() ? (LEVEL_LETTER[risk.residualRating.level] ?? "L") : "N/A";
+    case "mitigationMovement": {
+      const pre = risk.inherentRating.score;
+      const post = risk.residualRating.score;
+      if (post > pre) return "↑";
+      if (post < pre) return "↓";
+      return "→";
+    }
+    case "status":
+      return risk.status;
+    default:
+      return "";
+  }
+}
+
+function applyColumnFilters<T>(list: T[], filters: ColumnFilters, getValue: (item: T, col: SortColumn) => string): T[] {
+  let result = list;
+  for (const col of Object.keys(filters) as SortColumn[]) {
+    const values = filters[col];
+    if (!values?.length) continue;
+    const set = new Set(values);
+    result = result.filter((item) => set.has(getValue(item, col)));
+  }
+  return result;
+}
 
 function formatProjectSummaryDate(isoDate: string): string {
   if (!isoDate) return "—";
@@ -116,7 +155,7 @@ function RiskRegisterContent() {
   const [detailInitialRiskId, setDetailInitialRiskId] = useState<string | null>(null);
   const [showCreateRiskFileModal, setShowCreateRiskFileModal] = useState(false);
   const [showCreateRiskAIModal, setShowCreateRiskAIModal] = useState(false);
-  const [filterQuery, setFilterQuery] = useState("");
+  const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -146,11 +185,8 @@ function RiskRegisterContent() {
     [risks, riskForecastsById]
   );
 
-  const filteredRisks = useMemo(() => {
+  const { filteredRisks, risksForFilterOptions } = useMemo(() => {
     let list = risks;
-    if (filterQuery.trim()) {
-      list = list.filter((r) => matchesFilter(r, filterQuery));
-    }
     const flagged = (r: (typeof risks)[0]) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0;
     const projected = (r: (typeof risks)[0]) => {
       const s = getForwardSignals(r.id, riskForecastsById);
@@ -171,6 +207,9 @@ function RiskRegisterContent() {
         return ib - ia;
       });
     }
+    const risksForFilterOptions = list;
+    list = applyColumnFilters(list, columnFilters, getRiskColumnValue);
+
     if (tableSortState) {
       const { column, direction } = tableSortState;
       const mult = direction === "asc" ? 1 : -1;
@@ -210,10 +249,10 @@ function RiskRegisterContent() {
         return mult * cmp;
       });
     }
-    return list;
+    return { filteredRisks: list, risksForFilterOptions };
   }, [
     risks,
-    filterQuery,
+    columnFilters,
     showFlaggedOnly,
     showProjectedOnly,
     showEarlyWarningOnly,
@@ -382,8 +421,6 @@ function RiskRegisterContent() {
         <RiskRegisterHeader
           projectContext={projectContext}
           showReviewRisksButton={filteredRisks.length > 0}
-          filterQuery={filterQuery}
-          onFilterQueryChange={setFilterQuery}
           onReviewRisks={() => {
             setDetailInitialRiskId(null);
             setShowDetailModal(true);
@@ -567,6 +604,7 @@ function RiskRegisterContent() {
       )}
       <RiskRegisterTable
           risks={filteredRisks}
+          risksForFilterOptions={risksForFilterOptions}
           decisionById={decisionById}
           scoreDeltaByRiskId={scoreDeltaByRiskId}
           onRiskClick={(risk) => {
@@ -587,6 +625,13 @@ function RiskRegisterContent() {
               }
               return { column, direction: "asc" as const };
             });
+          }}
+          columnFilters={columnFilters}
+          onColumnFilterChange={(column, values) => {
+            setColumnFilters((prev) => ({
+              ...prev,
+              [column]: values.length > 0 ? values : undefined,
+            }));
           }}
         />
       <RiskDetailModal

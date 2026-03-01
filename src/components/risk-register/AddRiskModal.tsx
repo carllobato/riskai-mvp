@@ -35,6 +35,78 @@ const btnSecondary =
 const btnPrimary =
   "px-4 py-2 rounded-md bg-neutral-800 dark:bg-neutral-200 text-neutral-100 dark:text-neutral-900 text-sm font-medium hover:bg-neutral-700 dark:hover:bg-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-500 dark:focus:ring-neutral-400 shrink-0";
 
+/** Mirror of RiskDetailModal validateNonDraftRisk for AddRiskModal form. applyMitigation = mitigation text provided. */
+function validateAddRiskNonDraft(form: {
+  status: RiskStatus;
+  title: string;
+  description: string;
+  owner: string;
+  ownerCustom: string;
+  appliesTo: AppliesTo;
+  preMitigationProbabilityPct: string;
+  preMitigationCostMin: string;
+  preMitigationCostML: string;
+  preMitigationCostMax: string;
+  preMitigationTimeMin: string;
+  preMitigationTimeML: string;
+  preMitigationTimeMax: string;
+  mitigation: string;
+  postMitigationProbabilityPct: string;
+  postMitigationCostMin: string;
+  postMitigationCostML: string;
+  postMitigationCostMax: string;
+  postMitigationTimeMin: string;
+  postMitigationTimeML: string;
+  postMitigationTimeMax: string;
+}): string[] {
+  if (form.status === "draft") return [];
+  const applyMitigation = !!form.mitigation.trim();
+  const errors: string[] = [];
+  if (!form.title.trim()) errors.push("Title");
+  if (!form.description.trim()) errors.push("Description");
+  if (!form.owner.trim() || (form.owner === "Other" && !form.ownerCustom.trim())) errors.push("Owner");
+  const prePct = parseFloat(form.preMitigationProbabilityPct);
+  if (!Number.isFinite(prePct) || prePct < 0 || prePct > 100) errors.push("Pre-Mitigation Probability %");
+  if (form.appliesTo === "cost" || form.appliesTo === "both") {
+    const preCostMin = parseFloat(form.preMitigationCostMin);
+    if (form.preMitigationCostMin.trim() === "" || !Number.isFinite(preCostMin) || preCostMin < 0) errors.push("Pre-Mitigation Cost Min");
+    const v = parseFloat(form.preMitigationCostML);
+    if (!Number.isFinite(v) || v < 0) errors.push("Pre-Mitigation Cost Most Likely");
+    const preCostMax = parseFloat(form.preMitigationCostMax);
+    if (form.preMitigationCostMax.trim() === "" || !Number.isFinite(preCostMax) || preCostMax < 0) errors.push("Pre-Mitigation Cost Max");
+  }
+  if (form.appliesTo === "time" || form.appliesTo === "both") {
+    const preTimeMin = parseInt(form.preMitigationTimeMin, 10);
+    if (form.preMitigationTimeMin.trim() === "" || !Number.isFinite(preTimeMin) || preTimeMin < 0) errors.push("Pre-Mitigation Time Min");
+    const v = parseInt(form.preMitigationTimeML, 10);
+    if (!Number.isFinite(v) || v < 0) errors.push("Pre-Mitigation Time ML (days)");
+    const preTimeMax = parseInt(form.preMitigationTimeMax, 10);
+    if (form.preMitigationTimeMax.trim() === "" || !Number.isFinite(preTimeMax) || preTimeMax < 0) errors.push("Pre-Mitigation Time Max");
+  }
+  if (applyMitigation) {
+    if (!form.mitigation.trim()) errors.push("Mitigation description");
+    const postPct = parseFloat(form.postMitigationProbabilityPct);
+    if (!Number.isFinite(postPct) || postPct < 0 || postPct > 100) errors.push("Post-Mitigation Probability %");
+    if (form.appliesTo === "cost" || form.appliesTo === "both") {
+      const postCostMin = parseFloat(form.postMitigationCostMin);
+      if (form.postMitigationCostMin.trim() === "" || !Number.isFinite(postCostMin) || postCostMin < 0) errors.push("Post-Mitigation Cost Min");
+      const v = parseFloat(form.postMitigationCostML);
+      if (!Number.isFinite(v) || v < 0) errors.push("Post-Mitigation Cost Most Likely");
+      const postCostMax = parseFloat(form.postMitigationCostMax);
+      if (form.postMitigationCostMax.trim() === "" || !Number.isFinite(postCostMax) || postCostMax < 0) errors.push("Post-Mitigation Cost Max");
+    }
+    if (form.appliesTo === "time" || form.appliesTo === "both") {
+      const postTimeMin = parseInt(form.postMitigationTimeMin, 10);
+      if (form.postMitigationTimeMin.trim() === "" || !Number.isFinite(postTimeMin) || postTimeMin < 0) errors.push("Post-Mitigation Time Min");
+      const v = parseInt(form.postMitigationTimeML, 10);
+      if (!Number.isFinite(v) || v < 0) errors.push("Post-Mitigation Time ML (days)");
+      const postTimeMax = parseInt(form.postMitigationTimeMax, 10);
+      if (form.postMitigationTimeMax.trim() === "" || !Number.isFinite(postTimeMax) || postTimeMax < 0) errors.push("Post-Mitigation Time Max");
+    }
+  }
+  return errors;
+}
+
 export function AddRiskModal({
   open,
   onClose,
@@ -47,7 +119,7 @@ export function AddRiskModal({
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<RiskCategory>("commercial");
-  const [owner, setOwner] = useState<string>("Unassigned");
+  const [owner, setOwner] = useState<string>("");
   const [ownerCustom, setOwnerCustom] = useState("");
   const [status, setStatus] = useState<RiskStatus>("open");
   const [appliesTo, setAppliesTo] = useState<AppliesTo>("both");
@@ -67,6 +139,7 @@ export function AddRiskModal({
   const [postMitigationTimeMin, setPostMitigationTimeMin] = useState("");
   const [postMitigationTimeML, setPostMitigationTimeML] = useState("");
   const [postMitigationTimeMax, setPostMitigationTimeMax] = useState("");
+  const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -115,7 +188,7 @@ export function AddRiskModal({
       setTitle("");
       setDescription("");
       setCategory("commercial");
-      setOwner("Unassigned");
+      setOwner("");
       setOwnerCustom("");
       setStatus("open");
       setAppliesTo("both");
@@ -135,6 +208,7 @@ export function AddRiskModal({
       setPostMitigationTimeMin("");
       setPostMitigationTimeML("");
       setPostMitigationTimeMax("");
+      setValidationErrors([]);
     }
   }, [open]);
 
@@ -150,12 +224,41 @@ export function AddRiskModal({
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
+      const errors = validateAddRiskNonDraft({
+        status,
+        title,
+        description,
+        owner,
+        ownerCustom,
+        appliesTo,
+        preMitigationProbabilityPct,
+        preMitigationCostMin,
+        preMitigationCostML,
+        preMitigationCostMax,
+        preMitigationTimeMin,
+        preMitigationTimeML,
+        preMitigationTimeMax,
+        mitigation,
+        postMitigationProbabilityPct,
+        postMitigationCostMin,
+        postMitigationCostML,
+        postMitigationCostMax,
+        postMitigationTimeMin,
+        postMitigationTimeML,
+        postMitigationTimeMax,
+      });
+      if (errors.length > 0) {
+        setValidationErrors(errors);
+        return;
+      }
+      setValidationErrors([]);
+      const applyMitigation = !!mitigation.trim();
       const prePct = parseNum(preMitigationProbabilityPct) ?? 50;
-      const postPct = parseNum(postMitigationProbabilityPct) ?? 50;
+      const postPct = applyMitigation ? (parseNum(postMitigationProbabilityPct) ?? 50) : prePct;
       const preCostML = parseNum(preMitigationCostML) ?? 0;
       const preTimeML = parseIntNum(preMitigationTimeML) ?? 0;
-      const postCostML = parseNum(postMitigationCostML) ?? preCostML;
-      const postTimeML = parseIntNum(postMitigationTimeML) ?? preTimeML;
+      const postCostML = applyMitigation ? (parseNum(postMitigationCostML) ?? preCostML) : preCostML;
+      const postTimeML = applyMitigation ? (parseIntNum(postMitigationTimeML) ?? preTimeML) : preTimeML;
       const applies = appliesTo;
       const preP = probabilityPctToScale(prePct);
       const preC = applies === "time" ? timeDaysToConsequenceScale(preTimeML) : applies === "cost" ? costToConsequenceScale(preCostML) : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
@@ -172,26 +275,26 @@ export function AddRiskModal({
         appliesTo: applies,
         preMitigationProbabilityPct: prePct,
         preMitigationCostMin: parseNum(preMitigationCostMin),
-        preMitigationCostML: preCostML || undefined,
-        preMitigationCostMax: parseNum(preMitigationCostMax) || undefined,
+        preMitigationCostML: preCostML ?? undefined,
+        preMitigationCostMax: parseNum(preMitigationCostMax) ?? undefined,
         preMitigationTimeMin: parseIntNum(preMitigationTimeMin),
-        preMitigationTimeML: preTimeML || undefined,
-        preMitigationTimeMax: parseIntNum(preMitigationTimeMax) || undefined,
-        mitigation: mitigation.trim() || undefined,
-        mitigationCost: parseNum(mitigationCost) || undefined,
-        postMitigationProbabilityPct: postPct,
-        postMitigationCostMin: parseNum(postMitigationCostMin),
-        postMitigationCostML: postCostML || undefined,
-        postMitigationCostMax: parseNum(postMitigationCostMax) || undefined,
-        postMitigationTimeMin: parseIntNum(postMitigationTimeMin),
-        postMitigationTimeML: postTimeML || undefined,
-        postMitigationTimeMax: parseIntNum(postMitigationTimeMax) || undefined,
+        preMitigationTimeML: preTimeML ?? undefined,
+        preMitigationTimeMax: parseIntNum(preMitigationTimeMax) ?? undefined,
+        mitigation: applyMitigation ? (mitigation.trim() || undefined) : undefined,
+        mitigationCost: applyMitigation ? (parseNum(mitigationCost) ?? undefined) : undefined,
+        postMitigationProbabilityPct: applyMitigation ? postPct : undefined,
+        postMitigationCostMin: applyMitigation ? parseNum(postMitigationCostMin) : undefined,
+        postMitigationCostML: applyMitigation ? (postCostML ?? undefined) : undefined,
+        postMitigationCostMax: applyMitigation ? parseNum(postMitigationCostMax) : undefined,
+        postMitigationTimeMin: applyMitigation ? parseIntNum(postMitigationTimeMin) : undefined,
+        postMitigationTimeML: applyMitigation ? (postTimeML ?? undefined) : undefined,
+        postMitigationTimeMax: applyMitigation ? parseIntNum(postMitigationTimeMax) : undefined,
         inherentRating,
         residualRating,
-        baseCostImpact: preCostML || undefined,
-        costImpact: postCostML || undefined,
-        scheduleImpactDays: postTimeML || undefined,
-        probability: postPct / 100,
+        baseCostImpact: preCostML ?? undefined,
+        costImpact: postCostML ?? undefined,
+        scheduleImpactDays: postTimeML ?? undefined,
+        probability: (applyMitigation ? postPct : prePct) / 100,
       });
       onAdd(risk);
       onClose();
@@ -268,6 +371,12 @@ export function AddRiskModal({
 
         <form onSubmit={handleSubmit} className="flex flex-col min-h-0 flex-1 overflow-hidden">
           <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-4 sm:px-6 py-5 space-y-6">
+            {validationErrors.length > 0 && (
+              <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-800 dark:text-red-200" role="alert">
+                <p className="font-medium mb-1">Complete all required fields before adding (non-draft risks):</p>
+                <ul className="list-disc list-inside">{validationErrors.map((err) => <li key={err}>{err}</li>)}</ul>
+              </div>
+            )}
             {/* General */}
             <section>
               <h3 className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-3">General</h3>
@@ -288,8 +397,9 @@ export function AddRiskModal({
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="add-risk-owner" className={labelClass}>Owner</label>
+                    <label htmlFor="add-risk-owner" className={labelClass}>Owner {status !== "draft" && <span className="text-red-500" aria-label="required">*</span>}</label>
                     <select id="add-risk-owner" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputClass}>
+                      <option value="">Select an Owner</option>
                       {OWNER_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
                     </select>
                     {owner === "Other" && (

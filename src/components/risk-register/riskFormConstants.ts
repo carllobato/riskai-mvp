@@ -1,7 +1,6 @@
 import type { AppliesTo } from "@/domain/risk/risk.schema";
 
 export const OWNER_OPTIONS = [
-  "Unassigned",
   "Project Manager",
   "Risk Owner",
   "Engineering",

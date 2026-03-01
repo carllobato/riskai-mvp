@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect, useState, useRef } from "react";
+import { useMemo, useEffect } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { createRisk } from "@/domain/risk/risk.factory";
@@ -12,20 +12,13 @@ import type { ProjectContext } from "@/lib/projectContext";
 export function RiskRegisterHeader({
   projectContext,
   showReviewRisksButton,
-  filterQuery = "",
-  onFilterQueryChange,
   onReviewRisks,
 }: {
   projectContext: ProjectContext | null;
   showReviewRisksButton?: boolean;
-  filterQuery?: string;
-  onFilterQueryChange?: (value: string) => void;
   onReviewRisks?: () => void;
 }) {
   const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
-  const [filterOpen, setFilterOpen] = useState(false);
-  const filterPopoverRef = useRef<HTMLDivElement>(null);
-  const filterInputRef = useRef<HTMLInputElement>(null);
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
   const isElevated = forwardPressure.pressureClass === "High" || forwardPressure.pressureClass === "Severe";
@@ -74,10 +67,6 @@ export function RiskRegisterHeader({
   }, [autoLensCounts]);
 
   const isMeeting = uiMode === "Meeting";
-
-  useEffect(() => {
-    if (filterOpen) filterInputRef.current?.focus();
-  }, [filterOpen]);
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -138,66 +127,10 @@ export function RiskRegisterHeader({
           <button
             type="button"
             onClick={onReviewRisks}
-            className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
           >
             Review risks
           </button>
-        )}
-        {onFilterQueryChange && (
-          <div className="relative" ref={filterPopoverRef}>
-            <button
-              type="button"
-              onClick={() => setFilterOpen((v) => !v)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md border ${
-                filterQuery.trim()
-                  ? "border-neutral-400 dark:border-neutral-500 bg-neutral-100 dark:bg-neutral-700 text-neutral-800 dark:text-neutral-200"
-                  : "border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-              }`}
-              aria-expanded={filterOpen}
-              aria-haspopup="dialog"
-            >
-              Filter
-            </button>
-            {filterOpen && (
-              <>
-                <div
-                  className="fixed inset-0 z-40"
-                  aria-hidden
-                  onClick={() => setFilterOpen(false)}
-                />
-                <div
-                  role="dialog"
-                  aria-label="Filter risks by all columns"
-                  className="absolute left-0 top-full z-50 mt-1 w-72 rounded-lg border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-900 shadow-lg p-2"
-                >
-                  <div className="flex items-center gap-1 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)]">
-                    <input
-                      ref={filterInputRef}
-                      type="text"
-                      value={filterQuery}
-                      onChange={(e) => onFilterQueryChange(e.target.value)}
-                      placeholder="Search all columns…"
-                      className="flex-1 min-w-0 px-2.5 py-1.5 text-sm bg-transparent border-0 rounded focus:outline-none focus:ring-0 text-[var(--foreground)] placeholder:text-neutral-400"
-                      aria-label="Filter search"
-                    />
-                    {filterQuery && (
-                      <button
-                        type="button"
-                        onClick={() => onFilterQueryChange("")}
-                        className="p-1 rounded text-neutral-500 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                        aria-label="Clear filter"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">
-                    Filters table and review list. Use H/M/L or High/Medium/Low for ratings.
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
         )}
         <button
           type="button"

@@ -29,7 +29,7 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     category,
     status,
 
-    owner: partial?.owner ?? "Unassigned",
+    owner: partial?.owner,
     mitigation: partial?.mitigation ?? "Confirm lead times, place early order, consider alternates",
     contingency: partial?.contingency,
 

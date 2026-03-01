@@ -67,15 +67,8 @@ function getRiskMovement(preScore: number, postScore: number): "↑" | "↓" | "
   return "→";
 }
 
-/** Tailwind classes for Δ movement pill (worsening / improving / stable). */
-const MOVEMENT_PILL_CLASS: Record<"↑" | "↓" | "→", string> = {
-  "↑":
-    "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400",
-  "↓":
-    "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400",
-  "→":
-    "bg-neutral-100 text-[var(--foreground)] dark:bg-neutral-700/50 dark:text-neutral-300",
-};
+/** Tailwind classes for Δ movement pill (stable only). Improving (↓) and Worsening (↑) use post-rating low/high styles for consistency. */
+const MOVEMENT_PILL_CLASS_STABLE = "bg-neutral-100 text-[var(--foreground)] dark:bg-neutral-700/50 dark:text-neutral-300";
 
 const selectStyle: React.CSSProperties = {
   padding: "6px 8px",
@@ -476,7 +469,7 @@ export function RiskRegisterRow({
   const preLetter = levelToLetter(risk.inherentRating.level);
   const postLetter = levelToLetter(risk.residualRating.level);
   const movement = getRiskMovement(risk.inherentRating.score, risk.residualRating.score);
-  const movementPillClass = MOVEMENT_PILL_CLASS[movement];
+  const movementPillClass = movement === "→" ? MOVEMENT_PILL_CLASS_STABLE : "";
   const preStyle = RATING_TABLE_LEVEL_STYLES[risk.inherentRating.level];
   const postStyle = RATING_TABLE_LEVEL_STYLES[risk.residualRating.level];
   const gridCols = onRiskClick
@@ -586,29 +579,39 @@ export function RiskRegisterRow({
         {preLetter}
       </span>
 
-      {/* Post Rating (L / M / H / E) — softer green for L */}
-      <span
-        title={`Residual: ${risk.residualRating.level} (score ${risk.residualRating.score})`}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          justifyContent: "center",
-          minWidth: 28,
-          padding: "2px 6px",
-          borderRadius: 6,
-          fontSize: 13,
-          fontWeight: 600,
-          backgroundColor: postStyle.bg,
-          color: postStyle.text,
-        }}
-      >
-        {postLetter}
-      </span>
+      {/* Post Rating (L / M / H / E) or N/A when no mitigation applied */}
+      {risk.mitigation?.trim() ? (
+        <span
+          title={`Residual: ${risk.residualRating.level} (score ${risk.residualRating.score})`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            minWidth: 28,
+            padding: "2px 6px",
+            borderRadius: 6,
+            fontSize: 13,
+            fontWeight: 600,
+            backgroundColor: postStyle.bg,
+            color: postStyle.text,
+          }}
+        >
+          {postLetter}
+        </span>
+      ) : (
+        <span
+          title="No mitigation applied"
+          className={`inline-flex items-center justify-center min-w-[28px] py-0.5 px-1.5 rounded-md text-[13px] font-semibold ${MOVEMENT_PILL_CLASS_STABLE} opacity-80`}
+        >
+          N/A
+        </span>
+      )}
 
-      {/* Mitigation Movement (coloured pill like Pre/Post) */}
+      {/* Mitigation Movement (coloured pill like Pre/Post; Improving/Worsening use post-rating low/high styles) */}
       <span
         title={movement === "↑" ? "Worsening" : movement === "↓" ? "Improving" : "Stable"}
         className={`inline-flex items-center justify-center min-w-[28px] py-0.5 px-1.5 rounded-md text-[13px] font-semibold ${movementPillClass} ${movement === "→" ? "opacity-80" : ""}`}
+        style={movement === "↓" ? { backgroundColor: RATING_TABLE_LEVEL_STYLES.low.bg, color: RATING_TABLE_LEVEL_STYLES.low.text } : movement === "↑" ? { backgroundColor: RATING_TABLE_LEVEL_STYLES.high.bg, color: RATING_TABLE_LEVEL_STYLES.high.text } : undefined}
       >
         {movement}
       </span>

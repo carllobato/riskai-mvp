@@ -265,9 +265,6 @@ export default function ProjectInformationPage() {
         <CogIcon />
         Project Settings
       </h1>
-      <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6">
-        Define the baseline project context used to interpret risk outputs.
-      </p>
 
       {/* 1) Project Details */}
       <section className={cardClass + " mb-4"}>
