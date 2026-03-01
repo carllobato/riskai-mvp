@@ -32,7 +32,8 @@ const CATEGORIES: RiskCategory[] = [
 const STATUSES: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed"];
 
 const inputClass =
-  "w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-transparent";
+  "w-full h-9 px-3 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-transparent";
+const selectClass = inputClass;
 const labelClass = "block text-sm font-medium text-[var(--foreground)] mb-1";
 
 const btnSecondary =
@@ -72,8 +73,10 @@ export function RiskDetailModal({
   }, [initialRiskId, risks]);
 
   const [currentIndex, setCurrentIndex] = useState(0);
-  // General
+  // Header (editable ID + Title)
+  const [riskNumberDisplay, setRiskNumberDisplay] = useState("");
   const [title, setTitle] = useState("");
+  // General
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState<RiskCategory>("commercial");
   const [owner, setOwner] = useState("Unassigned");
@@ -110,6 +113,7 @@ export function RiskDetailModal({
   const isEmpty = risks.length === 0;
 
   const syncFormFromRisk = useCallback((risk: Risk) => {
+    setRiskNumberDisplay(risk.riskNumber != null ? String(risk.riskNumber) : "");
     setTitle(risk.title);
     setDescription(risk.description ?? "");
     setCategory(risk.category);
@@ -166,6 +170,12 @@ export function RiskDetailModal({
     syncFormFromRisk(currentRisk);
   }, [currentIndex, open, currentRisk?.id, risks.length, syncFormFromRisk]);
 
+  // When filter narrows and current index is out of range, jump to first
+  useEffect(() => {
+    if (!open || risks.length === 0) return;
+    if (currentIndex >= risks.length) setCurrentIndex(0);
+  }, [open, risks.length, currentIndex]);
+
   useEffect(() => {
     if (!open || !modalRef.current) return;
     const el = modalRef.current;
@@ -220,8 +230,11 @@ export function RiskDetailModal({
     const postC = applies === "time" ? timeDaysToConsequenceScale(postTimeML) : applies === "cost" ? costToConsequenceScale(postCostML) : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
     const inherentRating = buildRating(preP, preC);
     const residualRating = buildRating(postP, postC);
+    const num = parseInt(riskNumberDisplay.trim(), 10);
+    const riskNumber = Number.isFinite(num) && num >= 1 ? num : currentRisk.riskNumber;
     return {
       ...currentRisk,
+      riskNumber: riskNumber ?? currentRisk.riskNumber,
       title: title.trim() || currentRisk.title,
       description: description.trim() || undefined,
       category,
@@ -254,6 +267,7 @@ export function RiskDetailModal({
     };
   }, [
     currentRisk,
+    riskNumberDisplay,
     title,
     description,
     category,
@@ -444,64 +458,57 @@ export function RiskDetailModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-4 shrink-0 border-b border-neutral-200 dark:border-neutral-700 px-4 sm:px-6 py-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <h2
-              id="risk-detail-dialog-title"
-              className="text-lg font-semibold text-[var(--foreground)] truncate"
-            >
-              {isAddNewSlot ? "Add new risk" : isEmpty ? "No risks" : `Risk ${currentIndex + 1} of ${totalSlots}`}
-            </h2>
-            {!isEmpty && currentRisk && (
-              <span className="text-sm text-neutral-500 dark:text-neutral-400 truncate" title={currentRisk.title}>
-                {currentRisk.title}
-              </span>
-            )}
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {isAddNewSlot ? (
+              <h2 id="risk-detail-dialog-title" className="text-lg font-semibold text-[var(--foreground)]">
+                Add new risk
+              </h2>
+            ) : isEmpty ? (
+              <h2 id="risk-detail-dialog-title" className="text-lg font-semibold text-[var(--foreground)]">
+                No risks
+              </h2>
+            ) : currentRisk ? (
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <input
+                  type="text"
+                  value={riskNumberDisplay}
+                  onChange={(e) => setRiskNumberDisplay(e.target.value)}
+                  className="w-14 shrink-0 font-mono text-sm font-medium text-[var(--foreground)] bg-transparent border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-neutral-300 dark:focus:border-neutral-600"
+                  aria-label="Risk ID"
+                />
+                <span className="text-neutral-400 dark:text-neutral-500 shrink-0">—</span>
+                <input
+                  type="text"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  className="flex-1 min-w-0 text-lg font-semibold text-[var(--foreground)] bg-transparent border border-transparent hover:border-neutral-300 dark:hover:border-neutral-600 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-neutral-300 dark:focus:border-neutral-600"
+                  aria-label="Risk title"
+                  id="risk-detail-dialog-title"
+                />
+              </div>
+            ) : null}
           </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {hasMultipleOrAddNew && (
-              <>
-                <button
-                  type="button"
-                  onClick={goPrev}
-                  disabled={currentIndex === 0}
-                  className={btnSecondary}
-                  aria-label="Previous risk"
-                >
-                  Previous
-                </button>
-                <button
-                  type="button"
-                  onClick={goNext}
-                  disabled={currentIndex === risks.length}
-                  className={btnSecondary}
-                  aria-label="Next risk"
-                >
-                  Next
-                </button>
-              </>
-            )}
-            <button
-              type="button"
-              onClick={requestClose}
-              className="p-2 rounded-md border border-transparent text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
-              aria-label="Close dialog"
+          <button
+            type="button"
+            onClick={requestClose}
+            className="p-2 rounded-md border border-transparent text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 shrink-0"
+            aria-label="Close dialog"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
             >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M18 6 6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-5 flex flex-col">
@@ -537,27 +544,6 @@ export function RiskDetailModal({
                   <h3 className="text-sm font-medium text-neutral-600 dark:text-neutral-400 mb-3">General</h3>
                   <div className="space-y-3">
                     <div>
-                      <label className={labelClass}>Risk ID</label>
-                      <p className="text-sm text-neutral-600 dark:text-neutral-400 font-mono" title={currentRisk.id}>
-                        {currentRisk.riskNumber != null
-                          ? String(currentRisk.riskNumber).padStart(3, "0")
-                          : currentRisk.id}
-                      </p>
-                    </div>
-                    <div>
-                      <label htmlFor="detail-title" className={labelClass}>
-                        Title <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        id="detail-title"
-                        type="text"
-                        value={title}
-                        onChange={(e) => setTitle(e.target.value)}
-                        className={inputClass}
-                        placeholder="Risk title"
-                      />
-                    </div>
-                    <div>
                       <label htmlFor="detail-description" className={labelClass}>
                         Description
                       </label>
@@ -565,7 +551,7 @@ export function RiskDetailModal({
                         id="detail-description"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        className={`${inputClass} resize-y min-h-[80px]`}
+                        className={`${inputClass} resize-y min-h-[80px] h-auto`}
                         placeholder="Optional description"
                         rows={2}
                       />
@@ -584,7 +570,7 @@ export function RiskDetailModal({
                           id="detail-category"
                           value={category}
                           onChange={(e) => setCategory(e.target.value as RiskCategory)}
-                          className={inputClass}
+                          className={selectClass}
                         >
                           {CATEGORIES.map((c) => (
                             <option key={c} value={c}>
@@ -601,7 +587,7 @@ export function RiskDetailModal({
                           id="detail-owner"
                           value={owner}
                           onChange={(e) => setOwner(e.target.value)}
-                          className={inputClass}
+                          className={selectClass}
                         >
                           {OWNER_OPTIONS.map((o) => (
                             <option key={o} value={o}>
@@ -627,7 +613,7 @@ export function RiskDetailModal({
                           id="detail-status"
                           value={status}
                           onChange={(e) => setStatus(e.target.value as RiskStatus)}
-                          className={inputClass}
+                          className={selectClass}
                         >
                           {STATUSES.map((s) => (
                             <option key={s} value={s}>
@@ -644,7 +630,7 @@ export function RiskDetailModal({
                           id="detail-applies-to"
                           value={appliesTo}
                           onChange={(e) => setAppliesTo(e.target.value as AppliesTo)}
-                          className={inputClass}
+                          className={selectClass}
                         >
                           {APPLIES_TO_OPTIONS.map(({ value, label }) => (
                             <option key={value} value={value}>
@@ -801,6 +787,28 @@ export function RiskDetailModal({
         {(!isEmpty || isAddNewSlot) && (
           <div className="flex flex-wrap justify-between items-center gap-3 shrink-0 px-4 sm:px-6 py-4 border-t border-neutral-200 dark:border-neutral-700 bg-[var(--background)]">
             <div className="flex gap-2">
+              {hasMultipleOrAddNew && !isAddNewSlot && (
+                <>
+                  <button
+                    type="button"
+                    onClick={goPrev}
+                    disabled={currentIndex === 0}
+                    className={btnSecondary}
+                    aria-label="Previous risk"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    onClick={goNext}
+                    disabled={currentIndex === risks.length}
+                    className={btnSecondary}
+                    aria-label="Next risk"
+                  >
+                    Next
+                  </button>
+                </>
+              )}
               {isAddNewSlot && onAddNew && onAddNewWithFile == null && onAddNewWithAI == null && (
                 <button type="button" onClick={onAddNew} className={btnPrimary}>
                   Add new risk
@@ -813,9 +821,6 @@ export function RiskDetailModal({
               )}
             </div>
             <div className="flex gap-2 ml-auto">
-              <button type="button" onClick={requestClose} className={btnSecondary}>
-                Close
-              </button>
               {!isAddNewSlot && (
                 <button type="button" onClick={handleSave} className={btnPrimary}>
                   Save

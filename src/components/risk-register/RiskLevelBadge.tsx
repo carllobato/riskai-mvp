@@ -12,6 +12,17 @@ export const LEVEL_STYLES: Record<
   extreme: { bg: "rgba(127, 29, 29, 0.2)", dot: "#991b1b", text: "#7f1d1d" },
 };
 
+/** Softer green for Pre/Post rating "L" in table so it doesn’t clash with Mitigation Movement green. */
+export const RATING_TABLE_LEVEL_STYLES: Record<
+  RiskLevel,
+  { bg: string; text: string }
+> = {
+  low: { bg: "rgba(74, 222, 128, 0.15)", text: "#15803d" },
+  medium: { bg: "rgba(234, 179, 8, 0.14)", text: "#a16207" },
+  high: { bg: "rgba(239, 68, 68, 0.12)", text: "#b91c1c" },
+  extreme: { bg: "rgba(127, 29, 29, 0.2)", text: "#7f1d1d" },
+};
+
 export function RiskLevelBadge({ level }: { level: RiskLevel }) {
   const s = LEVEL_STYLES[level];
   const label = level.charAt(0).toUpperCase() + level.slice(1);

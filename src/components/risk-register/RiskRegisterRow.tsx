@@ -21,7 +21,7 @@ import type { RiskWithInstability } from "@/lib/instability/selectScenarioLens";
 import type { ScenarioLensMode, ScenarioName } from "@/lib/instability/selectScenarioLens";
 import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
-import { RiskLevelBadge, LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
+import { RiskLevelBadge, LEVEL_STYLES, RATING_TABLE_LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
 import { ForecastConfidenceBadge } from "@/components/risk-register/ForecastConfidenceBadge";
 import { InstabilityBadge } from "@/components/risk-register/InstabilityBadge";
 
@@ -431,6 +431,14 @@ function ApplyRecommendedButton({
   );
 }
 
+const DESCRIPTION_TOOLTIP_MAX_LEN = 140;
+
+function truncateDescription(desc: string): string {
+  const t = desc.trim();
+  if (t.length <= DESCRIPTION_TOOLTIP_MAX_LEN) return t;
+  return t.slice(0, DESCRIPTION_TOOLTIP_MAX_LEN).trimEnd() + "…";
+}
+
 export function RiskRegisterRow({
   risk,
   rowIndex = 0,
@@ -444,6 +452,9 @@ export function RiskRegisterRow({
 }) {
   const { updateRisk } = useRiskRegister();
   const readOnly = Boolean(onRiskClick);
+  const [showDescCard, setShowDescCard] = useState(false);
+  const hasDescription = Boolean(risk.description?.trim());
+  const isDraft = risk.status === "draft";
 
   const cellTextClass = "text-sm text-[var(--foreground)] truncate min-w-0";
   const cellMutedClass = "text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0";
@@ -451,8 +462,13 @@ export function RiskRegisterRow({
   const handleRowClick = (e: React.MouseEvent) => {
     if (!onRiskClick) return;
     const target = e.target as Node;
-    if (target instanceof Element && (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a"))) return;
+    if (target instanceof Element && (target.closest("button") || target.closest("select") || target.closest("input") || target.closest("a") || target.closest("[data-description-card]"))) return;
     onRiskClick(risk);
+  };
+
+  const handleRowFocus = () => { if (hasDescription) setShowDescCard(true); };
+  const handleRowBlur = (e: React.FocusEvent<HTMLDivElement>) => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setShowDescCard(false);
   };
 
   const riskIdDisplay =
@@ -461,6 +477,8 @@ export function RiskRegisterRow({
   const postLetter = levelToLetter(risk.residualRating.level);
   const movement = getRiskMovement(risk.inherentRating.score, risk.residualRating.score);
   const movementPillClass = MOVEMENT_PILL_CLASS[movement];
+  const preStyle = RATING_TABLE_LEVEL_STYLES[risk.inherentRating.level];
+  const postStyle = RATING_TABLE_LEVEL_STYLES[risk.residualRating.level];
   const gridCols = onRiskClick
     ? "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr) minmax(96px, 96px)"
     : "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr)";
@@ -469,7 +487,14 @@ export function RiskRegisterRow({
     <div
       id={`risk-${risk.id}`}
       role={onRiskClick ? "row" : undefined}
+      tabIndex={onRiskClick && hasDescription ? 0 : undefined}
       onClick={handleRowClick}
+      onFocus={handleRowFocus}
+      onBlur={handleRowBlur}
+      className={[
+        onRiskClick && "cursor-pointer transition-colors hover:bg-neutral-50/80 dark:hover:bg-neutral-800/50 hover:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
+        isDraft && "bg-amber-50/40 dark:bg-amber-950/20 border-l-2 border-l-amber-400/60 dark:border-l-amber-500/50",
+      ].filter(Boolean).join(" ")}
       style={{
         display: "grid",
         gridTemplateColumns: gridCols,
@@ -478,7 +503,6 @@ export function RiskRegisterRow({
         alignItems: "center",
         gap: 10,
         minWidth: 0,
-        cursor: onRiskClick ? "pointer" : undefined,
       }}
     >
       {/* Risk ID (persistent 001, 002, …) */}
@@ -486,11 +510,27 @@ export function RiskRegisterRow({
         {riskIdDisplay}
       </span>
 
-      {/* Title */}
+      {/* Title + optional description hover card */}
       {readOnly ? (
-        <span className={cellTextClass} title={risk.title}>
-          {risk.title || "—"}
-        </span>
+        <div
+          className="relative min-w-0"
+          onMouseEnter={() => hasDescription && setShowDescCard(true)}
+          onMouseLeave={() => setShowDescCard(false)}
+        >
+          <span className={`${cellTextClass} block`} title={risk.title}>
+            {risk.title || "—"}
+          </span>
+          {hasDescription && showDescCard && (
+            <div
+              data-description-card
+              role="tooltip"
+              className="absolute left-0 bottom-full z-10 mb-1 max-w-[320px] rounded-md border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2.5 py-2 shadow-md text-xs text-neutral-700 dark:text-neutral-300"
+              style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.1)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }}
+            >
+              {truncateDescription(risk.description ?? "").split("\n").slice(0, 2).join(" ")}
+            </div>
+          )}
+        </div>
       ) : (
         <RiskEditCell
           value={risk.title}
@@ -527,7 +567,7 @@ export function RiskRegisterRow({
         />
       )}
 
-      {/* Pre Rating (L / M / H / E) */}
+      {/* Pre Rating (L / M / H / E) — softer green for L */}
       <span
         title={`Inherent: ${risk.inherentRating.level} (score ${risk.inherentRating.score})`}
         style={{
@@ -539,14 +579,14 @@ export function RiskRegisterRow({
           borderRadius: 6,
           fontSize: 13,
           fontWeight: 600,
-          backgroundColor: LEVEL_STYLES[risk.inherentRating.level].bg,
-          color: LEVEL_STYLES[risk.inherentRating.level].text,
+          backgroundColor: preStyle.bg,
+          color: preStyle.text,
         }}
       >
         {preLetter}
       </span>
 
-      {/* Post Rating (L / M / H / E) */}
+      {/* Post Rating (L / M / H / E) — softer green for L */}
       <span
         title={`Residual: ${risk.residualRating.level} (score ${risk.residualRating.score})`}
         style={{
@@ -558,8 +598,8 @@ export function RiskRegisterRow({
           borderRadius: 6,
           fontSize: 13,
           fontWeight: 600,
-          backgroundColor: LEVEL_STYLES[risk.residualRating.level].bg,
-          color: LEVEL_STYLES[risk.residualRating.level].text,
+          backgroundColor: postStyle.bg,
+          color: postStyle.text,
         }}
       >
         {postLetter}
@@ -576,7 +616,13 @@ export function RiskRegisterRow({
       {/* Status */}
       <div className="flex items-center gap-1.5 flex-wrap">
         {readOnly ? (
-          <span className={cellTextClass}>{formatStatusLabel(risk.status)}</span>
+          isDraft ? (
+            <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 shrink-0">
+              Draft
+            </span>
+          ) : (
+            <span className={cellTextClass}>{formatStatusLabel(risk.status)}</span>
+          )
         ) : (
           <select
             value={risk.status}

@@ -24,6 +24,7 @@ import { AddRiskModal } from "@/components/risk-register/AddRiskModal";
 import { RiskDetailModal, ADD_NEW_RISK_ID } from "@/components/risk-register/RiskDetailModal";
 import { CreateRiskFileModal } from "@/components/risk-register/CreateRiskFileModal";
 import { CreateRiskAIModal } from "@/components/risk-register/CreateRiskAIModal";
+import { matchesFilter } from "@/components/risk-register/riskFilter";
 
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
@@ -115,6 +116,7 @@ function RiskRegisterContent() {
   const [detailInitialRiskId, setDetailInitialRiskId] = useState<string | null>(null);
   const [showCreateRiskFileModal, setShowCreateRiskFileModal] = useState(false);
   const [showCreateRiskAIModal, setShowCreateRiskAIModal] = useState(false);
+  const [filterQuery, setFilterQuery] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -146,6 +148,9 @@ function RiskRegisterContent() {
 
   const filteredRisks = useMemo(() => {
     let list = risks;
+    if (filterQuery.trim()) {
+      list = list.filter((r) => matchesFilter(r, filterQuery));
+    }
     const flagged = (r: (typeof risks)[0]) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0;
     const projected = (r: (typeof risks)[0]) => {
       const s = getForwardSignals(r.id, riskForecastsById);
@@ -208,6 +213,7 @@ function RiskRegisterContent() {
     return list;
   }, [
     risks,
+    filterQuery,
     showFlaggedOnly,
     showProjectedOnly,
     showEarlyWarningOnly,
@@ -376,6 +382,8 @@ function RiskRegisterContent() {
         <RiskRegisterHeader
           projectContext={projectContext}
           showReviewRisksButton={filteredRisks.length > 0}
+          filterQuery={filterQuery}
+          onFilterQueryChange={setFilterQuery}
           onReviewRisks={() => {
             setDetailInitialRiskId(null);
             setShowDetailModal(true);
