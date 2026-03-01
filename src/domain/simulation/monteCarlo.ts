@@ -167,7 +167,7 @@ export type RunMonteCarloOptions = {
 export function runMonteCarloSimulation(
   options: RunMonteCarloOptions
 ): SimulationResult {
-  const { risks, iterations = 100, seed } = options;
+  const { risks, iterations = 10000, seed } = options;
   const n = Math.max(0, Math.floor(iterations));
   const random = seed != null ? seededRandom(seed) : () => Math.random();
 

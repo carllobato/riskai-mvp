@@ -3,7 +3,7 @@ import type { SimulationRiskSnapshot, SimulationSnapshot } from "@/domain/simula
 import { makeId } from "@/lib/id";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 
-const DEFAULT_ITERATIONS = 1000;
+const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_COST_SPREAD_PCT = 0.2;
 const DEBUG_SIM = false;
 

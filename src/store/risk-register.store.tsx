@@ -543,7 +543,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       runSimulation: (iterations) => {
         const hasDraft = state.risks.some((r) => r.status === "draft");
         if (hasDraft) return; // Do not run simulation while any risk is in draft
-        const iterCount = iterations ?? 100;
+        const iterCount = iterations ?? 10000;
         const seed =
           state.simulation.seed != null
             ? state.simulation.seed

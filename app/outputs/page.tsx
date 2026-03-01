@@ -300,7 +300,7 @@ export default function OutputsPage() {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => runSimulation(1000)}
+          onClick={() => runSimulation(10000)}
           disabled={hasDraftRisks}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >

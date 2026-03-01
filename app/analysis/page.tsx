@@ -2,10 +2,12 @@
 
 import React, { useMemo } from "react";
 import {
+  Area,
+  Bar,
   CartesianGrid,
+  ComposedChart,
   Line,
   LineChart,
-  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -30,8 +32,22 @@ import { loadProjectContext } from "@/lib/projectContext";
 type DistributionPoint = { cost: number; frequency: number };
 type CdfPoint = { cost: number; cumulativePct: number };
 
-/** Fixed set of percentile markers (P10–P90) shown on the CDF chart. */
-const CDF_PERCENTILE_MARKERS = [10, 20, 30, 40, 50, 60, 70, 80, 90] as const;
+// --- Chart styling helpers (theme-safe, board-ready) ---
+const fmtMoney = (n: number) =>
+  new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
+const fmtPct = (n: number) => `${Math.round(n)}%`;
+
+/** Nice tick step for distribution Y-axis based on max frequency (handles small values e.g. 0.5, 1, 2). */
+function niceTickStep(max: number): number {
+  if (max <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(max)));
+  const scaled = max / pow; // 1..10
+  let stepScaled = 1;
+  if (scaled <= 2) stepScaled = 0.5;
+  else if (scaled <= 5) stepScaled = 1;
+  else stepScaled = 2;
+  return stepScaled * pow;
+}
 
 function formatCost(value: number): string {
   return new Intl.NumberFormat("en-US", {
@@ -142,6 +158,46 @@ function smoothMovingAverage(
   });
 }
 
+/** Bar chart point: cost, bar % and smoothed %. */
+type BarChartPoint = { cost: number; barPct: number; smoothPct: number };
+
+/** Add smoothPct to bar data using moving average of barPct (window=3). */
+function smoothBarPct(
+  data: { cost: number; barPct: number }[],
+  windowSize: number = 3
+): BarChartPoint[] {
+  if (data.length === 0) return [];
+  const half = Math.floor(windowSize / 2);
+  return data.map((point, i) => {
+    const start = Math.max(0, i - half);
+    const end = Math.min(data.length - 1, i + half);
+    let sum = 0;
+    let count = 0;
+    for (let j = start; j <= end; j++) {
+      sum += data[j].barPct;
+      count++;
+    }
+    const smoothPct = count > 0 ? sum / count : point.barPct;
+    return { cost: point.cost, barPct: point.barPct, smoothPct };
+  });
+}
+
+/** Percentile value from sorted array (0–100). */
+function percentile(sorted: number[], p: number): number {
+  if (sorted.length === 0) return 0;
+  const idx = Math.floor((p / 100) * (sorted.length - 1));
+  return sorted[Math.min(idx, sorted.length - 1)] ?? 0;
+}
+
+/** Build CDF (cost -> cumulative %) from bar/smooth data for decile lookup when no raw samples. */
+function barDataToCdf(data: { cost: number; barPct: number }[]): CdfPoint[] {
+  let cumulative = 0;
+  return data.map((d) => {
+    cumulative += d.barPct;
+    return { cost: d.cost, cumulativePct: cumulative };
+  });
+}
+
 // --- Shared small components (kept in page) ---
 
 function MetricTile({
@@ -183,107 +239,221 @@ function PlaceholderChart({ label }: { label: string }) {
   );
 }
 
+const CHART_HEIGHT = 300;
+const CHART_MARGIN = { top: 10, right: 16, left: 8, bottom: 8 };
+
+const DISTRIBUTION_BIN_COUNT = 28;
+const P10_DECILES = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+
+/** Stable empty array for when samples is null; avoids new reference every render so useMemo deps don't churn. */
+const EMPTY_SAMPLES: number[] = [];
+
 function CostDistributionChart({
   distribution,
+  samples,
   isDerived,
   isDebug,
+  iterationCount,
 }: {
   distribution: DistributionPoint[] | null;
+  samples: number[] | null;
   isDerived?: boolean;
   isDebug?: boolean;
+  iterationCount: number;
 }) {
-  const empty = !distribution || distribution.length === 0;
-  const sortedHistogramData = useMemo(
-    () => (distribution ? [...distribution].sort((a, b) => a.cost - b.cost) : []),
-    [distribution]
-  );
-  const smoothedHistogramData = useMemo(
-    () => smoothMovingAverage(sortedHistogramData, 3),
-    [sortedHistogramData]
-  );
+  const costSamples = samples ?? EMPTY_SAMPLES;
+  const divisor = costSamples.length > 0 ? iterationCount : 1;
+
+  const { smoothData, deciles } = useMemo(() => {
+    let barData: { cost: number; barPct: number }[] = [];
+    if (costSamples.length > 0) {
+      const buckets = binSamplesIntoHistogram(costSamples, DISTRIBUTION_BIN_COUNT);
+      barData = buckets.map((b) => ({
+        cost: b.cost,
+        barPct: (Number(b.frequency) / divisor) * 100,
+      }));
+    } else if (distribution && distribution.length > 0) {
+      const sorted = [...distribution].sort((a, b) => a.cost - b.cost);
+      const total = sorted.reduce((sum, d) => sum + Number(d.frequency), 0);
+      const divisor = total > 0 ? total : 1;
+      barData = sorted.map((d) => ({
+        cost: d.cost,
+        barPct: (Number(d.frequency) / divisor) * 100,
+      }));
+    }
+    const smoothData = smoothBarPct(barData, 3);
+    const sorted = [...costSamples].sort((a, b) => a - b);
+    const deciles =
+      sorted.length > 0
+        ? P10_DECILES.map((p) => ({ p, x: percentile(sorted, p) }))
+        : smoothData.length > 0
+          ? (() => {
+              const cdf = barDataToCdf(smoothData);
+              return P10_DECILES.map((p) => ({
+                p,
+                x: costAtPercentile(cdf, p) ?? smoothData[0]?.cost ?? 0,
+              }));
+            })()
+          : [];
+    return { smoothData, deciles };
+  }, [costSamples, distribution, divisor]);
+
+  const empty = smoothData.length === 0;
+  const { yMax, yTicks } = useMemo(() => {
+    if (smoothData.length === 0) return { yMax: 5, yTicks: [0, 1, 2, 3, 4, 5] };
+    const maxPct = smoothData.reduce(
+      (m, d) => Math.max(m, d.barPct ?? 0, d.smoothPct ?? 0),
+      0
+    );
+    const step = maxPct <= 5 ? 0.5 : maxPct <= 10 ? 1 : 2;
+    const yMax = Math.ceil(maxPct / step) * step;
+    const ticks = Array.from(
+      { length: Math.floor(yMax / step) + 1 },
+      (_, i) => i * step
+    );
+    return { yMax, yTicks: ticks };
+  }, [smoothData]);
+
   const subtitle = empty
     ? null
     : isDerived && isDebug
       ? "Derived from percentiles (no raw samples stored)"
       : isDerived
         ? "Derived from percentiles"
-        : "Monte Carlo Simulation";
+        : `Monte Carlo Simulation (${iterationCount.toLocaleString()} iterations)`;
+
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Cost Distribution</h3>
-        {subtitle && (
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">{subtitle}</p>
+        {!empty && subtitle && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">
+            {subtitle}
+          </p>
+        )}
+        {!empty && !isDebug && (
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0">
+            Bars = histogram, line = smoothed
+          </p>
         )}
         {!empty && isDebug && (
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0 italic">
-            Smoothed (moving average, window=3)
+            Smoothed display (moving average window=3). Raw samples preserved.
+          </p>
+        )}
+        {!empty && isDebug && (
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0">
+            Deciles shown: P10..P90 (labels: P50/P80)
           </p>
         )}
       </div>
-      <div className="p-4 w-full text-[var(--foreground)]" style={{ height: 300 }}>
+      <div className="p-4 w-full text-foreground" style={{ height: CHART_HEIGHT }}>
         {empty ? (
           <div className="h-full flex items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">
             No data
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={smoothedHistogramData} margin={{ top: 10, right: 16, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" vertical={true} horizontal={true} />
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+            <ComposedChart data={smoothData} margin={CHART_MARGIN}>
+              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.2} />
               <XAxis
                 dataKey="cost"
-                tickFormatter={(v) =>
-                  new Intl.NumberFormat("en-AU", {
-                    style: "currency",
-                    currency: "AUD",
-                    maximumFractionDigits: 0,
-                  }).format(Number(v))
-                }
+                domain={[0, "auto"]}
+                tickFormatter={(v) => fmtMoney(Number(v))}
+                interval="preserveStartEnd"
+                minTickGap={40}
+                tickMargin={10}
                 tick={{ fontSize: 11, fill: "var(--foreground)" }}
-                stroke="var(--foreground)"
-                strokeOpacity={0.5}
-                axisLine={{ stroke: "rgba(0,0,0,0.1)" }}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <YAxis
+                domain={[0, yMax]}
+                ticks={yTicks}
+                tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 11, fill: "var(--foreground)" }}
-                stroke="var(--foreground)"
-                strokeOpacity={0.5}
-                axisLine={{ stroke: "rgba(0,0,0,0.1)" }}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "var(--background)",
-                  border: "1px solid rgba(75, 192, 192, 0.5)",
+                  border: "1px solid var(--foreground)",
                   borderRadius: 8,
                   color: "var(--foreground)",
                 }}
-                labelFormatter={(label) =>
-                  new Intl.NumberFormat("en-AU", {
-                    style: "currency",
-                    currency: "AUD",
-                    maximumFractionDigits: 0,
-                  }).format(Number(label))
-                }
-                formatter={(value) => [Math.round(Number(value)), "Frequency"]}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length || label == null) return null;
+                  const bar = payload.find((p) => p.dataKey === "barPct");
+                  const smooth = payload.find((p) => p.dataKey === "smoothPct");
+                  const barVal = bar?.value != null ? Number(bar.value).toFixed(1) : "—";
+                  const smoothVal = smooth?.value != null ? Number(smooth.value).toFixed(1) : "—";
+                  return (
+                    <div className="px-2.5 py-2 text-sm space-y-1">
+                      <div className="font-medium">{fmtMoney(Number(label))}</div>
+                      <div className="text-neutral-500 dark:text-neutral-400">
+                        Histogram: {barVal}%
+                      </div>
+                      <div className="text-neutral-500 dark:text-neutral-400">
+                        Smoothed: {smoothVal}%
+                      </div>
+                    </div>
+                  );
+                }}
               />
-              <Line
-                dataKey="frequency"
-                type="monotone"
-                dot={false}
-                stroke="rgb(75, 192, 192)"
-                strokeWidth={3}
-                fill="rgba(75, 192, 192, 0.1)"
-                fillOpacity={1}
+              <defs>
+                <linearGradient id="distDepth" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity={0.01} />
+                </linearGradient>
+              </defs>
+              <Bar
+                dataKey="barPct"
+                fill="currentColor"
+                fillOpacity={0.08}
+                stroke="none"
                 isAnimationActive={false}
-                connectNulls
               />
-            </LineChart>
+              <Area
+                type="natural"
+                dataKey="smoothPct"
+                stroke="currentColor"
+                strokeWidth={2}
+                fill="url(#distDepth)"
+                fillOpacity={1}
+                dot={false}
+                isAnimationActive={false}
+              />
+              {deciles.map((d) => (
+                <ReferenceLine
+                  key={d.p}
+                  x={d.x}
+                  stroke="currentColor"
+                  strokeWidth={1.5}
+                  strokeDasharray="4 4"
+                  strokeOpacity={0.65}
+                  label={
+                    d.p === 50 || d.p === 80
+                      ? {
+                          value: `P${d.p}`,
+                          position: "insideTop",
+                          fontSize: 12,
+                          fontWeight: 500,
+                          fill: "var(--foreground)",
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
     </div>
   );
 }
+
+const CDF_Y_TICKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
 function CumulativeProbabilityChart({
   cdfData,
@@ -310,90 +480,72 @@ function CumulativeProbabilityChart({
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Cumulative Probability</h3>
-        {subtitle && (
+        {!empty && subtitle && (
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">{subtitle}</p>
         )}
       </div>
-      <div className="p-4 w-full text-[var(--foreground)]" style={{ height: 300 }}>
+      <div className="p-4 w-full text-foreground" style={{ height: CHART_HEIGHT }}>
         {empty ? (
           <div className="h-full flex items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">
             No data
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-            <LineChart data={cdfData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(0,0,0,0.1)" vertical={true} horizontal={true} />
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+            <LineChart data={cdfData} margin={CHART_MARGIN}>
+              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.2} />
               <XAxis
                 dataKey="cost"
-                tickFormatter={(v) => formatCost(v)}
+                tickFormatter={(v) => fmtMoney(Number(v))}
+                interval="preserveStartEnd"
                 tick={{ fontSize: 11, fill: "var(--foreground)" }}
-                stroke="var(--foreground)"
-                strokeOpacity={0.5}
-                axisLine={{ stroke: "rgba(0,0,0,0.1)" }}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <YAxis
                 domain={[0, 100]}
+                ticks={CDF_Y_TICKS}
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fontSize: 11, fill: "var(--foreground)" }}
-                stroke="var(--foreground)"
-                strokeOpacity={0.5}
-                axisLine={{ stroke: "rgba(0,0,0,0.1)" }}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <Tooltip
                 contentStyle={{
                   backgroundColor: "var(--background)",
-                  border: "1px solid rgba(54, 162, 235, 0.5)",
+                  border: "1px solid var(--foreground)",
                   borderRadius: 8,
                   color: "var(--foreground)",
                 }}
-                formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(1)}%`, "Cumulative %"]}
-                labelFormatter={(label) => formatCost(Number(label))}
+                labelFormatter={(label) => fmtMoney(Number(label))}
+                formatter={(value: number | undefined) => [fmtPct(value ?? 0), "Cumulative %"]}
               />
               <Line
                 type="monotone"
                 dataKey="cumulativePct"
-                stroke="rgb(54, 162, 235)"
-                strokeWidth={3}
-                fill="rgba(54, 162, 235, 0.1)"
-                fillOpacity={1}
+                stroke="currentColor"
+                strokeWidth={2}
                 dot={false}
-                isAnimationActive={true}
+                isAnimationActive={false}
                 connectNulls
               />
-              {/* Constant horizontal reference lines at each percentile (P10–P90) */}
-              {CDF_PERCENTILE_MARKERS.map((pct) => (
+              {p50Cost != null && Number.isFinite(p50Cost) && (
                 <ReferenceLine
-                  key={`h-${pct}`}
-                  y={pct}
+                  x={p50Cost}
                   stroke="var(--foreground)"
-                  strokeOpacity={0.2}
-                  strokeDasharray="2 2"
-                  label={{ value: `P${pct}`, position: "right", fontSize: 9, fill: "var(--foreground)" }}
+                  strokeOpacity={0.5}
+                  strokeDasharray="3 3"
+                  label={{ value: "P50", position: "insideTopLeft", fontSize: 12, fill: "var(--foreground)" }}
                 />
-              ))}
-              {/* Vertical line + dot at cost for each percentile (intersection with CDF) */}
-              {CDF_PERCENTILE_MARKERS.map((pct) => {
-                const cost = costAtPercentile(cdfData, pct);
-                if (cost == null) return null;
-                return (
-                  <React.Fragment key={`v-${pct}`}>
-                    <ReferenceLine
-                      x={cost}
-                      stroke="var(--foreground)"
-                      strokeOpacity={0.4}
-                      strokeDasharray="4 2"
-                    />
-                    <ReferenceDot
-                      x={cost}
-                      y={pct}
-                      r={4}
-                      fill="rgb(54, 162, 235)"
-                      stroke="var(--background)"
-                      strokeWidth={1.5}
-                    />
-                  </React.Fragment>
-                );
-              })}
+              )}
+              {p80Cost != null && Number.isFinite(p80Cost) && (
+                <ReferenceLine
+                  x={p80Cost}
+                  stroke="var(--foreground)"
+                  strokeOpacity={0.5}
+                  strokeDasharray="3 3"
+                  label={{ value: "P80", position: "insideTopLeft", fontSize: 12, fill: "var(--foreground)" }}
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -507,7 +659,7 @@ export default function AnalysisPage() {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => runSimulation(isDebug ? 1000 : 100)}
+          onClick={() => runSimulation(10000)}
           disabled={hasDraftRisks}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
@@ -539,7 +691,7 @@ export default function AnalysisPage() {
           )}
           <button
             type="button"
-            onClick={() => runSimulation(isDebug ? 1000 : 100)}
+            onClick={() => runSimulation(10000)}
             className="mt-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
           >
             Run simulation
@@ -554,21 +706,21 @@ export default function AnalysisPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <MetricTile
                 label="Baseline P50 (Neutral)"
-                value={formatCost(neutralSummary!.p50Cost)}
+                value={fmtMoney(neutralSummary!.p50Cost)}
                 helper="Median cost, neutral scenario"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
               <MetricTile
                 label="Baseline P80 (Neutral)"
-                value={formatCost(neutralSummary!.p80Cost)}
+                value={fmtMoney(neutralSummary!.p80Cost)}
                 helper="80th percentile cost"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
               <MetricTile
                 label="Expected Cost (Mean)"
-                value={formatCost(neutralSummary!.totalExpectedCost)}
+                value={fmtMoney(neutralSummary!.totalExpectedCost)}
                 helper="Probability-weighted mean"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
@@ -620,8 +772,14 @@ export default function AnalysisPage() {
               <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 <CostDistributionChart
                   distribution={distribution}
+                  samples={samples ?? null}
                   isDerived={isDerived}
                   isDebug={isDebug}
+                  iterationCount={
+                  samples && samples.length > 0
+                    ? samples.length
+                    : (simulation.neutral?.iterationCount ?? 1)
+                }
                 />
                 <CumulativeProbabilityChart
                   cdfData={cdfData}
