@@ -63,3 +63,36 @@ export type PortfolioSummaryByScenario = {
   totalExpectedCost: number;
   totalExpectedDays: number;
 };
+
+/** Result of Monte Carlo run stored as neutral snapshot (cost/time samples + summary + report). */
+export type MonteCarloNeutralSnapshot = {
+  costSamples: number[];
+  timeSamples: number[];
+  summary: {
+    meanCost: number;
+    p50Cost: number;
+    p80Cost: number;
+    p90Cost: number;
+    minCost: number;
+    maxCost: number;
+    meanTime: number;
+    p50Time: number;
+    p80Time: number;
+    p90Time: number;
+    minTime: number;
+    maxTime: number;
+  };
+  summaryReport: {
+    iterationCount: number;
+    averageCost: number;
+    averageTime: number;
+    costVolatility?: number;
+    p50Cost: number;
+    p80Cost: number;
+    p90Cost: number;
+    minCost: number;
+    maxCost: number;
+  };
+  lastRunAt: number;
+  iterationCount: number;
+};

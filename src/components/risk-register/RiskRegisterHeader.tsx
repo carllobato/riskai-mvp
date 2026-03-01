@@ -11,12 +11,8 @@ import type { ProjectContext } from "@/lib/projectContext";
 
 export function RiskRegisterHeader({
   projectContext,
-  showReviewRisksButton,
-  onReviewRisks,
 }: {
   projectContext: ProjectContext | null;
-  showReviewRisksButton?: boolean;
-  onReviewRisks?: () => void;
 }) {
   const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
@@ -123,15 +119,6 @@ export function RiskRegisterHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        {showReviewRisksButton && onReviewRisks && (
-          <button
-            type="button"
-            onClick={onReviewRisks}
-            className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-          >
-            Review risks
-          </button>
-        )}
         <button
           type="button"
           onClick={() => setRisks(getDemoRisks())}

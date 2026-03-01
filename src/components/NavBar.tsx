@@ -23,6 +23,7 @@ const ALL_NAV_ITEMS: { href: string; label: string; icon?: "cog"; hideInMvp?: bo
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
   { href: "/outputs", label: "Outputs" },
+  { href: "/analysis", label: "Analysis" },
   { href: "/day0", label: "Day 0", hideInMvp: true },
   ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
 ];
@@ -152,67 +153,71 @@ export function NavBar() {
                 Debug
               </button>
             </div>
-            <span
-              className="inline-flex items-center gap-1.5"
-              title="Forecast Lens affects projections, TTC, crossings, pressure, and early warnings. Baseline simulation tiles are unchanged unless explicitly enabled."
-            >
-              <span className="text-neutral-400 dark:text-neutral-500 text-xs cursor-help select-none" aria-hidden>ⓘ</span>
-              <div
-                className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5"
-                role="group"
-                aria-label="Forecast Lens"
-              >
-              <button
-                type="button"
-                onClick={() => setLensMode("Manual")}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  lensMode === "Manual"
-                    ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
-                    : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-                }`}
-              >
-                Manual
-              </button>
-              <button
-                type="button"
-                onClick={() => setLensMode("Auto")}
-                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  lensMode === "Auto"
-                    ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
-                    : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-                }`}
-              >
-                Auto
-              </button>
-            </div>
-            </span>
-            <label htmlFor="projection-scenario" className="sr-only">
-              Forecast Scenario
-            </label>
-            <select
-              id="projection-scenario"
-              aria-label="Forecast Scenario"
-              aria-describedby="projection-scenario-desc"
-              value={profile}
-              onChange={(e) => setProfile(e.target.value as ProjectionProfile)}
-              disabled={isAuto}
-              className={`h-9 min-w-0 max-w-[10rem] rounded-md border border-neutral-200 dark:border-neutral-700 text-sm font-medium px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 ${
-                isAuto
-                  ? "bg-neutral-100 dark:bg-neutral-800/60 text-neutral-500 dark:text-neutral-400 cursor-default"
-                  : "bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)] cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-700"
-              }`}
-            >
-              {SCENARIO_OPTIONS.map(({ value, label }) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <span id="projection-scenario-desc" className="text-neutral-500 dark:text-neutral-400 text-xs hidden sm:inline">
-              Forecast Scenario
-            </span>
+            {uiMode !== "MVP" && (
+              <>
+                <span
+                  className="inline-flex items-center gap-1.5"
+                  title="Forecast Lens affects projections, TTC, crossings, pressure, and early warnings. Baseline simulation tiles are unchanged unless explicitly enabled."
+                >
+                  <span className="text-neutral-400 dark:text-neutral-500 text-xs cursor-help select-none" aria-hidden>ⓘ</span>
+                  <div
+                    className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5"
+                    role="group"
+                    aria-label="Forecast Lens"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setLensMode("Manual")}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                        lensMode === "Manual"
+                          ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
+                          : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      Manual
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLensMode("Auto")}
+                      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                        lensMode === "Auto"
+                          ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
+                          : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
+                      }`}
+                    >
+                      Auto
+                    </button>
+                  </div>
+                </span>
+                <label htmlFor="projection-scenario" className="sr-only">
+                  Forecast Scenario
+                </label>
+                <select
+                  id="projection-scenario"
+                  aria-label="Forecast Scenario"
+                  aria-describedby="projection-scenario-desc"
+                  value={profile}
+                  onChange={(e) => setProfile(e.target.value as ProjectionProfile)}
+                  disabled={isAuto}
+                  className={`h-9 min-w-0 max-w-[10rem] rounded-md border border-neutral-200 dark:border-neutral-700 text-sm font-medium px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 ${
+                    isAuto
+                      ? "bg-neutral-100 dark:bg-neutral-800/60 text-neutral-500 dark:text-neutral-400 cursor-default"
+                      : "bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)] cursor-pointer hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                  }`}
+                >
+                  {SCENARIO_OPTIONS.map(({ value, label }) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                <span id="projection-scenario-desc" className="text-neutral-500 dark:text-neutral-400 text-xs hidden sm:inline">
+                  Forecast Scenario
+                </span>
+              </>
+            )}
           </div>
-          {isAuto && (
+          {uiMode !== "MVP" && isAuto && (
             <p className="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
               Auto uses each risk&apos;s recommended forecast (from instability).
             </p>

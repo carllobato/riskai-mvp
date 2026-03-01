@@ -418,14 +418,7 @@ function RiskRegisterContent() {
         </div>
       )}
       <div className="mb-8">
-        <RiskRegisterHeader
-          projectContext={projectContext}
-          showReviewRisksButton={filteredRisks.length > 0}
-          onReviewRisks={() => {
-            setDetailInitialRiskId(null);
-            setShowDetailModal(true);
-          }}
-        />
+        <RiskRegisterHeader projectContext={projectContext} />
       </div>
       {isDebug && (
         <section className="mb-6">

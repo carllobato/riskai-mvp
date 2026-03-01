@@ -2,12 +2,22 @@
 
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
 import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
-import type { SimulationSnapshot, SimulationDelta } from "@/domain/simulation/simulation.types";
+import type {
+  SimulationSnapshot,
+  SimulationDelta,
+  MonteCarloNeutralSnapshot,
+} from "@/domain/simulation/simulation.types";
 import { buildRating, appendScoreSnapshot } from "@/domain/risk/risk.logic";
 import { computeCompositeScore } from "@/domain/decision/decision.score";
 import { calculateDelta } from "@/lib/calculateDelta";
 import { enrichSnapshotWithIntelligenceMetrics } from "@/lib/simulationSelectors";
 import { simulatePortfolio } from "@/lib/simulatePortfolio";
+import {
+  runMonteCarloSimulation,
+  buildSimulationReport,
+  buildSimulationSnapshotFromResult,
+} from "@/domain/simulation/monteCarlo";
+import { makeId } from "@/lib/id";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
 import { loadState, saveState } from "@/store/persist";
@@ -35,7 +45,7 @@ const PERSIST_SCHEMA_VERSION = 1;
 /** Scenario snapshots keyed by Day 10 profile (one engine, scenario changes parameters). */
 export type ScenarioSnapshotsMap = Record<ProjectionProfile, SimulationSnapshot>;
 
-/** Minimal persisted shape: risks + simulation (current + history + scenarioSnapshots). */
+/** Minimal persisted shape: risks + simulation (current + history + scenarioSnapshots + neutral). */
 type PersistedState = {
   schemaVersion: number;
   risks: Risk[];
@@ -43,6 +53,8 @@ type PersistedState = {
     current?: SimulationSnapshot;
     history: SimulationSnapshot[];
     scenarioSnapshots?: ScenarioSnapshotsMap;
+    neutral?: MonteCarloNeutralSnapshot;
+    seed?: number;
   };
 };
 
@@ -98,6 +110,10 @@ type State = {
     delta?: SimulationDelta | null;
     /** Per-scenario snapshots (same engine, profile changes spread); used for Outputs tiles. */
     scenarioSnapshots?: ScenarioSnapshotsMap;
+    /** Neutral snapshot from Monte Carlo (100 iterations): cost/time samples + summary + report. */
+    neutral?: MonteCarloNeutralSnapshot;
+    /** Optional seed for deterministic Monte Carlo runs. */
+    seed?: number;
   };
   /** Per-risk Day 8 forecast (score-based); updated when intelligence/simulation updates. */
   riskForecastsById: Record<string, RiskMitigationForecast>;
@@ -111,10 +127,26 @@ type Action =
   | { type: "risk/add"; risk: Risk }
   | { type: "risk/delete"; id: string }
   | { type: "risks/clear" }
-  | { type: "simulation/run"; payload: { snapshot: SimulationSnapshot; scenarioSnapshots?: ScenarioSnapshotsMap } }
+  | {
+      type: "simulation/run";
+      payload: {
+        snapshot: SimulationSnapshot;
+        scenarioSnapshots?: ScenarioSnapshotsMap;
+        neutral?: MonteCarloNeutralSnapshot;
+      };
+    }
   | { type: "simulation/clearHistory" }
   | { type: "simulation/setDelta"; delta: SimulationDelta | null }
-  | { type: "simulation/hydrate"; payload: { current?: SimulationSnapshot; history: SimulationSnapshot[]; scenarioSnapshots?: ScenarioSnapshotsMap } }
+  | {
+      type: "simulation/hydrate";
+      payload: {
+        current?: SimulationSnapshot;
+        history: SimulationSnapshot[];
+        scenarioSnapshots?: ScenarioSnapshotsMap;
+        neutral?: MonteCarloNeutralSnapshot;
+        seed?: number;
+      };
+    }
   | { type: "riskForecasts/set"; payload: Record<string, RiskMitigationForecast> };
 
 const initialSimulation = { history: [] as SimulationSnapshot[], delta: null as SimulationDelta | null };
@@ -196,6 +228,7 @@ function reducer(state: State, action: Action): State {
     case "simulation/run": {
       const snapshot = action.payload.snapshot;
       const scenarioSnapshots = action.payload.scenarioSnapshots;
+      const neutral = action.payload.neutral;
       const nextHistoryRaw = [snapshot, ...state.simulation.history].slice(
         0,
         SIMULATION_HISTORY_CAP
@@ -234,6 +267,7 @@ function reducer(state: State, action: Action): State {
           current: enriched,
           history: nextHistory,
           ...(scenarioSnapshots != null && { scenarioSnapshots }),
+          ...(neutral != null && { neutral }),
         },
       };
     }
@@ -241,7 +275,13 @@ function reducer(state: State, action: Action): State {
     case "simulation/clearHistory":
       return {
         ...state,
-        simulation: { history: [], delta: null, scenarioSnapshots: undefined },
+        simulation: {
+          ...state.simulation,
+          history: [],
+          delta: null,
+          scenarioSnapshots: undefined,
+          neutral: undefined,
+        },
       };
 
     case "simulation/setDelta":
@@ -251,7 +291,7 @@ function reducer(state: State, action: Action): State {
       };
 
     case "simulation/hydrate": {
-      const { current, history, scenarioSnapshots } = action.payload;
+      const { current, history, scenarioSnapshots, neutral, seed } = action.payload;
       const capped = Array.isArray(history) ? history.slice(0, SIMULATION_HISTORY_CAP) : [];
       return {
         ...state,
@@ -260,6 +300,8 @@ function reducer(state: State, action: Action): State {
           current: current ?? undefined,
           history: capped,
           ...(scenarioSnapshots != null && { scenarioSnapshots }),
+          ...(neutral != null && { neutral }),
+          ...(seed != null && { seed }),
         },
       };
     }
@@ -317,12 +359,18 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     if (sim) {
       dispatch({
         type: "simulation/hydrate",
-        payload: { current: sim.current, history: sim.history ?? [], scenarioSnapshots: sim.scenarioSnapshots },
+        payload: {
+          current: sim.current,
+          history: sim.history ?? [],
+          scenarioSnapshots: sim.scenarioSnapshots,
+          neutral: sim.neutral,
+          seed: sim.seed,
+        },
       });
     }
   }, []);
 
-  // Persist on change (risks + simulation current/history/scenarioSnapshots)
+  // Persist on change (risks + simulation current/history/scenarioSnapshots/neutral/seed)
   useEffect(() => {
     const payload: PersistedState = {
       schemaVersion: PERSIST_SCHEMA_VERSION,
@@ -331,10 +379,19 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         current: state.simulation.current,
         history: state.simulation.history,
         scenarioSnapshots: state.simulation.scenarioSnapshots,
+        neutral: state.simulation.neutral,
+        seed: state.simulation.seed,
       },
     };
     saveState(STORAGE_KEY, payload);
-  }, [state.risks, state.simulation.current, state.simulation.history, state.simulation.scenarioSnapshots]);
+  }, [
+    state.risks,
+    state.simulation.current,
+    state.simulation.history,
+    state.simulation.scenarioSnapshots,
+    state.simulation.neutral,
+    state.simulation.seed,
+  ]);
 
   // Sync simulation context to server (same as Outputs: neutral = scenarioSnapshots?.neutral ?? current) for mitigation-optimisation API (debounced 300ms)
   useEffect(() => {
@@ -486,18 +543,69 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       runSimulation: (iterations) => {
         const hasDraft = state.risks.some((r) => r.status === "draft");
         if (hasDraft) return; // Do not run simulation while any risk is in draft
-        const profiles: ProjectionProfile[] = ["conservative", "neutral", "aggressive"];
-        const scenarioSnapshots = Object.fromEntries(
-          profiles.map((profile) => {
-            const scenarioRisks = state.risks.map((r) => applyScenarioToRiskInputs(r, profile));
-            return [profile, simulatePortfolio(scenarioRisks, iterations, { profile })];
-          })
-        ) as ScenarioSnapshotsMap;
-        const snapshot = scenarioSnapshots.neutral;
-        dispatch({ type: "simulation/run", payload: { snapshot, scenarioSnapshots } });
+        const iterCount = iterations ?? 100;
+        const seed =
+          state.simulation.seed != null
+            ? state.simulation.seed
+            : Math.random() * 0xffffffff;
+
+        const neutralRisks = state.risks.map((r) =>
+          applyScenarioToRiskInputs(r, "neutral")
+        );
+        const mcResult = runMonteCarloSimulation({
+          risks: neutralRisks,
+          iterations: iterCount,
+          seed,
+        });
+        const snapshotFields = buildSimulationSnapshotFromResult(
+          mcResult,
+          neutralRisks,
+          iterCount
+        );
+        const neutralSnapshot: SimulationSnapshot = {
+          ...snapshotFields,
+          id: makeId("sim"),
+          timestampIso: new Date().toISOString(),
+        };
+        const summaryReport = buildSimulationReport(mcResult, iterCount);
+        const neutral: MonteCarloNeutralSnapshot = {
+          costSamples: mcResult.costSamples,
+          timeSamples: mcResult.timeSamples,
+          summary: mcResult.summary,
+          summaryReport,
+          lastRunAt: Date.now(),
+          iterationCount: iterCount,
+        };
+
+        const conservativeRisks = state.risks.map((r) =>
+          applyScenarioToRiskInputs(r, "conservative")
+        );
+        const aggressiveRisks = state.risks.map((r) =>
+          applyScenarioToRiskInputs(r, "aggressive")
+        );
+        const scenarioSnapshots: ScenarioSnapshotsMap = {
+          neutral: neutralSnapshot,
+          conservative: simulatePortfolio(
+            conservativeRisks,
+            iterCount,
+            { profile: "conservative" }
+          ),
+          aggressive: simulatePortfolio(
+            aggressiveRisks,
+            iterCount,
+            { profile: "aggressive" }
+          ),
+        };
+        dispatch({
+          type: "simulation/run",
+          payload: { snapshot: neutralSnapshot, scenarioSnapshots, neutral },
+        });
         const previous = state.simulation.current;
         if (previous) {
-          dispatch({ type: "simulation/setDelta", delta: calculateDelta(previous, snapshot) });
+          dispatch({
+            type: "simulation/setDelta",
+            delta: calculateDelta(previous, neutralSnapshot),
+          });
         }
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
