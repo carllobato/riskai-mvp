@@ -66,10 +66,10 @@ export function InstabilityBadge({
   lensUsed,
   manualScenario,
   lensMode,
-  uiMode = "Meeting",
+  uiMode = "MVP",
 }: {
   instability: InstabilityResult | undefined;
-  /** Risk Register only: show "Lens used" in tooltip for debug (Diagnostic only). */
+  /** Risk Register only: show "Lens used" in tooltip for debug (Debug only). */
   lensUsed?: ScenarioName;
   manualScenario?: ScenarioName;
   lensMode?: ScenarioLensMode;
@@ -97,20 +97,20 @@ export function InstabilityBadge({
 
   const { index, level, breakdown, recommendedScenario, rationale, flags, momentum } = instability;
   const style = badgeStyleForLevel(level);
-  const showMomentumIcon = uiMode === "Diagnostic";
+  const showMomentumIcon = uiMode === "Debug";
   const momentumIcon = showMomentumIcon && (momentum === "Rising" ? "↑" : momentum === "Falling" ? "↓" : null);
-  const isMeeting = uiMode === "Meeting";
-  const badgeLabel = isMeeting ? `EII ${index} · ${meetingLevelLabel[level]}` : `EII ${index}`;
+  const isMvp = uiMode === "MVP";
+  const badgeLabel = isMvp ? `EII ${index} · ${meetingLevelLabel[level]}` : `EII ${index}`;
 
   return (
     <div ref={wrapperRef} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
       <button
         type="button"
-        style={{ ...style, minWidth: isMeeting ? 72 : undefined }}
-        onClick={() => !isMeeting && setOpen((o) => !o)}
-        title={isMeeting ? `Escalation Instability Index: ${meetingLevelLabel[level]}` : "Escalation Instability Index — click for details"}
-        aria-expanded={isMeeting ? false : open}
-        aria-haspopup={isMeeting ? undefined : "dialog"}
+        style={{ ...style, minWidth: isMvp ? 72 : undefined }}
+        onClick={() => !isMvp && setOpen((o) => !o)}
+        title={isMvp ? `Escalation Instability Index: ${meetingLevelLabel[level]}` : "Escalation Instability Index — click for details"}
+        aria-expanded={isMvp ? false : open}
+        aria-haspopup={isMvp ? undefined : "dialog"}
       >
         {badgeLabel}
       </button>
@@ -119,7 +119,7 @@ export function InstabilityBadge({
           {momentumIcon}
         </span>
       )}
-      {open && !isMeeting && (
+      {open && !isMvp && (
         <div
           role="dialog"
           aria-label="EII breakdown"
@@ -145,7 +145,7 @@ export function InstabilityBadge({
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
             Level: {level}
           </div>
-          {uiMode === "Diagnostic" && (
+          {uiMode === "Debug" && (
             <>
               <div style={{ marginBottom: 8 }}>
                 <div style={{ fontWeight: 500, marginBottom: 4, color: "var(--foreground)", opacity: 0.9 }}>Breakdown</div>
@@ -173,7 +173,7 @@ export function InstabilityBadge({
             <div style={{ fontWeight: 500, marginBottom: 4 }}>Recommended scenario</div>
             <div style={{ opacity: 0.9 }}>{recommendedScenario}</div>
           </div>
-          {uiMode === "Diagnostic" && lensUsed != null && (
+          {uiMode === "Debug" && lensUsed != null && (
             <div style={{ marginBottom: 8, fontSize: 11, color: "var(--foreground)", opacity: 0.8, display: "flex", alignItems: "center", gap: 6 }}>
               <span>
                 Lens used: {lensUsed}
@@ -199,7 +199,7 @@ export function InstabilityBadge({
               </ul>
             </div>
           )}
-          {uiMode === "Diagnostic" && flags.length > 0 && (
+          {uiMode === "Debug" && flags.length > 0 && (
             <div>
               <div style={{ fontWeight: 500, marginBottom: 4 }}>Flags</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>

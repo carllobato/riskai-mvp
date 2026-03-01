@@ -180,7 +180,7 @@ export default function OutputsPage() {
     ? { p50Cost: snapshotNeutral.p50Cost, p80Cost: snapshotNeutral.p80Cost, p90Cost: snapshotNeutral.p90Cost, totalExpectedCost: snapshotNeutral.totalExpectedCost, totalExpectedDays: snapshotNeutral.totalExpectedDays }
     : null;
 
-  const isMeeting = uiMode === "Meeting";
+  const isMvp = uiMode === "MVP";
 
   /** Meeting mode: pressure label Low / Elevated / High */
   const meetingPressureLabel =
@@ -201,7 +201,7 @@ export default function OutputsPage() {
 
   /** Diagnostic: scenario ordering validation (for Forecast Engine tab) */
   const scenarioOrderingViolation = useMemo(() => {
-    if (uiMode !== "Diagnostic" || !current?.risks?.length) return false;
+    if (uiMode !== "Debug" || !current?.risks?.length) return false;
     const snapshots = current.risks
       .map((r) => riskForecastsById[r.id]?.scenarioTTC)
       .filter((t): t is NonNullable<typeof t> => t != null)
@@ -222,11 +222,11 @@ export default function OutputsPage() {
     for (const id of ENGINE_SCENARIO_IDS) {
       results[id] = computePortfolioExposure(risks, id, horizonMonths, {
         topN: 10,
-        includeDebug: !isMeeting,
+        includeDebug: !isMvp,
       });
     }
     return { horizonMonths, results };
-  }, [risks, isMeeting]);
+  }, [risks, isMvp]);
 
   /** Diagnostic only: sensitivity ranking by (Downside - Base) exposure delta per risk */
   const sensitivityRanking = useMemo(() => {
@@ -277,7 +277,7 @@ export default function OutputsPage() {
 
   // Dev assertion: Meeting mode Cost Exposure block must always show neutral baseline; scenario toggle must not change these tiles.
   useEffect(() => {
-    if (process.env.NODE_ENV !== "development" || !isMeeting || !snapshotNeutral) return;
+    if (process.env.NODE_ENV !== "development" || !isMvp || !snapshotNeutral) return;
     const neutralP80 = snapshotNeutral.p80Cost;
     const displayedP80 = baselineSummaryNeutral?.p80Cost;
     if (selectedScenarioId !== "neutral" && neutralP80 !== displayedP80) {
@@ -286,12 +286,12 @@ export default function OutputsPage() {
         { selectedScenarioId, neutralP80, displayedP80 }
       );
     }
-  }, [isMeeting, selectedScenarioId, snapshotNeutral, baselineSummaryNeutral?.p80Cost]);
+  }, [isMvp, selectedScenarioId, snapshotNeutral, baselineSummaryNeutral?.p80Cost]);
 
   return (
     <main className="p-6">
       <h1 className="text-2xl font-semibold m-0">Outputs</h1>
-      {!isMeeting && (
+      {!isMvp && (
         <p className="mt-1.5 opacity-80">
           Simulation results and risk-level deltas.
         </p>
@@ -320,7 +320,7 @@ export default function OutputsPage() {
         )}
       </div>
 
-      {isMeeting && selectedScenarioId !== "neutral" && (
+      {isMvp && selectedScenarioId !== "neutral" && (
         <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400" role="status">
           Scenario Overlay — baseline cost remains Neutral
         </p>
@@ -330,7 +330,7 @@ export default function OutputsPage() {
         <p className="mt-8 text-neutral-600 dark:text-neutral-400">
           No simulation run yet. Add risks in the Risk Register, then run a simulation.
         </p>
-      ) : isMeeting ? (
+      ) : isMvp ? (
         /* Meeting mode: project-first — Project Cost (baseline) first, then Scenario Exposure, then Forecast Summary. */
         <>
           {/* 1) Project Cost (Baseline – Neutral) — always first; scenario selector does not change these tiles. */}

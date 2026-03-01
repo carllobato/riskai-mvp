@@ -247,7 +247,7 @@ function DecisionCell({
   if (!decision) return <span style={{ fontSize: 12, color: "#737373" }}>—</span>;
 
   // Meeting mode: single clean status badge only
-  if (uiMode === "Meeting") {
+  if (uiMode === "MVP") {
     const meetingStatus = getMeetingStatus(
       currentBand,
       { hasForecast, projectedCritical, mitigationInsufficient },
@@ -450,7 +450,6 @@ export function RiskRegisterRow({
   const isDraft = risk.status === "draft";
 
   const cellTextClass = "text-sm text-[var(--foreground)] truncate min-w-0";
-  const cellMutedClass = "text-sm text-neutral-500 dark:text-neutral-400 truncate min-w-0";
 
   const handleRowClick = (e: React.MouseEvent) => {
     if (!onRiskClick) return;
@@ -517,10 +516,10 @@ export function RiskRegisterRow({
             <div
               data-description-card
               role="tooltip"
-              className="absolute left-0 bottom-full z-10 mb-1 max-w-[320px] rounded-md border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2.5 py-2 shadow-md text-xs text-neutral-700 dark:text-neutral-300"
-              style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.1)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const, overflow: "hidden" }}
+              className="absolute left-0 top-full z-10 mt-1 w-max min-w-0 max-w-[320px] rounded-md border border-neutral-200 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2.5 py-2 shadow-md text-xs text-neutral-700 dark:text-neutral-300 whitespace-normal"
+              style={{ boxShadow: "0 4px 12px rgba(0,0,0,0.1)" }}
             >
-              {truncateDescription(risk.description ?? "").split("\n").slice(0, 2).join(" ")}
+              {truncateDescription(risk.description ?? "").split("\n").join(" ")}
             </div>
           )}
         </div>
@@ -551,7 +550,7 @@ export function RiskRegisterRow({
 
       {/* Owner */}
       {readOnly ? (
-        <span className={cellMutedClass}>{risk.owner ?? "—"}</span>
+        <span className={cellTextClass}>{risk.owner ?? "—"}</span>
       ) : (
         <RiskEditCell
           value={risk.owner ?? ""}

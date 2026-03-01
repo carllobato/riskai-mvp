@@ -44,7 +44,7 @@ export function RiskRegisterHeader({
   }, [lensMode, risks, riskForecastsById]);
 
   const scenarioOrderingViolation = useMemo(() => {
-    if (uiMode !== "Diagnostic" || risks.length === 0) return false;
+    if (uiMode !== "Debug" || risks.length === 0) return false;
     const snapshots = risks
       .map((r) => riskForecastsById[r.id]?.scenarioTTC)
       .filter((t): t is NonNullable<typeof t> => t != null)
@@ -66,14 +66,14 @@ export function RiskRegisterHeader({
     }
   }, [autoLensCounts]);
 
-  const isMeeting = uiMode === "Meeting";
+  const isMvp = uiMode === "MVP";
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
       <div>
         <div className="flex items-center gap-2 flex-wrap">
           <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Risk Register</h1>
-          {!isMeeting && projectContext != null && (
+          {!isMvp && projectContext != null && (
             <span
               className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
               title="Project context is saved and complete"
@@ -81,7 +81,7 @@ export function RiskRegisterHeader({
               Project context: Complete
             </span>
           )}
-          {!isMeeting && projectContext == null && (
+          {!isMvp && projectContext == null && (
             <span
               className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300"
               title="Complete Project Settings to use the Risk Register"
@@ -90,12 +90,12 @@ export function RiskRegisterHeader({
             </span>
           )}
         </div>
-        {!isMeeting && (
+        {!isMvp && (
           <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
             {risks.length} risk{risks.length === 1 ? "" : "s"}
           </p>
         )}
-        {!isMeeting && (
+        {!isMvp && (
           <>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
               Forward pressure: {forwardPressure.pressureClass} — {pct}% projected critical

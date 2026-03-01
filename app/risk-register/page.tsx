@@ -134,7 +134,7 @@ function deduplicateByTitle(risks: Risk[]): Risk[] {
 function RiskRegisterContent() {
   const { uiMode } = useProjectionScenario();
   const { risks, simulation, riskForecastsById, addRisk, appendRisks, updateRisk } = useRiskRegister();
-  const isDiagnostic = uiMode === "Diagnostic";
+  const isDebug = uiMode === "Debug";
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [showProjectedOnly, setShowProjectedOnly] = useState(false);
   const [showEarlyWarningOnly, setShowEarlyWarningOnly] = useState(false);
@@ -408,7 +408,7 @@ function RiskRegisterContent() {
 
   return (
     <main style={{ padding: 24 }}>
-      {isDiagnostic && (
+      {isDebug && (
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 px-4 py-2.5 mb-4 text-sm text-neutral-700 dark:text-neutral-300">
           Project: {name} • Base: {base} • Contingency: {contingency} • Appetite: {appetite} • Target: {targetDate}
           {" · "}
@@ -427,7 +427,7 @@ function RiskRegisterContent() {
           }}
         />
       </div>
-      {isDiagnostic && (
+      {isDebug && (
         <section className="mb-6">
           <h2 className="text-lg font-semibold text-[var(--foreground)] mb-3">Generate risks</h2>
           <div className="grid grid-cols-3 gap-4">
@@ -444,7 +444,7 @@ function RiskRegisterContent() {
           <div className={`${containerClass} min-w-0`}>
             <h3 className={boxTitleClass}>Generate Risk with Text Entry</h3>
             <div className="flex-1 min-h-0 flex flex-col">
-              <RiskExtractPanel hideTitle showStatus={isDiagnostic} />
+              <RiskExtractPanel hideTitle showStatus={isDebug} />
             </div>
           </div>
           <div className={`${containerClass} min-w-0`}>
@@ -532,7 +532,7 @@ function RiskRegisterContent() {
           </div>
         </section>
       )}
-      {isDiagnostic && (
+      {isDebug && (
         <>
           {earlyWarningCount > 0 && (
             <button

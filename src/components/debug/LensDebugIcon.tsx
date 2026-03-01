@@ -22,11 +22,11 @@ type AggregateProps = {
 
 /**
  * Tiny debug icon shown next to scenario-driven values when lens is Auto.
- * Only visible when uiMode === "Diagnostic". Use title for tooltip.
+ * Only visible when uiMode === "Debug". Use title for tooltip.
  */
 export function LensDebugIcon(props: PerRiskProps | AggregateProps) {
   const uiMode = "uiMode" in props ? props.uiMode : undefined;
-  if (uiMode !== "Diagnostic") return null;
+  if (uiMode !== "Debug") return null;
 
   const isAggregate = "aggregate" in props && props.aggregate === true;
   const lensMode = props.lensMode;

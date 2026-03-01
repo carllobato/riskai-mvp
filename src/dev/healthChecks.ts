@@ -412,20 +412,20 @@ export const groupedHealthChecks: GroupedCheck[] = [
   // ---------- UI Gating ----------
   {
     group: "UI Gating",
-    name: "Meeting mode must NOT show debug (includeDebug false)",
+    name: "MVP mode must NOT show debug (includeDebug false)",
     run: () => {
-      if (includeDebugForExposure("Meeting") !== false)
-        return { status: "fail", message: "includeDebugForExposure('Meeting') must be false", details: { got: includeDebugForExposure("Meeting") } };
-      return { status: "pass", message: "Meeting ⇒ includeDebug false" };
+      if (includeDebugForExposure("MVP") !== false)
+        return { status: "fail", message: "includeDebugForExposure('MVP') must be false", details: { got: includeDebugForExposure("MVP") } };
+      return { status: "pass", message: "MVP ⇒ includeDebug false" };
     },
   },
   {
     group: "UI Gating",
-    name: "Diagnostic mode must show debug (includeDebug true)",
+    name: "Debug mode must show debug (includeDebug true)",
     run: () => {
-      if (includeDebugForExposure("Diagnostic") !== true)
-        return { status: "fail", message: "includeDebugForExposure('Diagnostic') must be true", details: { got: includeDebugForExposure("Diagnostic") } };
-      return { status: "pass", message: "Diagnostic ⇒ includeDebug true" };
+      if (includeDebugForExposure("Debug") !== true)
+        return { status: "fail", message: "includeDebugForExposure('Debug') must be true", details: { got: includeDebugForExposure("Debug") } };
+      return { status: "pass", message: "Debug ⇒ includeDebug true" };
     },
   },
   // ---------- Lens Range Integrity ----------

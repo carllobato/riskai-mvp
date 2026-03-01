@@ -18,13 +18,13 @@ const CogIcon = () => (
   </svg>
 );
 
-const navItems: { href: string; label: string; icon?: "cog" }[] = [
+const ALL_NAV_ITEMS: { href: string; label: string; icon?: "cog"; hideInMvp?: boolean }[] = [
   { href: "/project", label: "Project Settings", icon: "cog" },
   { href: "/risk-register", label: "Risk Register" },
-  { href: "/matrix", label: "Risk Matrix" },
+  { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
   { href: "/outputs", label: "Outputs" },
-  { href: "/day0", label: "Day 0" },
-  ...(isDev ? [{ href: "/dev/health", label: "Engine Health" }] : []),
+  { href: "/day0", label: "Day 0", hideInMvp: true },
+  ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
 ];
 
 const SCENARIO_OPTIONS: { value: ProjectionProfile; label: string }[] = [
@@ -78,9 +78,9 @@ export function NavBar() {
         RiskAI
       </Link>
 
-      {/* Center/left: main nav links */}
+      {/* Center/left: main nav links (Risk Matrix hidden in MVP mode) */}
       <div className="flex items-center gap-1">
-        {navItems.map(({ href, label, icon }) => {
+        {ALL_NAV_ITEMS.filter((item) => !(item.hideInMvp && uiMode === "MVP")).map(({ href, label, icon }) => {
           const isActive = pathname === href;
           return (
             <Link
@@ -101,9 +101,9 @@ export function NavBar() {
         })}
       </div>
 
-      {/* Right: lens distribution (Diagnostic only) + UI Mode + Forecast Lens + Scenario + theme */}
+      {/* Right: lens distribution (Debug only) + UI Mode + Forecast Lens + Scenario + theme */}
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        {uiMode === "Diagnostic" && autoLensSummary != null && (
+        {uiMode === "Debug" && autoLensSummary != null && (
           <div className="hidden sm:flex flex-col items-end gap-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
             <span>
               Forecast lens (Auto): {autoLensSummary.conservative} Conservative • {autoLensSummary.neutral} Neutral • {autoLensSummary.aggressive} Aggressive
@@ -131,25 +131,25 @@ export function NavBar() {
             >
               <button
                 type="button"
-                onClick={() => setUiMode("Meeting")}
+                onClick={() => setUiMode("MVP")}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  uiMode === "Meeting"
+                  uiMode === "MVP"
                     ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
                     : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
                 }`}
               >
-                Meeting
+                MVP
               </button>
               <button
                 type="button"
-                onClick={() => setUiMode("Diagnostic")}
+                onClick={() => setUiMode("Debug")}
                 className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                  uiMode === "Diagnostic"
+                  uiMode === "Debug"
                     ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
                     : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
                 }`}
               >
-                Diagnostic
+                Debug
               </button>
             </div>
             <span
@@ -220,12 +220,18 @@ export function NavBar() {
         </div>
         <button
           type="button"
-          onClick={toggleTheme}
+          role="switch"
+          aria-checked={theme === "dark"}
           aria-label="Toggle theme"
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          className="flex h-9 w-9 items-center justify-center rounded-md border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)] hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors text-base"
+          onClick={toggleTheme}
+          className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
         >
-          {theme === "dark" ? "☀️" : "🌙"}
+          <span
+            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out ${
+              theme === "dark" ? "translate-x-4" : "translate-x-0"
+            }`}
+          />
         </button>
       </div>
     </nav>

@@ -6,19 +6,19 @@
 
 export type EngineScenarioId = "conservative" | "neutral" | "aggressive";
 
-/** UI mode: Meeting = neutral-only lens; Diagnostic = lens can be overridden. */
-export type UiMode = "Meeting" | "Diagnostic";
+/** UI mode: MVP = neutral-only lens; Debug = lens can be overridden. */
+export type UiMode = "MVP" | "Debug";
 
 /**
  * Returns the active lens ID for Forward Exposure (CaR, sensitivity, concentration).
- * Meeting mode always uses neutral; Diagnostic may use the selected profile as overlay.
+ * MVP mode always uses neutral; Debug may use the selected profile as overlay.
  * P-value and simulation outputs are always from neutral and must not use this.
  */
 export function getActiveLensId(
   uiMode: UiMode,
   scenarioProfile: string | undefined
 ): EngineScenarioId {
-  if (uiMode === "Meeting") return "neutral";
+  if (uiMode === "MVP") return "neutral";
   return normalizeScenarioId(scenarioProfile);
 }
 

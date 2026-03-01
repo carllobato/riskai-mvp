@@ -15,7 +15,7 @@ const STORAGE_KEY = "riskai.projectionProfile";
 const LENS_MODE_KEY = "riskai.scenarioLensMode";
 const UI_MODE_KEY = "riskai.uiMode";
 
-export type UiMode = "Meeting" | "Diagnostic";
+export type UiMode = "MVP" | "Debug";
 
 function getInitialProfile(): ProjectionProfile {
   if (typeof window === "undefined") return "neutral";
@@ -41,14 +41,16 @@ function getInitialLensMode(): ScenarioLensMode {
 }
 
 function getInitialUiMode(): UiMode {
-  if (typeof window === "undefined") return "Meeting";
+  if (typeof window === "undefined") return "MVP";
   try {
     const stored = localStorage.getItem(UI_MODE_KEY);
-    if (stored === "Meeting" || stored === "Diagnostic") return stored;
+    if (stored === "MVP" || stored === "Debug") return stored;
+    if (stored === "Meeting") return "MVP";
+    if (stored === "Diagnostic") return "Debug";
   } catch {
     // ignore
   }
-  return "Meeting";
+  return "MVP";
 }
 
 const PROFILE_LABELS: Record<ProjectionProfile, string> = {
@@ -68,7 +70,7 @@ type ProjectionScenarioContextValue = {
   /** Day 11 A4: Manual = use profile; Auto = use each risk's recommended scenario for display. */
   lensMode: ScenarioLensMode;
   setLensMode: (mode: ScenarioLensMode) => void;
-  /** Meeting = executive, clean; Diagnostic = show lens debug, breakdowns, flags. */
+  /** MVP = executive, clean; Debug = show lens debug, breakdowns, flags. */
   uiMode: UiMode;
   setUiMode: (mode: UiMode) => void;
 };
@@ -83,7 +85,7 @@ export function ProjectionScenarioProvider({
 }) {
   const [profile, setProfileState] = useState<ProjectionProfile>("neutral");
   const [lensMode, setLensModeState] = useState<ScenarioLensMode>("Manual");
-  const [uiMode, setUiModeState] = useState<UiMode>("Meeting");
+  const [uiMode, setUiModeState] = useState<UiMode>("MVP");
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {

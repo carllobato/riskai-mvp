@@ -1,8 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
 import type { Risk, RiskLevel } from "@/domain/risk/risk.schema";
 
@@ -83,12 +85,22 @@ function isPlottable(risk: Risk, mode: MatrixMode): boolean {
 }
 
 export default function RiskMatrixPage() {
+  const router = useRouter();
+  const { uiMode } = useProjectionScenario();
   const { risks } = useRiskRegister();
   const count = risks.length;
   const [mode, setMode] = useState<MatrixMode>("Inherent");
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
 
+  // Risk Matrix is hidden in MVP mode; redirect to Outputs
+  useEffect(() => {
+    if (uiMode === "MVP") router.replace("/outputs");
+  }, [uiMode, router]);
+
   const { plottableCount, unplottableCount, risksByCell } = useMemo(() => {
+    if (uiMode === "MVP") {
+      return { plottableCount: 0, unplottableCount: 0, risksByCell: new Map<string, Risk[]>() };
+    }
     let plottable = 0;
     let unplottable = 0;
     const map = new Map<string, Risk[]>();
@@ -109,7 +121,7 @@ export default function RiskMatrixPage() {
       }
     }
     return { plottableCount: plottable, unplottableCount: unplottable, risksByCell: map };
-  }, [risks, mode]);
+  }, [risks, mode, uiMode]);
 
   const toggleCellExpanded = (cellKey: string) => {
     setExpandedCells((prev) => {
@@ -119,6 +131,8 @@ export default function RiskMatrixPage() {
       return next;
     });
   };
+
+  if (uiMode === "MVP") return null;
 
   return (
     <main className="p-6">
