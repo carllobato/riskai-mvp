@@ -13,6 +13,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import type { LabelProps } from "recharts";
 import {
   costAtPercentile,
   timeAtPercentile,
@@ -50,20 +51,21 @@ function RefLineLabelBottom({
   value,
   fontWeight = 500,
   offsetX = 0,
-  ...props
+  viewBox,
+  x: lineXProp,
 }: {
   value: string;
-  viewBox?: { x?: number; y?: number; width?: number; height?: number };
+  viewBox?: LabelProps["viewBox"];
   x?: number;
   fontWeight?: number;
   /** Pixels to shift label from line: negative = left, positive = right. */
   offsetX?: number;
 }) {
-  const viewBox = props.viewBox;
-  if (!viewBox) return null;
-  const lineX = props.x ?? (viewBox.x ?? 0) + (viewBox.width ?? 0) / 2;
+  // Recharts passes Cartesian or Polar viewBox; we only support Cartesian (x, y, width, height)
+  if (!viewBox || !("width" in viewBox)) return null;
+  const lineX = lineXProp ?? viewBox.x + viewBox.width / 2;
   const x = lineX + offsetX;
-  const y = (viewBox.y ?? 0) + (viewBox.height ?? 0) + 14;
+  const y = viewBox.y + viewBox.height + 14;
   return (
     <text
       x={x}
@@ -603,12 +605,13 @@ function CostChart({
                   strokeWidth={2}
                   strokeOpacity={0.9}
                   label={{
-                    content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
+                    content: (p: LabelProps) => (
                       <RefLineLabelBottom
                         value={`Target (${targetPLabel})`}
                         fontWeight={500}
                         offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? REF_LINE_LABEL_OFFSET_X : -REF_LINE_LABEL_OFFSET_X}
-                        {...p}
+                        viewBox={p.viewBox}
+                        x={p.x as number | undefined}
                       />
                     ),
                   }}
@@ -623,12 +626,13 @@ function CostChart({
                     strokeOpacity={0.7}
                     strokeDasharray="4 4"
                     label={{
-                      content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
+                      content: (p: LabelProps) => (
                         <RefLineLabelBottom
                           value={currentPLabel ? `Current Funding Position (${currentPLabel})` : "Current Funding Position"}
                           fontWeight={500}
                           offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? -REF_LINE_LABEL_OFFSET_X : REF_LINE_LABEL_OFFSET_X}
-                          {...p}
+                          viewBox={p.viewBox}
+                          x={p.x as number | undefined}
                         />
                       ),
                     }}
@@ -641,12 +645,13 @@ function CostChart({
                     strokeOpacity={0.7}
                     strokeDasharray="4 4"
                     label={{
-                      content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
+                      content: (p: LabelProps) => (
                         <RefLineLabelBottom
                           value={currentPLabel ? `Current Funding Position (${currentPLabel})` : "Current Funding Position"}
                           fontWeight={500}
                           offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? -REF_LINE_LABEL_OFFSET_X : REF_LINE_LABEL_OFFSET_X}
-                          {...p}
+                          viewBox={p.viewBox}
+                          x={p.x as number | undefined}
                         />
                       ),
                     }}
