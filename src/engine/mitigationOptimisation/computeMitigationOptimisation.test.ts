@@ -9,6 +9,7 @@ function makeNeutralSnapshot(p80Cost: number): SimulationSnapshot {
     id: "stub",
     timestampIso: new Date().toISOString(),
     iterations: 100,
+    p20Cost: p80Cost * 0.6,
     p50Cost: p80Cost * 0.8,
     p80Cost,
     p90Cost: p80Cost * 1.2,

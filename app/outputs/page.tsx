@@ -18,6 +18,7 @@ import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrde
 import { computePortfolioExposure, computeRiskExposureCurve } from "@/engine/forwardExposure";
 import type { PortfolioExposure } from "@/engine/forwardExposure";
 import { normalizeScenarioId, ENGINE_SCENARIO_IDS, type EngineScenarioId } from "@/lib/scenarioId";
+import { formatDurationDays } from "@/lib/formatDuration";
 
 type DiagnosticTab = "forecast" | "simulation" | "analytics" | "forwardExposure";
 
@@ -138,7 +139,7 @@ export default function OutputsPage() {
   const pressureDisplay = confidenceWeighted && forwardPressure.forwardPressureWeighted
     ? forwardPressure.forwardPressureWeighted
     : forwardPressure;
-  const { current, history, delta, scenarioSnapshots } = simulation;
+  const { current, history, delta, scenarioSnapshots, neutral: neutralMc } = simulation;
   /** Snapshot for selected scenario (cache: scenarioSnapshots keyed by scenarioId; no rerun when switching dropdown). */
   const snapshotForScenario = scenarioSnapshots?.[selectedScenarioId] ?? current;
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
@@ -177,7 +178,14 @@ export default function OutputsPage() {
   /** Neutral baseline snapshot: always used for Meeting mode "Cost Exposure" block so project cost is scenario-invariant. */
   const snapshotNeutral = scenarioSnapshots?.neutral ?? current;
   const baselineSummaryNeutral = snapshotNeutral
-    ? { p50Cost: snapshotNeutral.p50Cost, p80Cost: snapshotNeutral.p80Cost, p90Cost: snapshotNeutral.p90Cost, totalExpectedCost: snapshotNeutral.totalExpectedCost, totalExpectedDays: snapshotNeutral.totalExpectedDays }
+    ? {
+        p20Cost: (snapshotNeutral as { p20Cost?: number }).p20Cost ?? snapshotNeutral.p50Cost ?? 0,
+        p50Cost: snapshotNeutral.p50Cost,
+        p80Cost: snapshotNeutral.p80Cost,
+        p90Cost: snapshotNeutral.p90Cost,
+        totalExpectedCost: snapshotNeutral.totalExpectedCost,
+        totalExpectedDays: snapshotNeutral.totalExpectedDays,
+      }
     : null;
 
   const isMvp = uiMode === "MVP";
@@ -339,7 +347,11 @@ export default function OutputsPage() {
               Project Cost <span className="font-normal text-neutral-500 dark:text-neutral-400">(Baseline – Neutral)</span>
             </h2>
             <div className="p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                  <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P20</div>
+                  <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.p20Cost ?? 0)}</div>
+                </div>
                 <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
                   <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">P50</div>
                   <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.p50Cost ?? 0)}</div>
@@ -357,6 +369,26 @@ export default function OutputsPage() {
                   <div className="mt-1 text-lg font-semibold">{formatCost(baselineSummaryNeutral?.totalExpectedCost ?? 0)}</div>
                 </div>
               </div>
+              {neutralMc?.summary != null && (
+                <>
+                  <div className="mt-4 pt-4 border-t border-neutral-200 dark:border-neutral-700">
+                    <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">Programme (Baseline – Neutral)</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                      {[
+                        { label: "P20", value: neutralMc.summary.p20Time },
+                        { label: "P50", value: neutralMc.summary.p50Time },
+                        { label: "P80", value: neutralMc.summary.p80Time },
+                        { label: "P90", value: neutralMc.summary.p90Time },
+                      ].map(({ label, value }) => (
+                        <div key={label} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
+                          <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">{label}</div>
+                          <div className="mt-1 text-lg font-semibold">{formatDurationDays(value)}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </section>
 
@@ -659,7 +691,7 @@ export default function OutputsPage() {
                       <tr className="border-b border-neutral-200 dark:border-neutral-700">
                         <th className="text-left py-3 px-3 font-medium text-neutral-600 dark:text-neutral-400">Risk</th>
                         <th className="text-right py-3 px-3 font-medium text-neutral-600 dark:text-neutral-400">{costView === "simMean" ? "Sim Mean Cost" : "Expected Cost"}</th>
-                        <th className="text-left py-3 px-3 font-medium text-neutral-600 dark:text-neutral-400">Delta</th>
+                        <th className="text-left py-3 px-3 font-medium text-neutral-600 dark:text-neutral-400">Target P-Value</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -904,7 +936,7 @@ export default function OutputsPage() {
                             <th className="text-left py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Risk</th>
                             <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Base</th>
                             <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Downside</th>
-                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Delta</th>
+                            <th className="text-right py-2 px-3 font-medium text-neutral-600 dark:text-neutral-400">Target P-Value</th>
                           </tr>
                         </thead>
                         <tbody>

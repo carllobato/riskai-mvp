@@ -23,6 +23,7 @@ const ALL_NAV_ITEMS: { href: string; label: string; icon?: "cog"; hideInMvp?: bo
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
   { href: "/outputs", label: "Outputs" },
+  { href: "/simulation", label: "Simulation" },
   { href: "/analysis", label: "Analysis" },
   { href: "/day0", label: "Day 0", hideInMvp: true },
   ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),

@@ -7,6 +7,9 @@ const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_COST_SPREAD_PCT = 0.2;
 const DEBUG_SIM = false;
 
+/** Schedule impact (days) is clamped to 0–30 for simulation. */
+const SCHEDULE_IMPACT_DAYS_CAP = 30;
+
 /** Spread multiplier by profile (same Day 10 intent: conservative = more uncertainty/wider spread, aggressive = tighter). 0.5–1.5x of neutral. */
 function costSpreadMultiplier(profile: ProjectionProfile): number {
   const map: Record<ProjectionProfile, number> = {
@@ -132,14 +135,17 @@ export function simulatePortfolio(
     for (const risk of risks) {
       const probability = getSimProbability(risk);
       const costML = getSimCostML(risk);
-      const scheduleDaysML = risk.scheduleImpactDays ?? 0;
+      const scheduleDaysML = Math.min(
+        SCHEDULE_IMPACT_DAYS_CAP,
+        Math.max(0, risk.scheduleImpactDays ?? 0)
+      );
 
       const costMin = costML * (1 - spread);
       const costMax = costML * (1 + spread);
       const sampledCost = triangular(costMin, costML, costMax);
 
-      const daysMin = scheduleDaysML * (1 - spread);
-      const daysMax = scheduleDaysML * (1 + spread);
+      const daysMin = Math.max(0, scheduleDaysML * (1 - spread));
+      const daysMax = Math.min(SCHEDULE_IMPACT_DAYS_CAP, scheduleDaysML * (1 + spread));
       const sampledDays = triangular(daysMin, scheduleDaysML, daysMax);
 
       const costTriggers = Math.random() < probability;
@@ -170,6 +176,7 @@ export function simulatePortfolio(
     iterations > 0 ? portfolioTriggeredCount / iterations : undefined;
 
   costSamples.sort((a, b) => a - b);
+  const p20 = costSamples[Math.floor(iterations * 0.2)] ?? 0;
   const p50 = costSamples[Math.floor(iterations * 0.5)] ?? 0;
   const p80 = costSamples[Math.floor(iterations * 0.8)] ?? 0;
   const p90 = costSamples[Math.floor(iterations * 0.9)] ?? 0;
@@ -177,7 +184,10 @@ export function simulatePortfolio(
   const riskSnapshots: SimulationRiskSnapshot[] = risks.map((risk) => {
     const probability = getSimProbability(risk);
     const costML = getSimCostML(risk);
-    const scheduleDaysML = risk.scheduleImpactDays ?? 0;
+    const scheduleDaysML = Math.min(
+      SCHEDULE_IMPACT_DAYS_CAP,
+      Math.max(0, risk.scheduleImpactDays ?? 0)
+    );
     const expectedCost = probability * costML;
     const expectedDays = probability * scheduleDaysML;
     const acc = perRiskSums.get(risk.id)!;
@@ -201,6 +211,7 @@ export function simulatePortfolio(
     id: makeId("sim"),
     timestampIso: new Date().toISOString(),
     iterations,
+    p20Cost: p20,
     p50Cost: p50,
     p80Cost: p80,
     p90Cost: p90,

@@ -58,6 +58,21 @@ const btnPrimary =
 /** Special id passed as initialRiskId to open the modal at the "Add new risk" slot. */
 export const ADD_NEW_RISK_ID = "__add_new__";
 
+/** Deterministic snapshot for dirty comparison: sorted keys (recursively), exclude volatile fields. Ensures nested objects (e.g. inherentRating) don't cause false dirty from key order. */
+function toComparableSnapshot(risk: Record<string, unknown>): string {
+  const exclude = new Set(["updatedAt", "createdAt", "lastMitigationUpdate", "scoreHistory"]);
+  function sortKeys(obj: unknown): unknown {
+    if (obj === null || typeof obj !== "object") return obj;
+    if (Array.isArray(obj)) return obj.map(sortKeys);
+    const rec = obj as Record<string, unknown>;
+    const keys = Object.keys(rec).filter((k) => !exclude.has(k)).sort();
+    const out: Record<string, unknown> = {};
+    for (const k of keys) out[k] = sortKeys(rec[k]);
+    return out;
+  }
+  return JSON.stringify(sortKeys(risk));
+}
+
 /** For non-draft risks, all key cells are required. When applyMitigation is false, mitigation/post fields are not required. */
 function validateNonDraftRisk(form: {
   status: RiskStatus;
@@ -191,6 +206,13 @@ export function RiskDetailModal({
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const modalRef = useRef<HTMLDivElement>(null);
   const didInitialSyncRef = useRef(false);
+  /** After a successful Save, store a snapshot so we treat the form as not dirty until the user edits or switches risk. */
+  const lastSavedSnapshotRef = useRef<{ id: string; snapshot: string } | null>(null);
+  const prevRiskIdRef = useRef<string | null>(null);
+  /** Set when we've synced form from currentRisk; avoids false dirty before first sync (e.g. on open). */
+  const lastSyncedRiskIdRef = useRef<string | null>(null);
+  /** Baseline snapshot captured when we synced; compare form output to this so we're not sensitive to currentRisk reference or recomputation. */
+  const lastSyncedBaselineRef = useRef<string | null>(null);
 
   const currentRisk = risks[currentIndex] ?? null;
   const totalSlots = risks.length + 1; // last slot is "Add new risk"
@@ -243,6 +265,10 @@ export function RiskDetailModal({
   useEffect(() => {
     if (!open) {
       didInitialSyncRef.current = false;
+      lastSavedSnapshotRef.current = null;
+      prevRiskIdRef.current = null;
+      lastSyncedRiskIdRef.current = null;
+      lastSyncedBaselineRef.current = null;
       return;
     }
     if (!didInitialSyncRef.current) {
@@ -250,14 +276,90 @@ export function RiskDetailModal({
       const idx = getInitialIndex();
       setCurrentIndex(idx);
       const risk = risks[idx];
-      if (risk) syncFormFromRisk(risk);
+      if (risk) {
+        syncFormFromRisk(risk);
+        lastSyncedRiskIdRef.current = risk.id;
+      }
     }
   }, [open, getInitialIndex, risks, syncFormFromRisk]);
 
+  /** Normalize a risk the same way buildUpdatedRisk normalizes form output, so we can compare without false positives (e.g. "" vs undefined). */
+  const normalizeRiskForComparison = useCallback((risk: Risk): Risk => {
+    const prePct = risk.preMitigationProbabilityPct ?? (risk.inherentRating.probability / 5) * 100;
+    const postPct = risk.postMitigationProbabilityPct ?? (risk.residualRating.probability / 5) * 100;
+    const preCostML = risk.preMitigationCostML ?? risk.baseCostImpact ?? 0;
+    const preTimeML = risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
+    const postCostML = risk.postMitigationCostML ?? risk.costImpact ?? preCostML;
+    const postTimeML = risk.postMitigationTimeML ?? risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
+    const applies = risk.appliesTo ?? "both";
+    const preP = probabilityPctToScale(prePct);
+    const preC =
+      applies === "time"
+        ? timeDaysToConsequenceScale(preTimeML)
+        : applies === "cost"
+          ? costToConsequenceScale(preCostML)
+          : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
+    const postP = probabilityPctToScale(postPct);
+    const postC =
+      applies === "time"
+        ? timeDaysToConsequenceScale(postTimeML)
+        : applies === "cost"
+          ? costToConsequenceScale(postCostML)
+          : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
+    const inherentRating = buildRating(preP, preC);
+    const residualRating = buildRating(postP, postC);
+    return {
+      ...risk,
+      title: (risk.title ?? "").trim() || risk.title,
+      description: risk.description?.trim() || undefined,
+      category: risk.category,
+      status: risk.status,
+      owner: risk.owner?.trim() || undefined,
+      appliesTo: applies,
+      preMitigationProbabilityPct: prePct,
+      preMitigationCostMin: risk.preMitigationCostMin ?? undefined,
+      preMitigationCostML: preCostML ?? undefined,
+      preMitigationCostMax: risk.preMitigationCostMax ?? undefined,
+      preMitigationTimeMin: risk.preMitigationTimeMin ?? undefined,
+      preMitigationTimeML: preTimeML ?? undefined,
+      preMitigationTimeMax: risk.preMitigationTimeMax ?? undefined,
+      mitigation: risk.mitigation?.trim() || undefined,
+      mitigationCost: risk.mitigationCost ?? undefined,
+      postMitigationProbabilityPct: postPct,
+      postMitigationCostMin: risk.postMitigationCostMin ?? undefined,
+      postMitigationCostML: postCostML ?? undefined,
+      postMitigationCostMax: risk.postMitigationCostMax ?? undefined,
+      postMitigationTimeMin: risk.postMitigationTimeMin ?? undefined,
+      postMitigationTimeML: postTimeML ?? undefined,
+      postMitigationTimeMax: risk.postMitigationTimeMax ?? undefined,
+      inherentRating,
+      residualRating,
+      baseCostImpact: preCostML ?? undefined,
+      costImpact: postCostML ?? undefined,
+      scheduleImpactDays: postTimeML ?? undefined,
+      probability: postPct / 100,
+      updatedAt: "",
+    };
+  }, []);
+
+  // Sync form when the risk we're viewing changes (e.g. open modal or switch risk). Depend on id/currentIndex so we don't reset form when parent updates the same risk object (e.g. losing in-progress edits).
   useEffect(() => {
     if (!open || !currentRisk || currentIndex === risks.length) return;
     syncFormFromRisk(currentRisk);
-  }, [currentIndex, open, currentRisk?.id, risks.length, syncFormFromRisk]);
+    lastSyncedRiskIdRef.current = currentRisk.id;
+    lastSyncedBaselineRef.current = toComparableSnapshot(
+      normalizeRiskForComparison(currentRisk) as Record<string, unknown>
+    );
+  }, [currentIndex, open, currentRisk?.id, risks.length, syncFormFromRisk, normalizeRiskForComparison]);
+
+  // Clear "just saved" state when switching to a different risk so we don't suppress the dirty prompt for the wrong risk
+  useEffect(() => {
+    if (!currentRisk) return;
+    if (prevRiskIdRef.current != null && prevRiskIdRef.current !== currentRisk.id) {
+      lastSavedSnapshotRef.current = null;
+    }
+    prevRiskIdRef.current = currentRisk.id;
+  }, [currentRisk?.id]);
 
   // Clear validation errors when switching risk or when modal opens
   useEffect(() => {
@@ -328,11 +430,11 @@ export function RiskDetailModal({
     return {
       ...currentRisk,
       riskNumber: currentRisk.riskNumber,
-      title: title.trim() || currentRisk.title,
-      description: description.trim() || undefined,
+      title: (title ?? "").trim() || currentRisk.title,
+      description: (description ?? "").trim() || undefined,
       category,
       status,
-      owner: (owner === "Other" ? ownerCustom.trim() : owner) || undefined,
+      owner: (owner === "Other" ? (ownerCustom ?? "").trim() : owner) || undefined,
       appliesTo: applies,
       preMitigationProbabilityPct: prePct,
       preMitigationCostMin: parseNum(preMitigationCostMin),
@@ -341,7 +443,7 @@ export function RiskDetailModal({
       preMitigationTimeMin: parseIntNum(preMitigationTimeMin),
       preMitigationTimeML: preTimeML ?? undefined,
       preMitigationTimeMax: parseIntNum(preMitigationTimeMax) ?? undefined,
-      mitigation: applyMitigation ? (mitigation.trim() || undefined) : undefined,
+      mitigation: applyMitigation ? ((mitigation ?? "").trim() || undefined) : undefined,
       mitigationCost: applyMitigation ? (parseNum(mitigationCost) ?? undefined) : undefined,
       postMitigationProbabilityPct: applyMitigation ? postPct : undefined,
       postMitigationCostMin: applyMitigation ? parseNum(postMitigationCostMin) : undefined,
@@ -386,73 +488,24 @@ export function RiskDetailModal({
     postMitigationTimeMax,
   ]);
 
-  /** Normalize a risk the same way buildUpdatedRisk normalizes form output, so we can compare without false positives (e.g. "" vs undefined). */
-  const normalizeRiskForComparison = useCallback((risk: Risk): Risk => {
-    const prePct = risk.preMitigationProbabilityPct ?? (risk.inherentRating.probability / 5) * 100;
-    const postPct = risk.postMitigationProbabilityPct ?? (risk.residualRating.probability / 5) * 100;
-    const preCostML = risk.preMitigationCostML ?? risk.baseCostImpact ?? 0;
-    const preTimeML = risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
-    const postCostML = risk.postMitigationCostML ?? risk.costImpact ?? preCostML;
-    const postTimeML = risk.postMitigationTimeML ?? 0;
-    const applies = risk.appliesTo ?? "both";
-    const preP = probabilityPctToScale(prePct);
-    const preC =
-      applies === "time"
-        ? timeDaysToConsequenceScale(preTimeML)
-        : applies === "cost"
-          ? costToConsequenceScale(preCostML)
-          : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
-    const postP = probabilityPctToScale(postPct);
-    const postC =
-      applies === "time"
-        ? timeDaysToConsequenceScale(postTimeML)
-        : applies === "cost"
-          ? costToConsequenceScale(postCostML)
-          : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
-    const inherentRating = buildRating(preP, preC);
-    const residualRating = buildRating(postP, postC);
-    return {
-      ...risk,
-      title: risk.title.trim() || risk.title,
-      description: risk.description?.trim() || undefined,
-      category: risk.category,
-      status: risk.status,
-      owner: risk.owner?.trim() || undefined,
-      appliesTo: applies,
-      preMitigationProbabilityPct: prePct,
-      preMitigationCostMin: risk.preMitigationCostMin ?? undefined,
-      preMitigationCostML: preCostML || undefined,
-      preMitigationCostMax: risk.preMitigationCostMax ?? undefined,
-      preMitigationTimeMin: risk.preMitigationTimeMin ?? undefined,
-      preMitigationTimeML: preTimeML || undefined,
-      preMitigationTimeMax: risk.preMitigationTimeMax ?? undefined,
-      mitigation: risk.mitigation?.trim() || undefined,
-      mitigationCost: risk.mitigationCost ?? undefined,
-      postMitigationProbabilityPct: postPct,
-      postMitigationCostMin: risk.postMitigationCostMin ?? undefined,
-      postMitigationCostML: postCostML || undefined,
-      postMitigationCostMax: risk.postMitigationCostMax ?? undefined,
-      postMitigationTimeMin: risk.postMitigationTimeMin ?? undefined,
-      postMitigationTimeML: postTimeML || undefined,
-      postMitigationTimeMax: risk.postMitigationTimeMax ?? undefined,
-      inherentRating,
-      residualRating,
-      baseCostImpact: preCostML || undefined,
-      costImpact: postCostML || undefined,
-      scheduleImpactDays: postTimeML || undefined,
-      probability: postPct / 100,
-      updatedAt: "",
-    };
-  }, []);
-
   const isDirty = (() => {
     if (!currentRisk || currentIndex === risks.length) return false;
+    // Don't treat as dirty until we've synced form from this risk (avoids false positive on open before sync runs)
+    if (lastSyncedRiskIdRef.current !== currentRisk.id) return false;
     const updated = buildUpdatedRisk();
     if (!updated) return false;
-    const normalizedOriginal = normalizeRiskForComparison(currentRisk);
-    const a = { ...normalizedOriginal, updatedAt: "" };
-    const b = { ...updated, updatedAt: "" };
-    return JSON.stringify(a) !== JSON.stringify(b);
+    const currentSnapshot = toComparableSnapshot(updated as Record<string, unknown>);
+    // If we just saved this risk and form still matches that save, treat as not dirty
+    if (
+      lastSavedSnapshotRef.current?.id === currentRisk.id &&
+      lastSavedSnapshotRef.current.snapshot === currentSnapshot
+    ) {
+      return false;
+    }
+    // Compare to baseline captured when we synced (not recomputed), so we're immune to currentRisk reference/order differences
+    const baseline = lastSyncedBaselineRef.current;
+    if (baseline == null) return false;
+    return currentSnapshot !== baseline;
   })();
 
   const [pendingNav, setPendingNav] = useState<"prev" | "next" | "close" | null>(null);
@@ -491,10 +544,19 @@ export function RiskDetailModal({
     }
     setValidationErrors([]);
     onSave(updated);
+    // Mark form as "just saved" so isDirty is false until user edits or switches risk; sync form and update baseline
+    if (currentRisk) {
+      const snapshot = toComparableSnapshot(updated as Record<string, unknown>);
+      lastSavedSnapshotRef.current = { id: currentRisk.id, snapshot };
+      lastSyncedBaselineRef.current = snapshot;
+      syncFormFromRisk(updated);
+    }
     return true;
   }, [
     buildUpdatedRisk,
+    currentRisk,
     onSave,
+    syncFormFromRisk,
     status,
     title,
     description,

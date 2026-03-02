@@ -18,6 +18,7 @@ export type SimulationSnapshot = {
   id: string;
   timestampIso: string;
   iterations: number;
+  p20Cost: number;
   p50Cost: number;
   p80Cost: number;
   p90Cost: number;
@@ -70,12 +71,14 @@ export type MonteCarloNeutralSnapshot = {
   timeSamples: number[];
   summary: {
     meanCost: number;
+    p20Cost: number;
     p50Cost: number;
     p80Cost: number;
     p90Cost: number;
     minCost: number;
     maxCost: number;
     meanTime: number;
+    p20Time: number;
     p50Time: number;
     p80Time: number;
     p90Time: number;

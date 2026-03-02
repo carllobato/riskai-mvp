@@ -20,21 +20,26 @@ import { useRiskRegister } from "@/store/risk-register.store";
 import {
   getNeutralSummary,
   getNeutralSamples,
+  getNeutralTimeSamples,
+  getNeutralTimeSummary,
   getTopRiskDriver,
   getTopMitigation,
   getModelStatus,
   getEngineHealth,
+  getAnalysisAudit,
   type NeutralSummary,
+  type NeutralTimeSummary,
 } from "@/store/selectors";
 import { loadProjectContext, type RiskAppetite } from "@/lib/projectContext";
+import { formatDurationDays } from "@/lib/formatDuration";
+import { ParityAuditPanel } from "@/components/debug/ParityAuditPanel";
 
 // --- Chart data types ---
 type DistributionPoint = { cost: number; frequency: number };
 type CdfPoint = { cost: number; cumulativePct: number };
+type TimeDistributionPoint = { time: number; frequency: number };
 
 // --- Chart styling helpers (theme-safe, board-ready) ---
-const fmtMoney = (n: number) =>
-  new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
 const fmtPct = (n: number) => `${Math.round(n)}%`;
 
 /** Nice tick step for distribution Y-axis based on max frequency (handles small values e.g. 0.5, 1, 2). */
@@ -88,6 +93,22 @@ function costAtPercentile(cdf: CdfPoint[], targetPct: number): number | null {
   return null;
 }
 
+/** Get cumulative percentile (0–100) at a given cost from CDF (linear interpolation). Returns null if out of range. */
+function percentileAtCost(cdf: CdfPoint[], cost: number): number | null {
+  if (cdf.length === 0) return null;
+  if (cost <= cdf[0].cost) return cdf[0].cumulativePct;
+  if (cost >= cdf[cdf.length - 1].cost) return cdf[cdf.length - 1].cumulativePct;
+  for (let i = 0; i < cdf.length - 1; i++) {
+    const a = cdf[i];
+    const b = cdf[i + 1];
+    if (cost >= a.cost && cost <= b.cost) {
+      const t = (cost - a.cost) / (b.cost - a.cost);
+      return a.cumulativePct + (b.cumulativePct - a.cumulativePct) * t;
+    }
+  }
+  return null;
+}
+
 /** Triangular PDF value at x for (min, mode, max). */
 function triangularDensity(x: number, min: number, mode: number, max: number): number {
   if (max <= min) return 0;
@@ -135,6 +156,44 @@ function binSamplesIntoHistogram(samples: number[], numBins: number): Distributi
     cost: Math.round(min + (i + 0.5) * step),
     frequency: count,
   }));
+}
+
+/** Bin raw time (days) samples into histogram buckets. */
+function binSamplesIntoTimeHistogram(samples: number[], numBins: number): TimeDistributionPoint[] {
+  if (samples.length === 0) return [];
+  const sorted = [...samples].sort((a, b) => a - b);
+  const min = sorted[0] ?? 0;
+  const max = sorted[sorted.length - 1] ?? min;
+  const span = max - min || 1;
+  const buckets = new Array<number>(numBins).fill(0);
+  const step = span / numBins;
+  for (const v of sorted) {
+    const idx = Math.min(numBins - 1, Math.floor((v - min) / step));
+    buckets[idx]++;
+  }
+  return buckets.map((count, i) => ({
+    time: Math.round(min + (i + 0.5) * step),
+    frequency: count,
+  }));
+}
+
+/** Derive time histogram from percentiles when raw time samples are not stored. */
+function deriveTimeHistogramFromPercentiles(summary: NeutralTimeSummary, numBins: number): TimeDistributionPoint[] {
+  const { p50Time, p80Time, p90Time } = summary;
+  const range = Math.max(p80Time - p50Time, 1);
+  const min = Math.max(0, p50Time - range * 0.6);
+  const max = p90Time + (p90Time - p80Time) * 0.5;
+  const step = (max - min) / numBins;
+  const points: TimeDistributionPoint[] = [];
+  let total = 0;
+  for (let i = 0; i < numBins; i++) {
+    const time = min + (i + 0.5) * step;
+    const freq = triangularDensity(time, min, p50Time, max) * step;
+    points.push({ time: Math.round(time), frequency: freq });
+    total += freq;
+  }
+  if (total <= 0) return points;
+  return points.map((p) => ({ time: p.time, frequency: Math.max(0, (p.frequency / total) * 100) }));
 }
 
 /** Light smoothing via simple moving average; keeps cost, smooths frequency. */
@@ -195,6 +254,54 @@ function barDataToCdf(data: { cost: number; barPct: number }[]): CdfPoint[] {
   return data.map((d) => {
     cumulative += d.barPct;
     return { cost: d.cost, cumulativePct: cumulative };
+  });
+}
+
+type TimeCdfPoint = { time: number; cumulativePct: number };
+
+/** Build CDF (time -> cumulative %) from bar/smooth data for decile lookup when no raw samples. */
+function barDataToCdfTime(data: { time: number; barPct: number }[]): TimeCdfPoint[] {
+  let cumulative = 0;
+  return data.map((d) => {
+    cumulative += d.barPct;
+    return { time: d.time, cumulativePct: cumulative };
+  });
+}
+
+/** Get time at a given cumulative percentile from CDF (linear interpolation). */
+function timeAtPercentile(cdf: TimeCdfPoint[], targetPct: number): number | null {
+  if (cdf.length === 0) return null;
+  if (targetPct <= cdf[0].cumulativePct) return cdf[0].time;
+  if (targetPct >= cdf[cdf.length - 1].cumulativePct) return cdf[cdf.length - 1].time;
+  for (let i = 0; i < cdf.length - 1; i++) {
+    const a = cdf[i];
+    const b = cdf[i + 1];
+    if (targetPct >= a.cumulativePct && targetPct <= b.cumulativePct) {
+      const t = (targetPct - a.cumulativePct) / (b.cumulativePct - a.cumulativePct);
+      return Math.round(a.time + (b.time - a.time) * t);
+    }
+  }
+  return null;
+}
+
+/** Add smoothPct to time bar data using moving average (window=3). */
+function smoothBarPctTime(
+  data: { time: number; barPct: number }[],
+  windowSize: number = 3
+): { time: number; barPct: number; smoothPct: number }[] {
+  if (data.length === 0) return [];
+  const half = Math.floor(windowSize / 2);
+  return data.map((point, i) => {
+    const start = Math.max(0, i - half);
+    const end = Math.min(data.length - 1, i + half);
+    let sum = 0;
+    let count = 0;
+    for (let j = start; j <= end; j++) {
+      sum += data[j].barPct;
+      count++;
+    }
+    const smoothPct = count > 0 ? sum / count : point.barPct;
+    return { time: point.time, barPct: point.barPct, smoothPct };
   });
 }
 
@@ -516,7 +623,7 @@ function CostDistributionChart({
                       }}
                     >
                       <div className="font-medium text-neutral-900">{closest.pLabel}</div>
-                      <div className="text-neutral-700">{fmtMoney(closest.cost)}</div>
+                      <div className="text-neutral-700">{formatCost(closest.cost)}</div>
                     </div>
                   );
                 }}
@@ -583,6 +690,288 @@ function CostDistributionChart({
   );
 }
 
+const EMPTY_TIME_SAMPLES: number[] = [];
+
+function TimeDistributionChart({
+  distribution,
+  samples,
+  isDerived,
+  isDebug,
+  iterationCount,
+}: {
+  distribution: TimeDistributionPoint[] | null;
+  samples: number[] | null;
+  isDerived?: boolean;
+  isDebug?: boolean;
+  iterationCount: number;
+}) {
+  const timeSamples = samples ?? EMPTY_TIME_SAMPLES;
+  const divisor = timeSamples.length > 0 ? iterationCount : 1;
+
+  const { smoothData, deciles } = useMemo(() => {
+    let barData: { time: number; barPct: number }[] = [];
+    if (timeSamples.length > 0) {
+      const buckets = binSamplesIntoTimeHistogram(timeSamples, DISTRIBUTION_BIN_COUNT);
+      barData = buckets.map((b) => ({
+        time: b.time,
+        barPct: (Number(b.frequency) / divisor) * 100,
+      }));
+    } else if (distribution && distribution.length > 0) {
+      const sorted = [...distribution].sort((a, b) => a.time - b.time);
+      const total = sorted.reduce((sum, d) => sum + Number(d.frequency), 0);
+      const div = total > 0 ? total : 1;
+      barData = sorted.map((d) => ({
+        time: d.time,
+        barPct: (Number(d.frequency) / div) * 100,
+      }));
+    }
+    const smoothData = smoothBarPctTime(barData, 3);
+    const sorted = [...timeSamples].sort((a, b) => a - b);
+    const deciles =
+      sorted.length > 0
+        ? P10_DECILES.map((p) => ({ p, x: percentile(sorted, p) }))
+        : smoothData.length > 0
+          ? (() => {
+              const cdf = barDataToCdfTime(smoothData);
+              return P10_DECILES.map((p) => ({
+                p,
+                x: timeAtPercentile(cdf, p) ?? smoothData[0]?.time ?? 0,
+              }));
+            })()
+          : [];
+    return { smoothData, deciles };
+  }, [timeSamples, distribution, divisor]);
+
+  const empty = smoothData.length === 0;
+  const chartData = useMemo(() => {
+    if (smoothData.length === 0) return smoothData;
+    const minTime = smoothData[0]?.time ?? 0;
+    let data = minTime <= 0 ? smoothData : [{ time: 0, barPct: 0, smoothPct: 0 }, ...smoothData];
+    const p100 = deciles.length > 0 ? Math.max(...deciles.map((d) => d.x)) : null;
+    const lastTime = data[data.length - 1]?.time ?? 0;
+    if (p100 != null && p100 > lastTime) {
+      data = [...data, { time: p100, barPct: 0, smoothPct: 0 }];
+    }
+    return data;
+  }, [smoothData, deciles]);
+
+  const decileCrossings = useMemo(() => {
+    if (chartData.length === 0 || deciles.length === 0) return [];
+    const sorted = [...chartData].sort((a, b) => a.time - b.time);
+    const timeMin = sorted[0]?.time ?? 0;
+    const timeMax = sorted[sorted.length - 1]?.time ?? timeMin;
+    return deciles
+      .map((d) => {
+        const x = d.x;
+        if (x < timeMin || x > timeMax) return null;
+        let i = 0;
+        while (i < sorted.length - 1 && sorted[i + 1].time < x) i++;
+        const a = sorted[i];
+        const b = sorted[i + 1];
+        if (!a) return null;
+        if (!b || a.time === b.time) return { p: d.p, x: a.time, y: a.smoothPct ?? 0 };
+        const t = (x - a.time) / (b.time - a.time);
+        const y = (a.smoothPct ?? 0) + t * ((b.smoothPct ?? 0) - (a.smoothPct ?? 0));
+        return { p: d.p, x, y };
+      })
+      .filter((c): c is { p: number; x: number; y: number } => c != null);
+  }, [chartData, deciles]);
+
+  const { yMax, yTicks } = useMemo(() => {
+    if (smoothData.length === 0) return { yMax: 5, yTicks: [0, 1, 2, 3, 4, 5] };
+    const maxPct = smoothData.reduce(
+      (m, d) => Math.max(m, d.barPct ?? 0, d.smoothPct ?? 0),
+      0
+    );
+    const step = maxPct <= 5 ? 0.5 : maxPct <= 10 ? 1 : 2;
+    const yMax = Math.ceil(maxPct / step) * step;
+    const ticks = Array.from(
+      { length: Math.floor(yMax / step) + 1 },
+      (_, i) => i * step
+    );
+    return { yMax, yTicks: ticks };
+  }, [smoothData]);
+
+  const tooltipValidTimes = useMemo(() => decileCrossings.map((c) => c.x), [decileCrossings]);
+  const tooltipMarkers = useMemo(
+    () => decileCrossings.map((c) => ({ pLabel: `P${c.p}`, time: c.x })),
+    [decileCrossings]
+  );
+
+  const timeRange = useMemo(() => {
+    if (chartData.length === 0) return 1;
+    const times = chartData.map((d) => d.time);
+    return Math.max(1, Math.max(...times) - Math.min(...times));
+  }, [chartData]);
+
+  const xDomain = useMemo(() => {
+    if (chartData.length === 0 && deciles.length === 0) return [0, 1] as [number, number];
+    const timeMax = chartData.length > 0 ? Math.max(...chartData.map((d) => d.time)) : 0;
+    const p100Max = deciles.length > 0 ? Math.max(...deciles.map((d) => d.x)) : 0;
+    const max = Math.max(timeMax, p100Max, 1);
+    return [0, max] as [number, number];
+  }, [chartData, deciles]);
+
+  const [activeTime, setActiveTime] = useState<number | null>(null);
+  const activeTimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
+    },
+    []
+  );
+
+  const tooltipTolerance = useMemo(() => {
+    const minToHitMarkers = Math.max(timeRange / DISTRIBUTION_BIN_COUNT, 1);
+    if (tooltipValidTimes.length < 2) return Math.max(timeRange * 0.005, minToHitMarkers);
+    const sorted = [...tooltipValidTimes].sort((a, b) => a - b);
+    let minGap = timeRange;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const gap = sorted[i + 1]! - sorted[i]!;
+      if (gap > 0) minGap = Math.min(minGap, gap);
+    }
+    const maxTolerance = Math.min(timeRange * 0.015, minGap * 0.45);
+    return Math.max(minToHitMarkers, maxTolerance);
+  }, [tooltipValidTimes, timeRange]);
+
+  const subtitle = empty
+    ? null
+    : isDerived && isDebug
+      ? "Derived from percentiles (no raw samples stored)"
+      : isDerived
+        ? "Derived from percentiles"
+        : `Monte Carlo Simulation (${iterationCount.toLocaleString()} iterations)`;
+
+  return (
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+      <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
+        <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Time Distribution</h3>
+        {!empty && subtitle && isDebug && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">{subtitle}</p>
+        )}
+        {!empty && isDebug && (
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0 italic">
+            Smoothed display (moving average window=3). Raw samples preserved.
+          </p>
+        )}
+      </div>
+      <div className="p-4 w-full text-foreground" style={{ height: CHART_HEIGHT }}>
+        {empty ? (
+          <div className="h-full flex items-center justify-center text-sm text-neutral-500 dark:text-neutral-400">
+            No data
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
+            <ComposedChart data={chartData} margin={CHART_MARGIN}>
+              <XAxis
+                type="number"
+                dataKey="time"
+                domain={xDomain}
+                scale="linear"
+                allowDataOverflow
+                padding={{ left: 0, right: 0 }}
+                tick={false}
+                tickLine={false}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+              />
+              <YAxis
+                hide
+                domain={[0, yMax]}
+                ticks={yTicks}
+                tickFormatter={(v) => `${v}%`}
+                tick={{ fontSize: 11, fill: "var(--foreground)" }}
+                axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
+              />
+              <Tooltip
+                cursor={false}
+                offset={5}
+                contentStyle={{
+                  backgroundColor: "rgba(255, 255, 255, 0.94)",
+                  border: "1px solid var(--foreground)",
+                  borderRadius: 8,
+                  color: "var(--foreground)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                }}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length || label == null) {
+                    if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
+                    activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(null), 0);
+                    return null;
+                  }
+                  const time = Number(label);
+                  const nearMarker = tooltipValidTimes.some((v) => Math.abs(time - v) <= tooltipTolerance);
+                  if (!nearMarker) {
+                    if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
+                    activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(null), 0);
+                    return null;
+                  }
+                  const closest = tooltipMarkers.reduce((best, m) =>
+                    Math.abs(time - m.time) < Math.abs(time - best.time) ? m : best
+                  );
+                  if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
+                  activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(closest.time), 0);
+                  return (
+                    <div
+                      className="px-2.5 py-2 text-sm space-y-1 rounded-lg border border-neutral-300 dark:border-neutral-600"
+                      style={{
+                        backgroundColor: "rgba(255, 255, 255, 0.92)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+                      }}
+                    >
+                      <div className="font-medium text-neutral-900">{closest.pLabel}</div>
+                      <div className="text-neutral-700">{formatDurationDays(closest.time)}</div>
+                    </div>
+                  );
+                }}
+              />
+              <defs>
+                <linearGradient id="distDepthTime" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="currentColor" stopOpacity={0.15} />
+                  <stop offset="100%" stopColor="currentColor" stopOpacity={0.01} />
+                </linearGradient>
+              </defs>
+              <Bar
+                dataKey="barPct"
+                fill="currentColor"
+                fillOpacity={0.08}
+                stroke="none"
+                activeBar={false}
+                isAnimationActive={false}
+              />
+              <Area
+                type="natural"
+                dataKey="smoothPct"
+                stroke="currentColor"
+                strokeWidth={2}
+                fill="url(#distDepthTime)"
+                fillOpacity={1}
+                dot={false}
+                activeDot={false}
+                isAnimationActive={false}
+              />
+              {decileCrossings.map((c) => {
+                const isActive = activeTime != null && Math.abs(c.x - activeTime) <= tooltipTolerance;
+                return (
+                  <ReferenceDot
+                    key={c.p}
+                    x={c.x}
+                    y={c.y}
+                    r={isActive ? 7 : 4}
+                    fill="var(--foreground)"
+                    stroke="var(--background)"
+                    strokeWidth={1.5}
+                  />
+                );
+              })}
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const CDF_Y_TICKS = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
 function CumulativeProbabilityChart({
@@ -593,6 +982,8 @@ function CumulativeProbabilityChart({
   isDebug,
   targetPCost,
   targetPLabel,
+  contingencyCost,
+  contingencyPLabel,
 }: {
   cdfData: CdfPoint[] | null;
   p50Cost: number | undefined;
@@ -601,16 +992,20 @@ function CumulativeProbabilityChart({
   isDebug?: boolean;
   targetPCost?: number | null;
   targetPLabel?: string | null;
+  /** Current contingency fund as cost ($) — draws a reference line at this cost with P value label. */
+  contingencyCost?: number | null;
+  contingencyPLabel?: string | null;
 }) {
   const empty = !cdfData || cdfData.length === 0;
-  /** Costs where tooltip is allowed (P50, P80, target line only). */
+  /** Costs where tooltip is allowed (P50, P80, target, contingency). */
   const tooltipValidCosts = useMemo(() => {
     const costs: number[] = [];
     if (p50Cost != null && Number.isFinite(p50Cost)) costs.push(p50Cost);
     if (p80Cost != null && Number.isFinite(p80Cost)) costs.push(p80Cost);
     if (targetPCost != null && Number.isFinite(targetPCost)) costs.push(targetPCost);
+    if (contingencyCost != null && Number.isFinite(contingencyCost)) costs.push(contingencyCost);
     return costs;
-  }, [p50Cost, p80Cost, targetPCost]);
+  }, [p50Cost, p80Cost, targetPCost, contingencyCost]);
 
   const costRange = useMemo(() => {
     if (!cdfData?.length) return 1;
@@ -716,7 +1111,7 @@ function CumulativeProbabilityChart({
                         boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
                       }}
                     >
-                      <div className="font-medium text-neutral-900">{fmtMoney(cost)}</div>
+                      <div className="font-medium text-neutral-900">{formatCost(cost)}</div>
                       <div className="text-neutral-700">
                         Cumulative: {fmtPct(value ?? 0)}
                       </div>
@@ -767,6 +1162,22 @@ function CumulativeProbabilityChart({
                   }}
                 />
               )}
+              {contingencyCost != null && Number.isFinite(contingencyCost) && contingencyPLabel && (
+                <ReferenceLine
+                  x={contingencyCost}
+                  stroke="var(--chart-2, #22c55e)"
+                  strokeWidth={2}
+                  strokeOpacity={0.9}
+                  strokeDasharray="4 2"
+                  label={{
+                    value: `Contingency (${contingencyPLabel})`,
+                    position: "insideTopRight",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fill: "var(--chart-2, #22c55e)",
+                  }}
+                />
+              )}
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -784,12 +1195,6 @@ const MITIGATION_ROWS_PLACEHOLDER = [
   { rank: 5, mitigation: "Contingency reserve", costBand: "$20k–$50k", benefit: "High", roi: "1.5x" },
 ];
 
-function formatScheduleP80(days: number | undefined): string {
-  if (days == null || !Number.isFinite(days)) return "—";
-  if (days >= 7) return `${Math.round(days / 7)} weeks`;
-  return `${Math.round(days)} days`;
-}
-
 export default function AnalysisPage() {
   const { uiMode, setUiMode } = useProjectionScenario();
   const isDebug = uiMode === "Debug";
@@ -802,23 +1207,26 @@ export default function AnalysisPage() {
 
   const neutralSummary = useMemo(() => getNeutralSummary(analysisState), [analysisState]);
   const samples = useMemo(() => getNeutralSamples(analysisState), [analysisState]);
+  const timeSamples = useMemo(() => getNeutralTimeSamples(analysisState), [analysisState]);
+  const timeSummary = useMemo(() => getNeutralTimeSummary(analysisState), [analysisState]);
   const topDriver = useMemo(() => getTopRiskDriver(analysisState), [analysisState]);
   const topMitigation = useMemo(() => getTopMitigation(analysisState), [analysisState]);
   const modelStatus = useMemo(() => getModelStatus(analysisState), [analysisState]);
   const engineHealth = useMemo(() => getEngineHealth(analysisState), [analysisState]);
+  const analysisAudit = useMemo(() => getAnalysisAudit(analysisState), [analysisState]);
+
+  useEffect(() => {
+    if (!isDebug || !neutralSummary) return;
+    const tiles = [
+      { label: "Schedule (P20)", valueFieldName: "p20Time", rawDays: neutralSummary.p20Time },
+      { label: "Schedule (P50)", valueFieldName: "p50Time", rawDays: neutralSummary.p50Time },
+      { label: "Schedule (P80)", valueFieldName: "p80Time", rawDays: neutralSummary.p80Time },
+      { label: "Schedule (P90)", valueFieldName: "p90Time", rawDays: neutralSummary.p90Time },
+    ];
+    console.debug("[Analysis schedule tiles] label → valueFieldName → rawDays", tiles);
+  }, [isDebug, neutralSummary]);
 
   const projectContext = useMemo(() => loadProjectContext(), []);
-
-  const contingencySufficiency = useMemo((): string => {
-    if (!neutralSummary || !projectContext) return "—";
-    const { p50Cost, p80Cost } = neutralSummary;
-    const band = p80Cost - p50Cost;
-    if (!Number.isFinite(band) || band <= 0) return "—";
-    const contingencyDollars = (projectContext.contingencyValue_m ?? 0) * 1e6;
-    if (!Number.isFinite(contingencyDollars) || contingencyDollars <= 0) return "—";
-    const pct = (contingencyDollars / band) * 100;
-    return `${Math.round(pct)}%`;
-  }, [neutralSummary, projectContext]);
 
   const { distribution, cdfData, isDerived } = useMemo(() => {
     if (neutralSummary == null) return { distribution: null as DistributionPoint[] | null, cdfData: null as CdfPoint[] | null, isDerived: true };
@@ -832,11 +1240,50 @@ export default function AnalysisPage() {
     return { distribution, cdfData, isDerived: true };
   }, [neutralSummary, samples]);
 
+  const contingencySufficiency = useMemo((): string => {
+    if (!projectContext || !cdfData?.length) return "—";
+    const contingencyMillions = projectContext.contingencyValue_m ?? 0;
+    if (!Number.isFinite(contingencyMillions) || contingencyMillions < 0) return "—";
+    const p = riskAppetiteToPercent(projectContext.riskAppetite);
+    const costAtNominatedP = costAtPercentile(cdfData, p);
+    if (costAtNominatedP == null || !Number.isFinite(costAtNominatedP)) return "—";
+    // Contingency is in project unit (value_m = millions); convert to base. Simulation/CDF costs are already raw (base).
+    const contingencyBase = contingencyMillions * 1e6;
+    const delta = contingencyBase - costAtNominatedP;
+    if (!Number.isFinite(delta)) return "—";
+    const sign = delta >= 0 ? "+" : "";
+    return `${sign}${formatCost(delta)}`;
+  }, [projectContext, cdfData]);
+
+  const { timeDistribution, timeIsDerived } = useMemo(() => {
+    if (timeSamples != null && timeSamples.length > 0) {
+      const timeDistribution = binSamplesIntoTimeHistogram(timeSamples, 20);
+      return { timeDistribution, timeIsDerived: false };
+    }
+    if (timeSummary != null) {
+      const timeDistribution = deriveTimeHistogramFromPercentiles(timeSummary, 20);
+      return { timeDistribution, timeIsDerived: true };
+    }
+    return { timeDistribution: null as TimeDistributionPoint[] | null, timeIsDerived: true };
+  }, [timeSamples, timeSummary]);
+
   const { targetPCost, targetPNumeric, targetPLabel } = useMemo(() => {
     if (!projectContext) return { targetPCost: null as number | null, targetPNumeric: null as number | null, targetPLabel: null as string | null };
     const p = riskAppetiteToPercent(projectContext.riskAppetite);
     const cost = cdfData?.length ? costAtPercentile(cdfData, p) ?? null : null;
     return { targetPCost: cost, targetPNumeric: p, targetPLabel: projectContext.riskAppetite };
+  }, [projectContext, cdfData]);
+
+  /** Current contingency fund as cost and its P value on the cost CDF (for chart reference line). CDF costs are in raw (base) units; contingencyValue_m is in millions, so convert to base. */
+  const { contingencyCost, contingencyPLabel } = useMemo(() => {
+    if (!projectContext || !cdfData?.length) return { contingencyCost: null as number | null, contingencyPLabel: null as string | null };
+    const contingencyMillions = projectContext.contingencyValue_m ?? 0;
+    if (!Number.isFinite(contingencyMillions) || contingencyMillions <= 0) return { contingencyCost: null as number | null, contingencyPLabel: null as string | null };
+    const contingencyBase = contingencyMillions * 1e6;
+    if (!Number.isFinite(contingencyBase) || contingencyBase <= 0) return { contingencyCost: null as number | null, contingencyPLabel: null as string | null };
+    const p = percentileAtCost(cdfData, contingencyBase);
+    if (p == null || !Number.isFinite(p)) return { contingencyCost: contingencyBase, contingencyPLabel: "—" };
+    return { contingencyCost: contingencyBase, contingencyPLabel: `P${Math.round(p)}` };
   }, [projectContext, cdfData]);
 
   const hasData = neutralSummary != null;
@@ -933,33 +1380,55 @@ export default function AnalysisPage() {
           <section className="mt-8">
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
               <MetricTile
+                label="Baseline P20 (Neutral)"
+                value={formatCost(neutralSummary!.p20Cost)}
+                helper="20th percentile cost"
+                showSource={isDebug}
+                sourceLabel="source: neutral snapshot"
+              />
+              <MetricTile
                 label="Baseline P50 (Neutral)"
-                value={fmtMoney(neutralSummary!.p50Cost)}
+                value={formatCost(neutralSummary!.p50Cost)}
                 helper="Median cost, neutral scenario"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
               <MetricTile
                 label="Baseline P80 (Neutral)"
-                value={fmtMoney(neutralSummary!.p80Cost)}
+                value={formatCost(neutralSummary!.p80Cost)}
                 helper="80th percentile cost"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
               <MetricTile
-                label="Expected Cost (Mean)"
-                value={fmtMoney(neutralSummary!.totalExpectedCost)}
-                helper="Probability-weighted mean"
+                label="Baseline P90 (Neutral)"
+                value={formatCost(neutralSummary!.p90Cost)}
+                helper="90th percentile cost"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
               <MetricTile
-                label="Schedule Risk (P80)"
-                value={formatScheduleP80(neutralSummary!.p80Time)}
-                helper="80th percentile duration"
+                label="Expected Cost (Mean)"
+                value={formatCost(neutralSummary!.totalExpectedCost)}
+                helper="Probability-weighted mean"
                 showSource={isDebug}
                 sourceLabel="source: neutral snapshot"
               />
+              {[
+                { label: "Schedule (P20)", valueFieldName: "p20Time", rawDays: neutralSummary!.p20Time, helper: "20th percentile duration" },
+                { label: "Schedule (P50)", valueFieldName: "p50Time", rawDays: neutralSummary!.p50Time, helper: "50th percentile duration" },
+                { label: "Schedule (P80)", valueFieldName: "p80Time", rawDays: neutralSummary!.p80Time, helper: "80th percentile duration" },
+                { label: "Schedule (P90)", valueFieldName: "p90Time", rawDays: neutralSummary!.p90Time, helper: "90th percentile duration" },
+              ].map(({ label, valueFieldName, rawDays, helper }) => (
+                <MetricTile
+                  key={label}
+                  label={label}
+                  value={formatDurationDays(rawDays)}
+                  helper={helper}
+                  showSource={isDebug}
+                  sourceLabel="neutral.summary"
+                />
+              ))}
               <MetricTile
                 label="Top Risk Driver"
                 value={topDriver ?? "—"}
@@ -977,7 +1446,7 @@ export default function AnalysisPage() {
               <MetricTile
                 label="Contingency Sufficiency"
                 value={contingencySufficiency}
-                helper="Coverage vs P80 exposure"
+                helper={`Contingency − cost at ${targetPLabel ?? "nominated P"} (surplus/shortfall)`}
                 showSource={isDebug}
                 sourceLabel={contingencySufficiency !== "—" ? "source: project context + neutral" : undefined}
               />
@@ -1004,22 +1473,37 @@ export default function AnalysisPage() {
                   isDerived={isDerived}
                   isDebug={isDebug}
                   iterationCount={
-                  samples && samples.length > 0
-                    ? samples.length
-                    : (simulation.neutral?.iterationCount ?? 1)
-                }
+                    samples && samples.length > 0
+                      ? samples.length
+                      : (simulation.neutral?.iterationCount ?? 1)
+                  }
                   targetPNumeric={targetPNumeric}
                   targetPLabel={targetPLabel}
                 />
-                <CumulativeProbabilityChart
-                  cdfData={cdfData}
-                  p50Cost={neutralSummary!.p50Cost}
-                  p80Cost={neutralSummary!.p80Cost}
-                  isDerived={isDerived}
+                <TimeDistributionChart
+                  distribution={timeDistribution}
+                  samples={timeSamples ?? null}
+                  isDerived={timeIsDerived}
                   isDebug={isDebug}
-                  targetPCost={targetPCost}
-                  targetPLabel={targetPLabel}
+                  iterationCount={
+                    timeSamples && timeSamples.length > 0
+                      ? timeSamples.length
+                      : (simulation.neutral?.iterationCount ?? 1)
+                  }
                 />
+                <div className="md:col-span-2">
+                  <CumulativeProbabilityChart
+                    cdfData={cdfData}
+                    p50Cost={neutralSummary!.p50Cost}
+                    p80Cost={neutralSummary!.p80Cost}
+                    isDerived={isDerived}
+                    isDebug={isDebug}
+                    targetPCost={targetPCost}
+                    targetPLabel={targetPLabel}
+                    contingencyCost={contingencyCost}
+                    contingencyPLabel={contingencyPLabel}
+                  />
+                </div>
               </div>
             </div>
           </section>
@@ -1111,6 +1595,97 @@ export default function AnalysisPage() {
                   </dl>
                 </div>
               </div>
+            </section>
+          )}
+
+          {/* Parity Audit (dev): side-by-side Outputs vs Analysis raw values */}
+          {isDebug && <ParityAuditPanel />}
+
+          {/* F) Debug-only: Math Audit — data lineage and inputs used for Cost + Programme */}
+          {isDebug && analysisAudit && (
+            <section className="mt-8">
+              <details className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden group">
+                <summary className="list-none px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 cursor-pointer font-semibold text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+                  <span className="select-none">Math Audit</span>
+                  <span className="ml-2 text-xs font-normal text-neutral-500 dark:text-neutral-400">
+                    risks included: {analysisAudit.risksIncluded} · excluded (Closed): {analysisAudit.risksExcludedClosed} · post: {analysisAudit.usingPostMitigation} · pre: {analysisAudit.usingPreMitigation}
+                  </span>
+                </summary>
+                <div className="p-4 space-y-4 text-sm">
+                  <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
+                    <div>
+                      <dt className="text-neutral-500 dark:text-neutral-400">Risks included</dt>
+                      <dd className="font-mono font-medium">{analysisAudit.risksIncluded}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-500 dark:text-neutral-400">Excluded (Closed)</dt>
+                      <dd className="font-mono font-medium">{analysisAudit.risksExcludedClosed}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-500 dark:text-neutral-400">Using post-mitigation</dt>
+                      <dd className="font-mono font-medium">{analysisAudit.usingPostMitigation}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-neutral-500 dark:text-neutral-400">Fallback pre-mitigation</dt>
+                      <dd className="font-mono font-medium">{analysisAudit.usingPreMitigation}</dd>
+                    </div>
+                  </dl>
+                  {analysisAudit.first5.length > 0 && (
+                    <>
+                      <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                        First 5 included risks
+                      </p>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs border-collapse">
+                          <thead>
+                            <tr className="border-b border-neutral-200 dark:border-neutral-700">
+                              <th className="text-left py-1.5 px-2 font-medium">Risk</th>
+                              <th className="text-left py-1.5 px-2 font-medium">Probability</th>
+                              <th className="text-left py-1.5 px-2 font-medium">Cost impact</th>
+                              <th className="text-left py-1.5 px-2 font-medium">Time impact (days)</th>
+                              <th className="text-left py-1.5 px-2 font-medium">Source</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {analysisAudit.first5.map((row) => (
+                              <tr key={row.riskId} className="border-b border-neutral-100 dark:border-neutral-800">
+                                <td className="py-1.5 px-2 font-mono truncate max-w-[120px]" title={row.title}>
+                                  {row.title || row.riskId}
+                                </td>
+                                <td className="py-1.5 px-2 font-mono">{row.chosenProbability.toFixed(3)}</td>
+                                <td className="py-1.5 px-2 font-mono">{row.chosenCostImpact.toLocaleString()}</td>
+                                <td className="py-1.5 px-2 font-mono">{row.chosenTimeImpact}</td>
+                                <td className="py-1.5 px-2 font-mono">{row.sourceUsed}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-[10px] text-neutral-400 dark:text-neutral-500 italic">{analysisAudit.first5[0]?.units ?? "cost: AUD, time: days"}</p>
+                    </>
+                  )}
+                  {(analysisAudit.costPercentiles != null || analysisAudit.programmePercentiles != null) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-neutral-200 dark:border-neutral-700">
+                      {analysisAudit.costPercentiles && (
+                        <div>
+                          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Cost percentiles (from combined distribution)</p>
+                          <p className="font-mono text-[var(--foreground)]">
+                            P20: {formatCost(analysisAudit.costPercentiles.p20)} · P50: {formatCost(analysisAudit.costPercentiles.p50)} · P80: {formatCost(analysisAudit.costPercentiles.p80)} · P90: {formatCost(analysisAudit.costPercentiles.p90)}
+                          </p>
+                        </div>
+                      )}
+                      {analysisAudit.programmePercentiles && (
+                        <div>
+                          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">Programme percentiles (from combined distribution, same formatter as tiles)</p>
+                          <p className="font-mono text-[var(--foreground)]">
+                            P20: {formatDurationDays(analysisAudit.programmePercentiles.p20)} · P50: {formatDurationDays(analysisAudit.programmePercentiles.p50)} · P80: {formatDurationDays(analysisAudit.programmePercentiles.p80)} · P90: {formatDurationDays(analysisAudit.programmePercentiles.p90)}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </details>
             </section>
           )}
         </>

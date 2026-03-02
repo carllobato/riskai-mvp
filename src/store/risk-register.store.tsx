@@ -357,11 +357,16 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     }
     const sim = "simulation" in saved && saved.simulation && Array.isArray((saved.simulation as PersistedState["simulation"]).history) ? saved.simulation as PersistedState["simulation"] : null;
     if (sim) {
+      const ensureP20 = (s: SimulationSnapshot | undefined): SimulationSnapshot | undefined => {
+        if (!s) return s;
+        if (typeof (s as SimulationSnapshot & { p20Cost?: number }).p20Cost === "number") return s as SimulationSnapshot;
+        return { ...s, p20Cost: (s as SimulationSnapshot).p50Cost ?? 0 } as SimulationSnapshot;
+      };
       dispatch({
         type: "simulation/hydrate",
         payload: {
-          current: sim.current,
-          history: sim.history ?? [],
+          current: ensureP20(sim.current) ?? sim.current,
+          history: (sim.history ?? []).map((h) => ensureP20(h) ?? h),
           scenarioSnapshots: sim.scenarioSnapshots,
           neutral: sim.neutral,
           seed: sim.seed,
@@ -577,10 +582,11 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           iterationCount: iterCount,
         };
 
-        const conservativeRisks = state.risks.map((r) =>
+        const effectiveRisks = state.risks.filter((r) => r.status !== "closed");
+        const conservativeRisks = effectiveRisks.map((r) =>
           applyScenarioToRiskInputs(r, "conservative")
         );
-        const aggressiveRisks = state.risks.map((r) =>
+        const aggressiveRisks = effectiveRisks.map((r) =>
           applyScenarioToRiskInputs(r, "aggressive")
         );
         const scenarioSnapshots: ScenarioSnapshotsMap = {
