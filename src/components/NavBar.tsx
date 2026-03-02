@@ -22,9 +22,9 @@ const ALL_NAV_ITEMS: { href: string; label: string; icon?: "cog"; hideInMvp?: bo
   { href: "/project", label: "Project Settings", icon: "cog" },
   { href: "/risk-register", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
-  { href: "/outputs", label: "Outputs" },
+  { href: "/outputs", label: "Outputs", hideInMvp: true },
   { href: "/simulation", label: "Simulation" },
-  { href: "/analysis", label: "Analysis" },
+  { href: "/analysis", label: "Analysis", hideInMvp: true },
   { href: "/day0", label: "Day 0", hideInMvp: true },
   ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
 ];

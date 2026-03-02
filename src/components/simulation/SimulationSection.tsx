@@ -87,6 +87,14 @@ function formatCost(value: number): string {
   }).format(value);
 }
 
+function formatCostCompact(value: number): string {
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}m`;
+  if (abs >= 1e3) return `${sign}$${(abs / 1e3).toFixed(1)}k`;
+  return formatCost(value);
+}
+
 function smoothBarPct(
   data: { cost: number; barPct: number }[],
   windowSize: number = 3
@@ -325,6 +333,27 @@ function CostChart({
       .filter((c): c is { p: number; x: number; y: number } => c != null);
   }, [chartData, deciles]);
 
+  const currentFundingCurvePoint = useMemo(() => {
+    if (currentPCost == null || !Number.isFinite(currentPCost) || chartData.length === 0) return null;
+    const sorted = [...chartData].sort((a, b) => a.cost - b.cost);
+    const costMin = sorted[0]!.cost;
+    const costMax = sorted[sorted.length - 1]!.cost;
+    if (currentPCost < costMin || currentPCost > costMax) return null;
+    const y = interpolateSmoothPct(chartData, currentPCost);
+    return { x: currentPCost, y };
+  }, [chartData, currentPCost, interpolateSmoothPct]);
+
+  const targetLineCurveY = useMemo(() => {
+    if (targetLineX == null || !Number.isFinite(targetLineX) || chartData.length === 0) return null;
+    const crossing = decileCrossings.find((c) => c.p === targetPNumeric);
+    if (crossing) return crossing.y;
+    const sorted = [...chartData].sort((a, b) => a.cost - b.cost);
+    const costMin = sorted[0]!.cost;
+    const costMax = sorted[sorted.length - 1]!.cost;
+    if (targetLineX < costMin || targetLineX > costMax) return null;
+    return interpolateSmoothPct(chartData, targetLineX);
+  }, [chartData, decileCrossings, targetLineX, targetPNumeric, interpolateSmoothPct]);
+
   const tooltipValidCosts = useMemo(() => {
     const costs = decileCrossings.map((c) => c.x);
     if (targetLineX != null && Number.isFinite(targetLineX)) costs.push(targetLineX);
@@ -363,17 +392,39 @@ function CostChart({
   const activeCostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current); }, []);
 
-  const tooltipTolerance = useMemo(() => {
-    const minToHit = Math.max(costRange / DISTRIBUTION_BIN_COUNT, 1);
-    if (tooltipValidCosts.length < 2) return Math.max(costRange * 0.005, minToHit);
+  const costMarkerProximity = useMemo(() => {
+    const binWidth = costRange / DISTRIBUTION_BIN_COUNT;
+    if (tooltipValidCosts.length < 2) return Math.max(costRange * 0.02, binWidth);
     const sorted = [...tooltipValidCosts].sort((a, b) => a - b);
     let minGap = costRange;
     for (let i = 0; i < sorted.length - 1; i++) {
       const gap = sorted[i + 1]! - sorted[i]!;
       if (gap > 0) minGap = Math.min(minGap, gap);
     }
-    return Math.max(minToHit, Math.min(costRange * 0.015, minGap * 0.45));
+    return Math.max(minGap * 0.35, binWidth);
   }, [tooltipValidCosts, costRange]);
+
+  /** Only deciles we actually render (exclude P100) — active index is over this list so hover near P100 highlights P90. */
+  const decileCrossingsVisible = useMemo(
+    () => decileCrossings.filter((c) => c.p !== 100),
+    [decileCrossings]
+  );
+
+  const activeCostDotIndex = useMemo(() => {
+    if (activeCost == null || decileCrossingsVisible.length === 0) return -1;
+    if (currentPCost != null && Math.abs(activeCost - currentPCost) < 1e-9) return -1;
+    if (targetLineX != null && Number.isFinite(targetLineX) && Math.abs(activeCost - targetLineX) < 1e-9) return -1;
+    let bestIdx = 0;
+    let bestDist = Math.abs(decileCrossingsVisible[0]!.x - activeCost);
+    for (let i = 1; i < decileCrossingsVisible.length; i++) {
+      const d = Math.abs(decileCrossingsVisible[i]!.x - activeCost);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }, [activeCost, decileCrossingsVisible, currentPCost, targetLineX]);
 
   const yMax = useMemo(() => {
     if (smoothData.length === 0) return 5;
@@ -385,7 +436,7 @@ function CostChart({
   const empty = smoothData.length === 0;
 
   return (
-    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Cost Distribution</h3>
         {!empty && isDebug && (
@@ -420,11 +471,11 @@ function CostChart({
                 cursor={false}
                 offset={5}
                 contentStyle={{
-                  backgroundColor: "rgba(255, 255, 255, 0.94)",
-                  border: "1px solid var(--foreground)",
+                  backgroundColor: "transparent",
+                  border: "none",
                   borderRadius: 8,
-                  color: "var(--foreground)",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                  boxShadow: "none",
+                  padding: 0,
                 }}
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length || label == null) {
@@ -432,28 +483,28 @@ function CostChart({
                     activeCostTimeoutRef.current = setTimeout(() => setActiveCost(null), 0);
                     return null;
                   }
-                  const cost = Number(label);
-                  const near = tooltipValidCosts.some((v) => Math.abs(cost - v) <= tooltipTolerance);
-                  if (!near) {
+                  if (tooltipMarkers.length === 0) {
                     if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
                     activeCostTimeoutRef.current = setTimeout(() => setActiveCost(null), 0);
                     return null;
                   }
-                  const closest = tooltipMarkers.reduce((best, m) =>
-                    Math.abs(cost - m.cost) < Math.abs(cost - best.cost) ? m : best
+                  const cost = Number(label);
+                  const closest = tooltipMarkers.reduce(
+                    (best, m) => (Math.abs(cost - m.cost) < Math.abs(cost - best.cost) ? m : best),
+                    tooltipMarkers[0]!
                   );
+                  const distToMarker = Math.abs(cost - closest.cost);
+                  if (distToMarker > costMarkerProximity) {
+                    if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
+                    activeCostTimeoutRef.current = setTimeout(() => setActiveCost(null), 0);
+                    return null;
+                  }
                   if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
                   activeCostTimeoutRef.current = setTimeout(() => setActiveCost(closest.cost), 0);
                   return (
-                    <div
-                      className="px-2.5 py-2 text-sm space-y-1 rounded-lg border border-neutral-300 dark:border-neutral-600"
-                      style={{
-                        backgroundColor: "rgba(255, 255, 255, 0.92)",
-                        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-                      }}
-                    >
-                      <div className="font-medium text-neutral-900">{closest.pLabel}</div>
-                      <div className="text-neutral-700">{formatCost(closest.cost)}</div>
+                    <div className="px-2.5 py-2 text-sm space-y-1 rounded-lg border bg-white text-neutral-900 shadow-md dark:bg-black dark:text-white dark:border-white dark:shadow-none">
+                      <div className="font-medium">{closest.pLabel}</div>
+                      <div className="text-neutral-700 dark:text-neutral-300">{formatCostCompact(closest.cost)}</div>
                     </div>
                   );
                 }}
@@ -483,14 +534,6 @@ function CostChart({
                   </linearGradient>
                 )}
               </defs>
-              <Bar
-                dataKey="barPct"
-                fill="currentColor"
-                fillOpacity={0.08}
-                stroke="none"
-                activeBar={false}
-                isAnimationActive={false}
-              />
               <Area
                 type="natural"
                 dataKey="smoothPct"
@@ -515,23 +558,47 @@ function CostChart({
                   connectNulls={false}
                 />
               )}
-              {decileCrossings.map((c) => {
-                const isActive = activeCost != null && Math.abs(c.x - activeCost) <= tooltipTolerance;
+              {decileCrossingsVisible.map((c) => {
+                const activeP =
+                  activeCostDotIndex >= 0 ? decileCrossingsVisible[activeCostDotIndex]?.p : undefined;
+                const isActive = activeP != null && c.p === activeP;
                 return (
                   <ReferenceDot
                     key={c.p}
                     x={c.x}
                     y={c.y}
-                    r={isActive ? 7 : 4}
+                    r={isActive ? 5 : 3}
                     fill="var(--foreground)"
                     stroke="var(--background)"
                     strokeWidth={1.5}
                   />
                 );
               })}
+              {currentFundingCurvePoint && (
+                <ReferenceDot
+                  key="current-funding"
+                  x={currentFundingCurvePoint.x}
+                  y={currentFundingCurvePoint.y}
+                  r={
+                    activeCost != null &&
+                    currentPCost != null &&
+                    Math.abs(activeCost - currentPCost) < 1e-9
+                      ? 5
+                      : 3
+                  }
+                  fill="var(--foreground)"
+                  stroke="var(--background)"
+                  strokeWidth={1.5}
+                />
+              )}
               {targetLineX != null && Number.isFinite(targetLineX) && targetPLabel && (
                 <ReferenceLine
-                  x={targetLineX}
+                  segment={
+                    targetLineCurveY != null
+                      ? [{ x: targetLineX, y: 0 }, { x: targetLineX, y: targetLineCurveY }]
+                      : undefined
+                  }
+                  x={targetLineCurveY == null ? targetLineX : undefined}
                   stroke="var(--foreground)"
                   strokeWidth={2}
                   strokeOpacity={0.9}
@@ -548,23 +615,43 @@ function CostChart({
                 />
               )}
               {currentPCost != null && Number.isFinite(currentPCost) && currentPLabel && (
-                <ReferenceLine
-                  x={currentPCost}
-                  stroke="var(--foreground)"
-                  strokeWidth={1.5}
-                  strokeOpacity={0.7}
-                  strokeDasharray="4 4"
-                  label={{
-                    content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
-                      <RefLineLabelBottom
-                        value={currentPLabel ? `Current Funding Position (${currentPLabel})` : "Current Funding Position"}
-                        fontWeight={500}
-                        offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? -REF_LINE_LABEL_OFFSET_X : REF_LINE_LABEL_OFFSET_X}
-                        {...p}
-                      />
-                    ),
-                  }}
-                />
+                currentFundingCurvePoint ? (
+                  <ReferenceLine
+                    segment={[{ x: currentPCost, y: 0 }, { x: currentPCost, y: currentFundingCurvePoint.y }]}
+                    stroke="var(--foreground)"
+                    strokeWidth={1.5}
+                    strokeOpacity={0.7}
+                    strokeDasharray="4 4"
+                    label={{
+                      content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
+                        <RefLineLabelBottom
+                          value={currentPLabel ? `Current Funding Position (${currentPLabel})` : "Current Funding Position"}
+                          fontWeight={500}
+                          offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? -REF_LINE_LABEL_OFFSET_X : REF_LINE_LABEL_OFFSET_X}
+                          {...p}
+                        />
+                      ),
+                    }}
+                  />
+                ) : (
+                  <ReferenceLine
+                    x={currentPCost}
+                    stroke="var(--foreground)"
+                    strokeWidth={1.5}
+                    strokeOpacity={0.7}
+                    strokeDasharray="4 4"
+                    label={{
+                      content: (p: { viewBox?: { x?: number; y?: number; width?: number; height?: number }; x?: number }) => (
+                        <RefLineLabelBottom
+                          value={currentPLabel ? `Current Funding Position (${currentPLabel})` : "Current Funding Position"}
+                          fontWeight={500}
+                          offsetX={deltaToTargetP != null && deltaToTargetP > 0 ? -REF_LINE_LABEL_OFFSET_X : REF_LINE_LABEL_OFFSET_X}
+                          {...p}
+                        />
+                      ),
+                    }}
+                  />
+                )
               )}
             </ComposedChart>
           </ResponsiveContainer>
@@ -662,6 +749,11 @@ function TimeChart({
     [deciles, targetPNumeric]
   );
 
+  const targetLineCurveY = useMemo(() => {
+    const crossing = decileCrossings.find((c) => c.p === targetPNumeric);
+    return crossing?.y ?? null;
+  }, [decileCrossings, targetPNumeric]);
+
   const tooltipValidTimes = useMemo(() => {
     const times = decileCrossings.map((c) => c.x);
     if (targetLineX != null && Number.isFinite(targetLineX)) times.push(targetLineX);
@@ -696,17 +788,38 @@ function TimeChart({
   const activeTimeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => () => { if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current); }, []);
 
-  const tooltipTolerance = useMemo(() => {
-    const minToHit = Math.max(timeRange / DISTRIBUTION_BIN_COUNT, 1);
-    if (tooltipValidTimes.length < 2) return Math.max(timeRange * 0.005, minToHit);
+  const timeMarkerProximity = useMemo(() => {
+    const binWidth = timeRange / DISTRIBUTION_BIN_COUNT;
+    if (tooltipValidTimes.length < 2) return Math.max(timeRange * 0.02, binWidth);
     const sorted = [...tooltipValidTimes].sort((a, b) => a - b);
     let minGap = timeRange;
     for (let i = 0; i < sorted.length - 1; i++) {
       const gap = sorted[i + 1]! - sorted[i]!;
       if (gap > 0) minGap = Math.min(minGap, gap);
     }
-    return Math.max(minToHit, Math.min(timeRange * 0.015, minGap * 0.45));
+    return Math.max(minGap * 0.35, binWidth);
   }, [tooltipValidTimes, timeRange]);
+
+  /** Only deciles we actually render (exclude P100) — active index is over this list so hover near P100 highlights P90. */
+  const decileCrossingsVisible = useMemo(
+    () => decileCrossings.filter((c) => c.p !== 100),
+    [decileCrossings]
+  );
+
+  const activeTimeDotIndex = useMemo(() => {
+    if (activeTime == null || decileCrossingsVisible.length === 0) return -1;
+    if (targetLineX != null && Number.isFinite(targetLineX) && Math.abs(activeTime - targetLineX) < 1e-9) return -1;
+    let bestIdx = 0;
+    let bestDist = Math.abs(decileCrossingsVisible[0]!.x - activeTime);
+    for (let i = 1; i < decileCrossingsVisible.length; i++) {
+      const d = Math.abs(decileCrossingsVisible[i]!.x - activeTime);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }, [activeTime, decileCrossingsVisible, targetLineX]);
 
   const yMax = useMemo(() => {
     if (smoothData.length === 0) return 5;
@@ -718,7 +831,7 @@ function TimeChart({
   const empty = smoothData.length === 0;
 
   return (
-    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Time Distribution</h3>
         {!empty && isDebug && (
@@ -753,11 +866,11 @@ function TimeChart({
                 cursor={false}
                 offset={5}
                 contentStyle={{
-                  backgroundColor: "rgba(255, 255, 255, 0.94)",
-                  border: "1px solid var(--foreground)",
+                  backgroundColor: "transparent",
+                  border: "none",
                   borderRadius: 8,
-                  color: "var(--foreground)",
-                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+                  boxShadow: "none",
+                  padding: 0,
                 }}
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length || label == null) {
@@ -765,28 +878,28 @@ function TimeChart({
                     activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(null), 0);
                     return null;
                   }
-                  const time = Number(label);
-                  const near = tooltipValidTimes.some((v) => Math.abs(time - v) <= tooltipTolerance);
-                  if (!near) {
+                  if (tooltipMarkers.length === 0) {
                     if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
                     activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(null), 0);
                     return null;
                   }
-                  const closest = tooltipMarkers.reduce((best, m) =>
-                    Math.abs(time - m.time) < Math.abs(time - best.time) ? m : best
+                  const time = Number(label);
+                  const closest = tooltipMarkers.reduce(
+                    (best, m) => (Math.abs(time - m.time) < Math.abs(time - best.time) ? m : best),
+                    tooltipMarkers[0]!
                   );
+                  const distToMarker = Math.abs(time - closest.time);
+                  if (distToMarker > timeMarkerProximity) {
+                    if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
+                    activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(null), 0);
+                    return null;
+                  }
                   if (activeTimeTimeoutRef.current) clearTimeout(activeTimeTimeoutRef.current);
                   activeTimeTimeoutRef.current = setTimeout(() => setActiveTime(closest.time), 0);
                   return (
-                    <div
-                      className="px-2.5 py-2 text-sm space-y-1 rounded-lg border border-neutral-300 dark:border-neutral-600"
-                      style={{
-                        backgroundColor: "rgba(255, 255, 255, 0.92)",
-                        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
-                      }}
-                    >
-                      <div className="font-medium text-neutral-900">{closest.pLabel}</div>
-                      <div className="text-neutral-700">{formatDurationDays(closest.time)}</div>
+                    <div className="px-2.5 py-2 text-sm space-y-1 rounded-lg border bg-white text-neutral-900 shadow-md dark:bg-black dark:text-white dark:border-white dark:shadow-none">
+                      <div className="font-medium">{closest.pLabel}</div>
+                      <div className="text-neutral-700 dark:text-neutral-300">{formatDurationDays(closest.time)}</div>
                     </div>
                   );
                 }}
@@ -797,14 +910,6 @@ function TimeChart({
                   <stop offset="100%" stopColor="currentColor" stopOpacity={0.01} />
                 </linearGradient>
               </defs>
-              <Bar
-                dataKey="barPct"
-                fill="currentColor"
-                fillOpacity={0.08}
-                stroke="none"
-                activeBar={false}
-                isAnimationActive={false}
-              />
               <Area
                 type="natural"
                 dataKey="smoothPct"
@@ -816,14 +921,16 @@ function TimeChart({
                 activeDot={false}
                 isAnimationActive={false}
               />
-              {decileCrossings.map((c) => {
-                const isActive = activeTime != null && Math.abs(c.x - activeTime) <= tooltipTolerance;
+              {decileCrossingsVisible.map((c) => {
+                const activeP =
+                  activeTimeDotIndex >= 0 ? decileCrossingsVisible[activeTimeDotIndex]?.p : undefined;
+                const isActive = activeP != null && c.p === activeP;
                 return (
                   <ReferenceDot
                     key={c.p}
                     x={c.x}
                     y={c.y}
-                    r={isActive ? 7 : 4}
+                    r={isActive ? 5 : 3}
                     fill="var(--foreground)"
                     stroke="var(--background)"
                     strokeWidth={1.5}
@@ -832,7 +939,12 @@ function TimeChart({
               })}
               {targetLineX != null && Number.isFinite(targetLineX) && targetPLabel && (
                 <ReferenceLine
-                  x={targetLineX}
+                  segment={
+                    targetLineCurveY != null
+                      ? [{ x: targetLineX, y: 0 }, { x: targetLineX, y: targetLineCurveY }]
+                      : undefined
+                  }
+                  x={targetLineCurveY == null ? targetLineX : undefined}
                   stroke="var(--foreground)"
                   strokeWidth={2}
                   strokeOpacity={0.9}
@@ -1019,7 +1131,7 @@ export function SimulationSection(props: SimulationSectionProps) {
           />
         )}
 
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] overflow-hidden">
           <div className="px-4 py-2 border-b border-neutral-200 dark:border-neutral-700">
             <h3 className="text-sm font-semibold text-[var(--foreground)] m-0">{tableLabelDisplay}</h3>
           </div>
