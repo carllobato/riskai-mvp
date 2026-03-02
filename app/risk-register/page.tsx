@@ -11,7 +11,8 @@ import { saveFile, loadFiles, markFileImported } from "@/lib/uploadedRiskRegiste
 import { parseExcel, sheetToDocumentText } from "@/lib/riskImportExcel";
 import type { Risk, RiskDraft } from "@/domain/risk/risk.schema";
 import { RiskDraftSchema, RiskSchema } from "@/domain/risk/risk.schema";
-import { draftsToRisks } from "@/domain/risk/risk.mapper";
+import { draftsToRisks, mergeDraftToRisk } from "@/domain/risk/risk.mapper";
+import type { RiskMergeCluster, MergeRiskDraft } from "@/domain/risk/risk-merge.types";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { RiskRegisterHeader } from "@/components/risk-register/RiskRegisterHeader";
 import { RiskExtractPanel } from "@/components/risk-register/RiskExtractPanel";
@@ -25,6 +26,7 @@ import { AddRiskModal } from "@/components/risk-register/AddRiskModal";
 import { RiskDetailModal, ADD_NEW_RISK_ID } from "@/components/risk-register/RiskDetailModal";
 import { CreateRiskFileModal } from "@/components/risk-register/CreateRiskFileModal";
 import { CreateRiskAIModal } from "@/components/risk-register/CreateRiskAIModal";
+import { AIReviewDrawer } from "@/components/risk-register/AIReviewDrawer";
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
 
@@ -135,6 +137,11 @@ function RiskRegisterContent() {
   const { uiMode } = useProjectionScenario();
   const { risks, simulation, riskForecastsById, addRisk, appendRisks, updateRisk } = useRiskRegister();
   const isDebug = uiMode === "Debug";
+  const [aiReviewOpen, setAiReviewOpen] = useState(false);
+  const [aiReviewLoading, setAiReviewLoading] = useState(false);
+  const [aiReviewError, setAiReviewError] = useState<string | null>(null);
+  const [aiClusters, setAiClusters] = useState<RiskMergeCluster[]>([]);
+  const [aiReviewSkippedIds, setAiReviewSkippedIds] = useState<Set<string>>(new Set());
   const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [showProjectedOnly, setShowProjectedOnly] = useState(false);
   const [showEarlyWarningOnly, setShowEarlyWarningOnly] = useState(false);
@@ -181,12 +188,15 @@ function RiskRegisterContent() {
   const scoreDeltaByRiskId = useMemo(() => selectDecisionScoreDelta(state), [state]);
 
   const earlyWarningCount = useMemo(
-    () => risks.filter((r) => riskForecastsById[r.id]?.earlyWarning === true).length,
+    () =>
+      risks.filter(
+        (r) => r.status !== "archived" && riskForecastsById[r.id]?.earlyWarning === true
+      ).length,
     [risks, riskForecastsById]
   );
 
   const { filteredRisks, risksForFilterOptions } = useMemo(() => {
-    let list = risks;
+    let list = risks.filter((r) => r.status !== "archived");
     const flagged = (r: (typeof risks)[0]) => (decisionById[r.id]?.alertTags?.length ?? 0) > 0;
     const projected = (r: (typeof risks)[0]) => {
       const s = getForwardSignals(r.id, riskForecastsById);
@@ -195,9 +205,9 @@ function RiskRegisterContent() {
     const earlyWarning = (r: (typeof risks)[0]) => riskForecastsById[r.id]?.earlyWarning === true;
     const criticalInstability = (r: (typeof risks)[0]) =>
       (riskForecastsById[r.id]?.instability?.index ?? 0) >= 75;
-    if (showFlaggedOnly && showProjectedOnly) list = risks.filter((r) => flagged(r) || projected(r));
-    else if (showFlaggedOnly) list = risks.filter(flagged);
-    else if (showProjectedOnly) list = risks.filter(projected);
+    if (showFlaggedOnly && showProjectedOnly) list = list.filter((r) => flagged(r) || projected(r));
+    else if (showFlaggedOnly) list = list.filter(flagged);
+    else if (showProjectedOnly) list = list.filter(projected);
     if (showEarlyWarningOnly) list = list.filter(earlyWarning);
     if (showCriticalInstabilityOnly) list = list.filter(criticalInstability);
     if (sortByInstability) {
@@ -337,6 +347,66 @@ function RiskRegisterContent() {
     [handleFileSave]
   );
 
+  const handleAiReviewClick = useCallback(async () => {
+    setAiReviewOpen(true);
+    setAiReviewError(null);
+    setAiClusters([]);
+    setAiReviewSkippedIds(new Set());
+    setAiReviewLoading(true);
+    const projectId = projectContext?.projectName ?? "default";
+    const start = Date.now();
+    try {
+      const payload = { projectId, risks: risks.filter((r) => r.status !== "archived") };
+      const res = await fetch("/api/ai/risk-merge-review", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (process.env.NODE_ENV === "development") {
+        const reqSize = new Blob([JSON.stringify(payload)]).size;
+        const resSize = new Blob([JSON.stringify(data)]).size;
+        console.info("[AI Review] request size:", reqSize, "response size:", resSize, "ms:", Date.now() - start);
+      }
+      if (!res.ok) {
+        let msg = typeof data?.error === "string" ? data.error : "AI review failed";
+        const details = data?.details as Array<{ path?: string; message?: string }> | undefined;
+        if (Array.isArray(details) && details.length > 0) {
+          const parts = details.slice(0, 5).map((d) => (d.path ? `${d.path}: ${d.message ?? ""}` : d.message ?? ""));
+          if (parts.some(Boolean)) msg += " — " + parts.filter(Boolean).join("; ");
+        }
+        setAiReviewError(msg);
+        setAiClusters([]);
+        return;
+      }
+      setAiClusters(Array.isArray(data.clusters) ? data.clusters : []);
+    } catch (e) {
+      setAiReviewError(e instanceof Error ? e.message : "Request failed");
+      setAiClusters([]);
+    } finally {
+      setAiReviewLoading(false);
+    }
+  }, [projectContext?.projectName, risks]);
+
+  const handleAcceptMerge = useCallback(
+    (cluster: RiskMergeCluster, draft: MergeRiskDraft) => {
+      const newRisk = mergeDraftToRisk(draft, {
+        mergedFromRiskIds: cluster.riskIds,
+        aiMergeClusterId: cluster.clusterId,
+      });
+      for (const id of cluster.riskIds) {
+        updateRisk(id, { status: "archived" });
+      }
+      addRisk(newRisk);
+      setAiClusters((prev) => prev.filter((c) => c.clusterId !== cluster.clusterId));
+    },
+    [updateRisk, addRisk]
+  );
+
+  const handleSkipCluster = useCallback((clusterId: string) => {
+    setAiReviewSkippedIds((prev) => new Set([...prev, clusterId]));
+  }, []);
+
   const handleGenerateRisk = useCallback(async () => {
     if (!lastSavedFileId) {
       setGenerateStatus("error");
@@ -418,7 +488,11 @@ function RiskRegisterContent() {
         </div>
       )}
       <div className="mb-8">
-        <RiskRegisterHeader projectContext={projectContext} />
+        <RiskRegisterHeader
+          projectContext={projectContext}
+          onAiReviewClick={handleAiReviewClick}
+          aiReviewLoading={aiReviewLoading}
+        />
       </div>
       {isDebug && (
         <section className="mb-6">
@@ -661,6 +735,16 @@ function RiskRegisterContent() {
           addRisk(risk);
           setShowAddRiskModal(false);
         }}
+      />
+      <AIReviewDrawer
+        open={aiReviewOpen}
+        onClose={() => setAiReviewOpen(false)}
+        loading={aiReviewLoading}
+        error={aiReviewError}
+        clusters={aiClusters.filter((c) => !aiReviewSkippedIds.has(c.clusterId))}
+        risks={risks}
+        onAcceptMerge={handleAcceptMerge}
+        onSkipCluster={handleSkipCluster}
       />
     </main>
   );

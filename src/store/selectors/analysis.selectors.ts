@@ -63,7 +63,7 @@ export function getNeutralSummary(state: AnalysisSelectorState): NeutralSummary 
         ? snap.totalExpectedDays
         : undefined;
   const p90Time = summary != null && Number.isFinite(summary.p90Time) ? summary.p90Time : undefined;
-  const includedCount = state.risks.filter((r) => r.status !== "closed").length;
+  const includedCount = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived").length;
   const p20Cost = (neutral?.summary != null && Number.isFinite(neutral.summary.p20Cost))
     ? neutral.summary.p20Cost
     : (snap as SimulationSnapshot & { p20Cost?: number }).p20Cost ?? snap.p50Cost;

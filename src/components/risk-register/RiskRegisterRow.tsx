@@ -39,7 +39,7 @@ const categories: RiskCategory[] = [
   "other",
 ];
 
-const statuses: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed"];
+const statuses: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed", "archived"];
 
 function formatStatusLabel(status: RiskStatus): string {
   return status.charAt(0).toUpperCase() + status.slice(1);

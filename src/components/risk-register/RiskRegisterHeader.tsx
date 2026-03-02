@@ -10,20 +10,28 @@ import type { ProjectContext } from "@/lib/projectContext";
 
 export function RiskRegisterHeader({
   projectContext,
+  onAiReviewClick,
+  aiReviewLoading = false,
 }: {
   projectContext: ProjectContext | null;
+  onAiReviewClick?: () => void;
+  aiReviewLoading?: boolean;
 }) {
   const { risks, clearRisks, addRisk, appendRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
   const isElevated = forwardPressure.pressureClass === "High" || forwardPressure.pressureClass === "Severe";
 
+  const visibleRisks = useMemo(
+    () => risks.filter((r) => r.status !== "archived"),
+    [risks]
+  );
   const autoLensCounts = useMemo(() => {
     if (lensMode !== "Auto") return null;
     let conservative = 0;
     let neutral = 0;
     let aggressive = 0;
-    for (const r of risks) {
+    for (const r of visibleRisks) {
       const rec = riskForecastsById[r.id]?.instability?.recommendedScenario;
       if (rec === "Conservative") conservative++;
       else if (rec === "Aggressive") aggressive++;
@@ -35,12 +43,12 @@ export function RiskRegisterHeader({
         : aggressive >= neutral && aggressive >= conservative
           ? "Aggressive"
           : "Neutral";
-    return { conservative, neutral, aggressive, mostCommon, total: risks.length };
-  }, [lensMode, risks, riskForecastsById]);
+    return { conservative, neutral, aggressive, mostCommon, total: visibleRisks.length };
+  }, [lensMode, visibleRisks, riskForecastsById]);
 
   const scenarioOrderingViolation = useMemo(() => {
-    if (uiMode !== "Debug" || risks.length === 0) return false;
-    const snapshots = risks
+    if (uiMode !== "Debug" || visibleRisks.length === 0) return false;
+    const snapshots = visibleRisks
       .map((r) => riskForecastsById[r.id]?.scenarioTTC)
       .filter((t): t is NonNullable<typeof t> => t != null)
       .map((t) => ({
@@ -51,7 +59,7 @@ export function RiskRegisterHeader({
     if (snapshots.length === 0) return false;
     const result = validateScenarioOrdering(snapshots);
     return result.flag === "ScenarioOrderingViolation";
-  }, [uiMode, risks, riskForecastsById]);
+  }, [uiMode, visibleRisks, riskForecastsById]);
 
   useEffect(() => {
     if (process.env.NODE_ENV !== "development" || !autoLensCounts || autoLensCounts.total === 0) return;
@@ -62,6 +70,7 @@ export function RiskRegisterHeader({
   }, [autoLensCounts]);
 
   const isMvp = uiMode === "MVP";
+  const visibleRiskCount = visibleRisks.length;
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -87,7 +96,7 @@ export function RiskRegisterHeader({
         </div>
         {!isMvp && (
           <p style={{ margin: "6px 0 0 0", opacity: 0.8 }}>
-            {risks.length} risk{risks.length === 1 ? "" : "s"}
+            {visibleRiskCount} risk{visibleRiskCount === 1 ? "" : "s"}
           </p>
         )}
         {!isMvp && (
@@ -118,6 +127,16 @@ export function RiskRegisterHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {onAiReviewClick && (
+          <button
+            type="button"
+            onClick={onAiReviewClick}
+            disabled={aiReviewLoading}
+            className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            AI Review
+          </button>
+        )}
         <button
           type="button"
           onClick={() => appendRisks(getRandomDemoRisksToAdd(10))}

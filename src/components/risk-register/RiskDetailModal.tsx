@@ -29,7 +29,7 @@ const CATEGORIES: RiskCategory[] = [
   "other",
 ];
 
-const STATUSES: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed"];
+const STATUSES: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed", "archived"];
 
 const inputClass =
   "w-full h-9 px-3 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-transparent";

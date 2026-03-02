@@ -3,7 +3,7 @@ import { z } from "zod";
 /**
  * Enums (tight + explicit = consistency everywhere)
  */
-export const RiskStatusSchema = z.enum(["draft", "open", "monitoring", "mitigating", "closed"]);
+export const RiskStatusSchema = z.enum(["draft", "open", "monitoring", "mitigating", "closed", "archived"]);
 export type RiskStatus = z.infer<typeof RiskStatusSchema>;
 
 export const RiskCategorySchema = z.enum([
@@ -146,6 +146,11 @@ export const RiskSchema = z.object({
   scoreHistory: z
     .array(z.object({ timestamp: z.number(), compositeScore: z.number() }))
     .optional(),
+
+  /** Audit: risk IDs that were merged into this risk (AI Review). */
+  mergedFromRiskIds: z.array(z.string()).optional(),
+  /** Audit: cluster ID from AI merge review. */
+  aiMergeClusterId: z.string().optional(),
 });
 export type Risk = z.infer<typeof RiskSchema>;
 

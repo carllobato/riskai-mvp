@@ -212,9 +212,9 @@ export default function SimulationPage() {
 
   return (
     <main className="p-6">
-      <h1 className="text-2xl font-semibold m-0 text-[var(--foreground)]">Simulation</h1>
-
-      <div className="mt-6 flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold m-0 text-[var(--foreground)]">Simulation</h1>
+        <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={() => runSimulation(10000)}
@@ -235,6 +235,7 @@ export default function SimulationPage() {
             Review and save all draft risks in the Risk Register before running simulation.
           </p>
         )}
+        </div>
       </div>
 
       {!hasData && (

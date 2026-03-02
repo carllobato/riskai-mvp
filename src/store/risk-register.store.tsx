@@ -582,7 +582,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           iterationCount: iterCount,
         };
 
-        const effectiveRisks = state.risks.filter((r) => r.status !== "closed");
+        const effectiveRisks = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived");
         const conservativeRisks = effectiveRisks.map((r) =>
           applyScenarioToRiskInputs(r, "conservative")
         );

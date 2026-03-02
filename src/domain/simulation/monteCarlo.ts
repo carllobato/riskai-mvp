@@ -4,7 +4,7 @@
  * Uses seeded RNG when seed is provided for deterministic runs.
  *
  * Data lineage (Analysis):
- * - Risks with status "closed" are excluded from all calculations.
+ * - Risks with status "closed" or "archived" are excluded from all calculations.
  * - Probability, cost and time impacts use: post-mitigation if present, else pre-mitigation.
  * - "Present" = defined, finite, and (for numerics) non-negative where applicable.
  */
@@ -33,12 +33,12 @@ function isPresentPct(n: unknown): n is number {
 
 /**
  * Single source of truth for Analysis/simulation inputs.
- * - Excludes closed risks (returns null).
+ * - Excludes closed and archived risks (returns null).
  * - Uses post-mitigation values when present, else fallback to pre-mitigation (per field).
  * - Probability in 0–1; cost and time in dollars and days respectively.
  */
 export function getEffectiveRiskInputs(risk: Risk): EffectiveRiskInputs | null {
-  if (risk.status === "closed") return null;
+  if (risk.status === "closed" || risk.status === "archived") return null;
 
   const postProbPct = risk.postMitigationProbabilityPct;
   const preProbPct = risk.preMitigationProbabilityPct;
