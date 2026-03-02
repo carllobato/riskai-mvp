@@ -1,13 +1,13 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useRef, useEffect } from "react";
 import {
   Area,
   Bar,
-  CartesianGrid,
   ComposedChart,
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -26,7 +26,7 @@ import {
   getEngineHealth,
   type NeutralSummary,
 } from "@/store/selectors";
-import { loadProjectContext } from "@/lib/projectContext";
+import { loadProjectContext, type RiskAppetite } from "@/lib/projectContext";
 
 // --- Chart data types ---
 type DistributionPoint = { cost: number; frequency: number };
@@ -243,10 +243,16 @@ const CHART_HEIGHT = 300;
 const CHART_MARGIN = { top: 10, right: 16, left: 8, bottom: 8 };
 
 const DISTRIBUTION_BIN_COUNT = 28;
-const P10_DECILES = [10, 20, 30, 40, 50, 60, 70, 80, 90];
+const P10_DECILES = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
 
 /** Stable empty array for when samples is null; avoids new reference every render so useMemo deps don't churn. */
 const EMPTY_SAMPLES: number[] = [];
+
+/** Parse project risk appetite e.g. "P80" -> 80. */
+function riskAppetiteToPercent(riskAppetite: RiskAppetite): number {
+  const n = parseInt(riskAppetite.replace(/^P/, ""), 10);
+  return Number.isFinite(n) ? n : 50;
+}
 
 function CostDistributionChart({
   distribution,
@@ -254,12 +260,17 @@ function CostDistributionChart({
   isDerived,
   isDebug,
   iterationCount,
+  targetPNumeric,
+  targetPLabel,
 }: {
   distribution: DistributionPoint[] | null;
   samples: number[] | null;
   isDerived?: boolean;
   isDebug?: boolean;
   iterationCount: number;
+  /** Target P percentile (e.g. 80) so the line uses the same cost as the P80 marker. */
+  targetPNumeric?: number | null;
+  targetPLabel?: string | null;
 }) {
   const costSamples = samples ?? EMPTY_SAMPLES;
   const divisor = costSamples.length > 0 ? iterationCount : 1;
@@ -299,6 +310,42 @@ function CostDistributionChart({
   }, [costSamples, distribution, divisor]);
 
   const empty = smoothData.length === 0;
+  /** Prepend $0 and extend to P100 so X-axis and curve use full range. */
+  const chartData = useMemo(() => {
+    if (smoothData.length === 0) return smoothData;
+    const minCost = smoothData[0]?.cost ?? 0;
+    let data = minCost <= 0 ? smoothData : [{ cost: 0, barPct: 0, smoothPct: 0 }, ...smoothData];
+    const p100 = deciles.length > 0 ? Math.max(...deciles.map((d) => d.x)) : null;
+    const lastCost = data[data.length - 1]?.cost ?? 0;
+    if (p100 != null && p100 > lastCost) {
+      data = [...data, { cost: p100, barPct: 0, smoothPct: 0 }];
+    }
+    return data;
+  }, [smoothData, deciles]);
+
+  /** Points where each decile (P10…) vertical line crosses the smoothed curve, for fixed markers. */
+  const decileCrossings = useMemo(() => {
+    if (chartData.length === 0 || deciles.length === 0) return [];
+    const sorted = [...chartData].sort((a, b) => a.cost - b.cost);
+    const costMin = sorted[0]?.cost ?? 0;
+    const costMax = sorted[sorted.length - 1]?.cost ?? costMin;
+    return deciles
+      .map((d) => {
+        const x = d.x;
+        if (x < costMin || x > costMax) return null;
+        let i = 0;
+        while (i < sorted.length - 1 && sorted[i + 1].cost < x) i++;
+        const a = sorted[i];
+        const b = sorted[i + 1];
+        if (!a) return null;
+        if (!b || a.cost === b.cost) return { p: d.p, x: a.cost, y: a.smoothPct ?? 0 };
+        const t = (x - a.cost) / (b.cost - a.cost);
+        const y = (a.smoothPct ?? 0) + t * ((b.smoothPct ?? 0) - (a.smoothPct ?? 0));
+        return { p: d.p, x, y };
+      })
+      .filter((c): c is { p: number; x: number; y: number } => c != null);
+  }, [chartData, deciles]);
+
   const { yMax, yTicks } = useMemo(() => {
     if (smoothData.length === 0) return { yMax: 5, yTicks: [0, 1, 2, 3, 4, 5] };
     const maxPct = smoothData.reduce(
@@ -314,6 +361,66 @@ function CostDistributionChart({
     return { yMax, yTicks: ticks };
   }, [smoothData]);
 
+  /** Target line x from same deciles as markers so line and dot align. */
+  const targetLineX = useMemo(() => {
+    if (targetPNumeric == null) return null;
+    return deciles.find((d) => d.p === targetPNumeric)?.x ?? null;
+  }, [deciles, targetPNumeric]);
+
+  /** Costs where tooltip is allowed (P10 markers + target line only). */
+  const tooltipValidCosts = useMemo(() => {
+    const costs = decileCrossings.map((c) => c.x);
+    if (targetLineX != null && Number.isFinite(targetLineX)) costs.push(targetLineX);
+    return costs;
+  }, [decileCrossings, targetLineX]);
+
+  /** One entry per marker: so we show that marker's P and cost in the tooltip, not the chart data point. */
+  const tooltipMarkers = useMemo(() => {
+    const list: { pLabel: string; cost: number }[] = decileCrossings.map((c) => ({
+      pLabel: `P${c.p}`,
+      cost: c.x,
+    }));
+    if (targetLineX != null && Number.isFinite(targetLineX) && targetPLabel) {
+      list.push({ pLabel: `Target (${targetPLabel})`, cost: targetLineX });
+    }
+    return list;
+  }, [decileCrossings, targetLineX, targetPLabel]);
+
+  const costRange = useMemo(() => {
+    if (chartData.length === 0) return 1;
+    const costs = chartData.map((d) => d.cost);
+    return Math.max(1, Math.max(...costs) - Math.min(...costs));
+  }, [chartData]);
+
+  /** Explicit x-domain so the axis uses 100% of the chart width up to P100. */
+  const xDomain = useMemo(() => {
+    if (chartData.length === 0 && deciles.length === 0) return [0, 1] as [number, number];
+    const costMax = chartData.length > 0 ? Math.max(...chartData.map((d) => d.cost)) : 0;
+    const p100Max = deciles.length > 0 ? Math.max(...deciles.map((d) => d.x)) : 0;
+    const max = Math.max(costMax, p100Max, 1);
+    return [0, max] as [number, number];
+  }, [chartData, deciles]);
+
+  const [activeCost, setActiveCost] = useState<number | null>(null);
+  const activeCostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
+  }, []);
+
+  /** Hover zone: at least one bin width so all P10/target markers trigger; capped to keep zone small. */
+  const tooltipTolerance = useMemo(() => {
+    const minToHitMarkers = Math.max(costRange / DISTRIBUTION_BIN_COUNT, 1);
+    if (tooltipValidCosts.length < 2) return Math.max(costRange * 0.005, minToHitMarkers);
+    const sorted = [...tooltipValidCosts].sort((a, b) => a - b);
+    let minGap = costRange;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const gap = sorted[i + 1]! - sorted[i]!;
+      if (gap > 0) minGap = Math.min(minGap, gap);
+    }
+    const maxTolerance = Math.min(costRange * 0.015, minGap * 0.45);
+    return Math.max(minToHitMarkers, maxTolerance);
+  }, [tooltipValidCosts, costRange]);
+
   const subtitle = empty
     ? null
     : isDerived && isDebug
@@ -326,14 +433,9 @@ function CostDistributionChart({
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Cost Distribution</h3>
-        {!empty && subtitle && (
+        {!empty && subtitle && isDebug && (
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">
             {subtitle}
-          </p>
-        )}
-        {!empty && !isDebug && (
-          <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0">
-            Bars = histogram, line = smoothed
           </p>
         )}
         {!empty && isDebug && (
@@ -343,7 +445,7 @@ function CostDistributionChart({
         )}
         {!empty && isDebug && (
           <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5 m-0">
-            Deciles shown: P10..P90 (labels: P50/P80)
+            Deciles shown: P10..P100 (labels: P50/P80)
           </p>
         )}
       </div>
@@ -354,20 +456,20 @@ function CostDistributionChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-            <ComposedChart data={smoothData} margin={CHART_MARGIN}>
-              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.2} />
+            <ComposedChart data={chartData} margin={CHART_MARGIN}>
               <XAxis
+                type="number"
                 dataKey="cost"
-                domain={[0, "auto"]}
-                tickFormatter={(v) => fmtMoney(Number(v))}
-                interval="preserveStartEnd"
-                minTickGap={40}
-                tickMargin={10}
-                tick={{ fontSize: 11, fill: "var(--foreground)" }}
+                domain={xDomain}
+                scale="linear"
+                allowDataOverflow
+                padding={{ left: 0, right: 0 }}
+                tick={false}
+                tickLine={false}
                 axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
-                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <YAxis
+                hide
                 domain={[0, yMax]}
                 ticks={yTicks}
                 tickFormatter={(v) => `${v}%`}
@@ -376,27 +478,45 @@ function CostDistributionChart({
                 tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <Tooltip
+                cursor={false}
+                offset={5}
                 contentStyle={{
-                  backgroundColor: "var(--background)",
+                  backgroundColor: "rgba(255, 255, 255, 0.94)",
                   border: "1px solid var(--foreground)",
                   borderRadius: 8,
                   color: "var(--foreground)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
                 }}
                 content={({ active, payload, label }) => {
-                  if (!active || !payload?.length || label == null) return null;
-                  const bar = payload.find((p) => p.dataKey === "barPct");
-                  const smooth = payload.find((p) => p.dataKey === "smoothPct");
-                  const barVal = bar?.value != null ? Number(bar.value).toFixed(1) : "—";
-                  const smoothVal = smooth?.value != null ? Number(smooth.value).toFixed(1) : "—";
+                  if (!active || !payload?.length || label == null) {
+                    if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
+                    activeCostTimeoutRef.current = setTimeout(() => setActiveCost(null), 0);
+                    return null;
+                  }
+                  const cost = Number(label);
+                  const nearMarkerOrTarget = tooltipValidCosts.some(
+                    (v) => Math.abs(cost - v) <= tooltipTolerance
+                  );
+                  if (!nearMarkerOrTarget) {
+                    if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
+                    activeCostTimeoutRef.current = setTimeout(() => setActiveCost(null), 0);
+                    return null;
+                  }
+                  const closest = tooltipMarkers.reduce((best, m) =>
+                    Math.abs(cost - m.cost) < Math.abs(cost - best.cost) ? m : best
+                  );
+                  if (activeCostTimeoutRef.current) clearTimeout(activeCostTimeoutRef.current);
+                  activeCostTimeoutRef.current = setTimeout(() => setActiveCost(closest.cost), 0);
                   return (
-                    <div className="px-2.5 py-2 text-sm space-y-1">
-                      <div className="font-medium">{fmtMoney(Number(label))}</div>
-                      <div className="text-neutral-500 dark:text-neutral-400">
-                        Histogram: {barVal}%
-                      </div>
-                      <div className="text-neutral-500 dark:text-neutral-400">
-                        Smoothed: {smoothVal}%
-                      </div>
+                    <div
+                      className="px-2.5 py-2 text-sm space-y-1 rounded-lg border border-neutral-300 dark:border-neutral-600"
+                      style={{
+                        backgroundColor: "rgba(255, 255, 255, 0.92)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+                      }}
+                    >
+                      <div className="font-medium text-neutral-900">{closest.pLabel}</div>
+                      <div className="text-neutral-700">{fmtMoney(closest.cost)}</div>
                     </div>
                   );
                 }}
@@ -412,6 +532,7 @@ function CostDistributionChart({
                 fill="currentColor"
                 fillOpacity={0.08}
                 stroke="none"
+                activeBar={false}
                 isAnimationActive={false}
               />
               <Area
@@ -422,29 +543,38 @@ function CostDistributionChart({
                 fill="url(#distDepth)"
                 fillOpacity={1}
                 dot={false}
+                activeDot={false}
                 isAnimationActive={false}
               />
-              {deciles.map((d) => (
+              {decileCrossings.map((c) => {
+                const isActive = activeCost != null && Math.abs(c.x - activeCost) <= tooltipTolerance;
+                return (
+                  <ReferenceDot
+                    key={c.p}
+                    x={c.x}
+                    y={c.y}
+                    r={isActive ? 7 : 4}
+                    fill="var(--foreground)"
+                    stroke="var(--background)"
+                    strokeWidth={1.5}
+                  />
+                );
+              })}
+              {targetLineX != null && Number.isFinite(targetLineX) && targetPLabel && (
                 <ReferenceLine
-                  key={d.p}
-                  x={d.x}
-                  stroke="currentColor"
-                  strokeWidth={1.5}
-                  strokeDasharray="4 4"
-                  strokeOpacity={0.65}
-                  label={
-                    d.p === 50 || d.p === 80
-                      ? {
-                          value: `P${d.p}`,
-                          position: "insideTop",
-                          fontSize: 12,
-                          fontWeight: 500,
-                          fill: "var(--foreground)",
-                        }
-                      : undefined
-                  }
+                  x={targetLineX}
+                  stroke="var(--foreground)"
+                  strokeWidth={2}
+                  strokeOpacity={0.9}
+                  label={{
+                    value: `Target (${targetPLabel})`,
+                    position: "insideTop",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fill: "var(--foreground)",
+                  }}
                 />
-              ))}
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         )}
@@ -461,14 +591,62 @@ function CumulativeProbabilityChart({
   p80Cost,
   isDerived,
   isDebug,
+  targetPCost,
+  targetPLabel,
 }: {
   cdfData: CdfPoint[] | null;
   p50Cost: number | undefined;
   p80Cost: number | undefined;
   isDerived?: boolean;
   isDebug?: boolean;
+  targetPCost?: number | null;
+  targetPLabel?: string | null;
 }) {
   const empty = !cdfData || cdfData.length === 0;
+  /** Costs where tooltip is allowed (P50, P80, target line only). */
+  const tooltipValidCosts = useMemo(() => {
+    const costs: number[] = [];
+    if (p50Cost != null && Number.isFinite(p50Cost)) costs.push(p50Cost);
+    if (p80Cost != null && Number.isFinite(p80Cost)) costs.push(p80Cost);
+    if (targetPCost != null && Number.isFinite(targetPCost)) costs.push(targetPCost);
+    return costs;
+  }, [p50Cost, p80Cost, targetPCost]);
+
+  const costRange = useMemo(() => {
+    if (!cdfData?.length) return 1;
+    const costs = cdfData.map((d) => d.cost);
+    return Math.max(1, Math.max(...costs) - Math.min(...costs));
+  }, [cdfData]);
+
+  /** Hover zone: enough to hit P50/P80/target; capped to keep zone small. */
+  const tooltipTolerance = useMemo(() => {
+    if (tooltipValidCosts.length === 0) return 0;
+    if (tooltipValidCosts.length < 2) return costRange * 0.008;
+    const sorted = [...tooltipValidCosts].sort((a, b) => a - b);
+    let minGap = costRange;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const gap = sorted[i + 1]! - sorted[i]!;
+      if (gap > 0) minGap = Math.min(minGap, gap);
+    }
+    return Math.min(costRange * 0.012, Math.max(minGap * 0.35, costRange * 0.003));
+  }, [tooltipValidCosts, costRange]);
+
+  /** Prepend $0 so X-axis and scale always start at 0. */
+  const chartData = useMemo(() => {
+    if (!cdfData || cdfData.length === 0) return cdfData ?? [];
+    const minCost = cdfData[0]?.cost ?? 0;
+    if (minCost <= 0) return cdfData;
+    return [{ cost: 0, cumulativePct: 0 }, ...cdfData];
+  }, [cdfData]);
+
+  /** Explicit x-domain so the axis uses 100% of the chart width (no nice padding). */
+  const xDomain = useMemo((): [number, number] => {
+    if (!chartData?.length) return [0, 1];
+    const costs = chartData.map((d) => d.cost);
+    const max = Math.max(...costs);
+    return [0, max];
+  }, [chartData]);
+
   const subtitle = empty
     ? null
     : isDerived && isDebug
@@ -480,7 +658,7 @@ function CumulativeProbabilityChart({
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden">
       <div className="px-4 py-3 border-b border-neutral-200 dark:border-neutral-700">
         <h3 className="text-base font-semibold text-[var(--foreground)] m-0">Cumulative Probability</h3>
-        {!empty && subtitle && (
+        {!empty && subtitle && isDebug && (
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">{subtitle}</p>
         )}
       </div>
@@ -491,17 +669,20 @@ function CumulativeProbabilityChart({
           </div>
         ) : (
           <ResponsiveContainer width="100%" height={CHART_HEIGHT}>
-            <LineChart data={cdfData} margin={CHART_MARGIN}>
-              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.2} />
+            <LineChart data={chartData} margin={CHART_MARGIN}>
               <XAxis
+                type="number"
                 dataKey="cost"
-                tickFormatter={(v) => fmtMoney(Number(v))}
-                interval="preserveStartEnd"
-                tick={{ fontSize: 11, fill: "var(--foreground)" }}
+                domain={xDomain}
+                scale="linear"
+                allowDataOverflow
+                padding={{ left: 0, right: 0 }}
+                tick={false}
+                tickLine={false}
                 axisLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
-                tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <YAxis
+                hide
                 domain={[0, 100]}
                 ticks={CDF_Y_TICKS}
                 tickFormatter={(v) => `${v}%`}
@@ -510,14 +691,38 @@ function CumulativeProbabilityChart({
                 tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.3 }}
               />
               <Tooltip
+                cursor={false}
+                offset={5}
                 contentStyle={{
-                  backgroundColor: "var(--background)",
+                  backgroundColor: "rgba(255, 255, 255, 0.94)",
                   border: "1px solid var(--foreground)",
                   borderRadius: 8,
                   color: "var(--foreground)",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
                 }}
-                labelFormatter={(label) => fmtMoney(Number(label))}
-                formatter={(value: number | undefined) => [fmtPct(value ?? 0), "Cumulative %"]}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length || label == null) return null;
+                  const cost = Number(label);
+                  const nearMarkerOrTarget = tooltipValidCosts.some(
+                    (v) => Math.abs(cost - v) <= tooltipTolerance
+                  );
+                  if (!nearMarkerOrTarget) return null;
+                  const value = payload[0]?.value;
+                  return (
+                    <div
+                      className="px-2.5 py-2 text-sm space-y-1 rounded-lg border border-neutral-300 dark:border-neutral-600"
+                      style={{
+                        backgroundColor: "rgba(255, 255, 255, 0.92)",
+                        boxShadow: "0 2px 10px rgba(0,0,0,0.12)",
+                      }}
+                    >
+                      <div className="font-medium text-neutral-900">{fmtMoney(cost)}</div>
+                      <div className="text-neutral-700">
+                        Cumulative: {fmtPct(value ?? 0)}
+                      </div>
+                    </div>
+                  );
+                }}
               />
               <Line
                 type="monotone"
@@ -525,6 +730,7 @@ function CumulativeProbabilityChart({
                 stroke="currentColor"
                 strokeWidth={2}
                 dot={false}
+                activeDot={false}
                 isAnimationActive={false}
                 connectNulls
               />
@@ -544,6 +750,21 @@ function CumulativeProbabilityChart({
                   strokeOpacity={0.5}
                   strokeDasharray="3 3"
                   label={{ value: "P80", position: "insideTopLeft", fontSize: 12, fill: "var(--foreground)" }}
+                />
+              )}
+              {targetPCost != null && Number.isFinite(targetPCost) && targetPLabel && (
+                <ReferenceLine
+                  x={targetPCost}
+                  stroke="var(--foreground)"
+                  strokeWidth={2}
+                  strokeOpacity={0.9}
+                  label={{
+                    value: `Target (${targetPLabel})`,
+                    position: "insideTopLeft",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    fill: "var(--foreground)",
+                  }}
                 />
               )}
             </LineChart>
@@ -610,6 +831,13 @@ export default function AnalysisPage() {
     const cdfData = distributionToCdf(distribution);
     return { distribution, cdfData, isDerived: true };
   }, [neutralSummary, samples]);
+
+  const { targetPCost, targetPNumeric, targetPLabel } = useMemo(() => {
+    if (!projectContext) return { targetPCost: null as number | null, targetPNumeric: null as number | null, targetPLabel: null as string | null };
+    const p = riskAppetiteToPercent(projectContext.riskAppetite);
+    const cost = cdfData?.length ? costAtPercentile(cdfData, p) ?? null : null;
+    return { targetPCost: cost, targetPNumeric: p, targetPLabel: projectContext.riskAppetite };
+  }, [projectContext, cdfData]);
 
   const hasData = neutralSummary != null;
 
@@ -780,6 +1008,8 @@ export default function AnalysisPage() {
                     ? samples.length
                     : (simulation.neutral?.iterationCount ?? 1)
                 }
+                  targetPNumeric={targetPNumeric}
+                  targetPLabel={targetPLabel}
                 />
                 <CumulativeProbabilityChart
                   cdfData={cdfData}
@@ -787,6 +1017,8 @@ export default function AnalysisPage() {
                   p80Cost={neutralSummary!.p80Cost}
                   isDerived={isDerived}
                   isDebug={isDebug}
+                  targetPCost={targetPCost}
+                  targetPLabel={targetPLabel}
                 />
               </div>
             </div>

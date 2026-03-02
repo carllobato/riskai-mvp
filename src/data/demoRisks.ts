@@ -1,11 +1,13 @@
 /**
  * Demo/seed risk data with all required fields completed.
  * Mix of risks with mitigation applied and without (post rating N/A).
+ * Bank of 100 risks; "Load demo" adds 10 randomly chosen (with new ids) to the register.
  */
 
 import type { Risk, RiskCategory } from "@/domain/risk/risk.schema";
 import { createRisk } from "@/domain/risk/risk.factory";
 import { buildRating } from "@/domain/risk/risk.logic";
+import { makeId } from "@/lib/id";
 
 const NOW = new Date().toISOString();
 
@@ -233,4 +235,29 @@ export function getDemoRisks(): Risk[] {
       probability: 0.3,
     }),
   ];
+}
+
+/** Bank of 100 risks (10 copies of each of the 10 templates) for random "Load demo" sampling. */
+const DEMO_RISKS_BANK: Risk[] = (() => {
+  const base = getDemoRisks();
+  const out: Risk[] = [];
+  for (let i = 0; i < 100; i++) {
+    const template = base[i % 10]!;
+    out.push({ ...template, id: `demo-${i + 1}`, riskNumber: i + 1 });
+  }
+  return out;
+})();
+
+/**
+ * Returns `count` risks randomly chosen from the 100-risk bank, each cloned with a new unique id
+ * so they can be appended to the register without id collisions. Use for "Load demo" to add
+ * 10 risks to the existing register.
+ */
+export function getRandomDemoRisksToAdd(count: number): Risk[] {
+  const shuffled = [...DEMO_RISKS_BANK].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, Math.min(count, shuffled.length)).map((r) => ({
+    ...r,
+    id: makeId(),
+    riskNumber: undefined,
+  }));
 }

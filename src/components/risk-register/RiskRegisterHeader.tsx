@@ -3,10 +3,9 @@
 import { useMemo, useEffect } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
-import { createRisk } from "@/domain/risk/risk.factory";
 import type { ScenarioName } from "@/lib/instability/selectScenarioLens";
 import { validateScenarioOrdering } from "@/lib/instability/validateScenarioOrdering";
-import { getDemoRisks } from "@/data/demoRisks";
+import { getRandomDemoRisksToAdd } from "@/data/demoRisks";
 import type { ProjectContext } from "@/lib/projectContext";
 
 export function RiskRegisterHeader({
@@ -14,7 +13,7 @@ export function RiskRegisterHeader({
 }: {
   projectContext: ProjectContext | null;
 }) {
-  const { risks, clearRisks, addRisk, setRisks, forwardPressure, riskForecastsById } = useRiskRegister();
+  const { risks, clearRisks, addRisk, appendRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
   const pct = Math.round(forwardPressure.pctProjectedCritical * 100);
   const isElevated = forwardPressure.pressureClass === "High" || forwardPressure.pressureClass === "Severe";
@@ -121,17 +120,20 @@ export function RiskRegisterHeader({
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          onClick={() => setRisks(getDemoRisks())}
+          onClick={() => appendRisks(getRandomDemoRisksToAdd(10))}
           className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
         >
-          Load demo
+          Add x10
         </button>
         <button
           type="button"
-          onClick={() => addRisk(createRisk())}
+          onClick={() => {
+            const [risk] = getRandomDemoRisksToAdd(1);
+            if (risk) addRisk(risk);
+          }}
           className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
         >
-          Add sample
+          Add x1
         </button>
         <button
           type="button"
