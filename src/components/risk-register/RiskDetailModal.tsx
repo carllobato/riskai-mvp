@@ -218,6 +218,7 @@ export function RiskDetailModal({
   const totalSlots = risks.length + 1; // last slot is "Add new risk"
   const isAddNewSlot = currentIndex === risks.length;
   const hasMultipleOrAddNew = risks.length >= 1 || isAddNewSlot;
+  const hasAddNewSlot = !!(onAddNew ?? onAddNewWithFile ?? onAddNewWithAI);
   const isLast = risks.length > 0 && currentIndex === risks.length - 1;
   const isEmpty = risks.length === 0;
 
@@ -372,6 +373,21 @@ export function RiskDetailModal({
     if (currentIndex >= risks.length) setCurrentIndex(0);
   }, [open, risks.length, currentIndex]);
 
+  // When risks array changes while modal is open (e.g. risksForDetailModal flips from [initialRisk, ...filtered] to filteredRisks),
+  // keep showing the same risk by id instead of the same index, so we don't jump to a different risk.
+  useEffect(() => {
+    if (!open || risks.length === 0) return;
+    if (currentIndex === risks.length) return; // on add-new slot
+    const viewingId = lastSyncedRiskIdRef.current;
+    if (!viewingId) return;
+    const newIndex = risks.findIndex((r) => r.id === viewingId);
+    if (newIndex >= 0) {
+      setCurrentIndex(newIndex);
+    } else {
+      setCurrentIndex(0);
+    }
+  }, [open, risks]);
+
   useEffect(() => {
     if (!open || !modalRef.current) return;
     const el = modalRef.current;
@@ -508,7 +524,7 @@ export function RiskDetailModal({
     return currentSnapshot !== baseline;
   })();
 
-  const [pendingNav, setPendingNav] = useState<"prev" | "next" | "close" | null>(null);
+  const [pendingNav, setPendingNav] = useState<"prev" | "next" | "close" | "generateAI" | null>(null);
   const showSavePrompt = pendingNav !== null;
 
   const handleSave = useCallback((): boolean => {
@@ -587,18 +603,28 @@ export function RiskDetailModal({
     if (pendingNav === "prev" && currentIndex > 0) setCurrentIndex((i) => i - 1);
     else if (pendingNav === "next" && currentIndex < risks.length) setCurrentIndex((i) => i + 1);
     else if (pendingNav === "close") onClose();
+    else if (pendingNav === "generateAI") onAddNewWithAI?.();
     setPendingNav(null);
-  }, [pendingNav, handleSave, currentIndex, risks.length, onClose]);
+  }, [pendingNav, handleSave, currentIndex, risks.length, onClose, onAddNewWithAI]);
 
   const handleDiscardThenNav = useCallback(() => {
     if (pendingNav === null) return;
     if (pendingNav === "prev" && currentIndex > 0) setCurrentIndex((i) => i - 1);
     else if (pendingNav === "next" && currentIndex < risks.length) setCurrentIndex((i) => i + 1);
     else if (pendingNav === "close") onClose();
+    else if (pendingNav === "generateAI") onAddNewWithAI?.();
     setPendingNav(null);
-  }, [pendingNav, currentIndex, risks.length, onClose]);
+  }, [pendingNav, currentIndex, risks.length, onClose, onAddNewWithAI]);
 
   const handleCancelNav = useCallback(() => setPendingNav(null), []);
+
+  const requestGenerateAI = useCallback(() => {
+    if (isDirty && currentRisk && currentIndex !== risks.length) {
+      setPendingNav("generateAI");
+      return;
+    }
+    onAddNewWithAI?.();
+  }, [isDirty, currentRisk, currentIndex, risks.length, onAddNewWithAI]);
 
   const requestClose = useCallback(() => {
     if (isDirty && currentRisk && currentIndex !== risks.length) {
@@ -656,13 +682,7 @@ export function RiskDetailModal({
       <div
         ref={modalRef}
         tabIndex={-1}
-        style={{
-          width: "90vw",
-          maxWidth: 720,
-          maxHeight: "90vh",
-          minHeight: "70vh",
-        }}
-        className="shrink-0 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-xl flex flex-col overflow-hidden outline-none"
+        className="w-full max-w-[70vw] max-h-[90vh] min-h-[400px] shrink-0 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-2xl flex flex-col overflow-hidden outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-4 shrink-0 border-b border-neutral-200 dark:border-neutral-700 px-4 sm:px-6 py-3">
@@ -676,7 +696,7 @@ export function RiskDetailModal({
                 No risks
               </h2>
             ) : currentRisk ? (
-              <div className="flex items-center gap-1 min-w-0 flex-1">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
                 <span
                   className="w-14 shrink-0 text-lg font-semibold text-[var(--foreground)]"
                   aria-label="Risk ID"
@@ -691,9 +711,39 @@ export function RiskDetailModal({
                   aria-label="Risk title"
                   id="risk-detail-dialog-title"
                 />
+                {currentRisk.status === "archived" && (
+                  <span
+                    className="shrink-0 px-2 py-0.5 text-xs font-medium rounded-md bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-200"
+                    aria-label="Archived risk"
+                  >
+                    Archived
+                  </span>
+                )}
               </div>
             ) : null}
           </div>
+          {hasMultipleOrAddNew && !isAddNewSlot && (
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={goPrev}
+                disabled={currentIndex === 0}
+                className={btnSecondary}
+                aria-label="Previous risk"
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                onClick={goNext}
+                disabled={currentIndex === risks.length || (isLast && !hasAddNewSlot)}
+                className={btnSecondary}
+                aria-label="Next risk"
+              >
+                Next
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={requestClose}
@@ -1052,36 +1102,14 @@ export function RiskDetailModal({
         {(!isEmpty || isAddNewSlot) && (
           <div className="flex flex-wrap justify-between items-center gap-3 shrink-0 px-4 sm:px-6 py-4 border-t border-neutral-200 dark:border-neutral-700 bg-[var(--background)]">
             <div className="flex gap-2">
-              {hasMultipleOrAddNew && !isAddNewSlot && (
-                <>
-                  <button
-                    type="button"
-                    onClick={goPrev}
-                    disabled={currentIndex === 0}
-                    className={btnSecondary}
-                    aria-label="Previous risk"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    type="button"
-                    onClick={goNext}
-                    disabled={currentIndex === risks.length}
-                    className={btnSecondary}
-                    aria-label="Next risk"
-                  >
-                    Next
-                  </button>
-                </>
+              {onAddNewWithAI && (
+                <button type="button" onClick={requestGenerateAI} className={btnSecondary} aria-label="Generate AI Risk">
+                  Generate AI Risk
+                </button>
               )}
               {isAddNewSlot && onAddNew && onAddNewWithFile == null && onAddNewWithAI == null && (
                 <button type="button" onClick={onAddNew} className={btnPrimary}>
                   Add new risk
-                </button>
-              )}
-              {!isAddNewSlot && isLast && onAddNew && (
-                <button type="button" onClick={onAddNew} className={btnSecondary}>
-                  Create new risk
                 </button>
               )}
             </div>

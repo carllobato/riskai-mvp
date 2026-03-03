@@ -6,7 +6,7 @@
  * Optional server sync: POST /api/project-context (same style as simulation-context).
  */
 
-import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   type ProjectContext,
@@ -22,6 +22,8 @@ import {
   computeValueM,
 } from "@/lib/projectContext";
 import { ProjectExcelUploadSection } from "@/components/project/ProjectExcelUploadSection";
+import { useRiskRegister } from "@/store/risk-register.store";
+import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
 
 const CogIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
@@ -133,7 +135,16 @@ export default function ProjectInformationPage() {
   const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>({});
   const [saved, setSaved] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [showArchivedReviewModal, setShowArchivedReviewModal] = useState(false);
   const [validation, setValidation] = useState<Record<string, string>>({});
+  const { risks, updateRisk } = useRiskRegister();
+  const archivedRisks = useMemo(
+    () =>
+      risks
+        .filter((r) => r.status === "archived")
+        .sort((a, b) => (a.riskNumber ?? 0) - (b.riskNumber ?? 0)),
+    [risks]
+  );
   const savedHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const projectNameRef = useRef<HTMLInputElement>(null);
   const projectValueRef = useRef<HTMLInputElement>(null);
@@ -511,7 +522,24 @@ export default function ProjectInformationPage() {
         </div>
       </section>
 
-      {/* 5) Risk Register Files (Excel) - upload only here; list disappears when leaving page */}
+      {/* 5) Archived risks – review in modal, no list on settings page */}
+      <section className={cardClass + " mb-4"}>
+        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
+          Archived risks
+        </h2>
+        <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
+          Open a window to review and edit archived risks one by one (Previous / Next).
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowArchivedReviewModal(true)}
+          className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+        >
+          Review archived risks
+        </button>
+      </section>
+
+      {/* 6) Risk Register Files (Excel) - upload only here; list disappears when leaving page */}
       <ProjectExcelUploadSection />
 
       <div className="flex flex-wrap items-center gap-3 mt-6">
@@ -576,6 +604,14 @@ export default function ProjectInformationPage() {
           </div>
         </div>
       )}
+
+      <RiskDetailModal
+        open={showArchivedReviewModal}
+        risks={archivedRisks}
+        initialRiskId={archivedRisks[0]?.id ?? null}
+        onClose={() => setShowArchivedReviewModal(false)}
+        onSave={(risk) => updateRisk(risk.id, risk)}
+      />
     </main>
   );
 }

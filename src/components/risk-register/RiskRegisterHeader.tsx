@@ -12,10 +12,12 @@ export function RiskRegisterHeader({
   projectContext,
   onAiReviewClick,
   aiReviewLoading = false,
+  onGenerateAiRiskClick,
 }: {
   projectContext: ProjectContext | null;
   onAiReviewClick?: () => void;
   aiReviewLoading?: boolean;
+  onGenerateAiRiskClick?: () => void;
 }) {
   const { risks, clearRisks, addRisk, appendRisks, forwardPressure, riskForecastsById } = useRiskRegister();
   const { lensMode, uiMode } = useProjectionScenario();
@@ -127,6 +129,15 @@ export function RiskRegisterHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {onGenerateAiRiskClick && (
+          <button
+            type="button"
+            onClick={onGenerateAiRiskClick}
+            className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          >
+            Generate AI Risk
+          </button>
+        )}
         {onAiReviewClick && (
           <button
             type="button"

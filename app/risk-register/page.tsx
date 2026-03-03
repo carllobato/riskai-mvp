@@ -23,9 +23,10 @@ import {
   type ColumnFilters,
 } from "@/components/risk-register/RiskRegisterTable";
 import { AddRiskModal } from "@/components/risk-register/AddRiskModal";
-import { RiskDetailModal, ADD_NEW_RISK_ID } from "@/components/risk-register/RiskDetailModal";
+import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
 import { CreateRiskFileModal } from "@/components/risk-register/CreateRiskFileModal";
 import { CreateRiskAIModal } from "@/components/risk-register/CreateRiskAIModal";
+import { AddNewRiskChoiceModal } from "@/components/risk-register/AddNewRiskChoiceModal";
 import { AIReviewDrawer } from "@/components/risk-register/AIReviewDrawer";
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
@@ -158,6 +159,7 @@ function RiskRegisterContent() {
   const [generateStatus, setGenerateStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [generateMessage, setGenerateMessage] = useState<string | null>(null);
   const [showAddRiskModal, setShowAddRiskModal] = useState(false);
+  const [showAddNewRiskChoiceModal, setShowAddNewRiskChoiceModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [detailInitialRiskId, setDetailInitialRiskId] = useState<string | null>(null);
   const [showCreateRiskFileModal, setShowCreateRiskFileModal] = useState(false);
@@ -272,6 +274,16 @@ function RiskRegisterContent() {
     decisionById,
     riskForecastsById,
   ]);
+
+  // When opening the detail modal for a newly added risk, it may not be in filteredRisks (e.g. "Show flagged only").
+  // Ensure the initial risk is included so the modal shows the correct risk instead of defaulting to the first filtered one.
+  const risksForDetailModal = useMemo(() => {
+    if (!detailInitialRiskId) return filteredRisks;
+    if (filteredRisks.some((r) => r.id === detailInitialRiskId)) return filteredRisks;
+    const initialRisk = risks.find((r) => r.id === detailInitialRiskId);
+    if (!initialRisk) return filteredRisks;
+    return [initialRisk, ...filteredRisks];
+  }, [filteredRisks, detailInitialRiskId, risks]);
 
   useEffect(() => {
     if (!focusRiskId) return;
@@ -390,10 +402,12 @@ function RiskRegisterContent() {
 
   const handleAcceptMerge = useCallback(
     (cluster: RiskMergeCluster, draft: MergeRiskDraft) => {
+      // Create merged result as a new risk (new id, next riskNumber) to avoid losing information
       const newRisk = mergeDraftToRisk(draft, {
         mergedFromRiskIds: cluster.riskIds,
         aiMergeClusterId: cluster.clusterId,
       });
+      // Archive the risks that were merged (keep for completeness, do not delete)
       for (const id of cluster.riskIds) {
         updateRisk(id, { status: "archived" });
       }
@@ -492,6 +506,7 @@ function RiskRegisterContent() {
           projectContext={projectContext}
           onAiReviewClick={handleAiReviewClick}
           aiReviewLoading={aiReviewLoading}
+          onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
         />
       </div>
       {isDebug && (
@@ -678,10 +693,7 @@ function RiskRegisterContent() {
             setDetailInitialRiskId(risk.id);
             setShowDetailModal(true);
           }}
-          onAddNewClick={() => {
-            setDetailInitialRiskId(ADD_NEW_RISK_ID);
-            setShowDetailModal(true);
-          }}
+          onAddNewClick={() => setShowAddNewRiskChoiceModal(true)}
           sortState={tableSortState}
           onSortByColumn={(column: SortColumn) => {
             setTableSortState((prev) => {
@@ -703,7 +715,7 @@ function RiskRegisterContent() {
         />
       <RiskDetailModal
         open={showDetailModal}
-        risks={filteredRisks}
+        risks={risksForDetailModal}
         initialRiskId={detailInitialRiskId}
         onClose={() => setShowDetailModal(false)}
         onSave={(risk) => updateRisk(risk.id, risk)}
@@ -717,7 +729,18 @@ function RiskRegisterContent() {
         }}
         onAddNewWithAI={() => {
           setShowDetailModal(false);
-          setShowCreateRiskAIModal(true);
+          setShowAddNewRiskChoiceModal(true);
+        }}
+      />
+      <AddNewRiskChoiceModal
+        open={showAddNewRiskChoiceModal}
+        onClose={() => setShowAddNewRiskChoiceModal(false)}
+        onRisksAdded={(riskIds) => {
+          setShowAddNewRiskChoiceModal(false);
+          if (riskIds.length > 0) {
+            setDetailInitialRiskId(riskIds[0]);
+            setShowDetailModal(true);
+          }
         }}
       />
       <CreateRiskFileModal

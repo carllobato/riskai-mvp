@@ -230,13 +230,13 @@ export default function SimulationPage() {
         >
           Clear History
         </button>
-        {hasDraftRisks && (
-          <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
-            Review and save all draft risks in the Risk Register before running simulation.
-          </p>
-        )}
         </div>
       </div>
+      {hasDraftRisks && (
+        <p className="text-sm text-amber-600 dark:text-amber-400 mt-2 text-right" role="status">
+          Review and save all draft risks in the Risk Register before running simulation.
+        </p>
+      )}
 
       {!hasData && (
         <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">

@@ -173,3 +173,101 @@ export const RiskDraftResponseSchema = z.object({
   risks: z.array(RiskDraftSchema),
 });
 export type RiskDraftResponse = z.infer<typeof RiskDraftResponseSchema>;
+
+/** Normalise appliesTo from AI (e.g. "Cost" | "Time" | "Both") to schema enum. */
+const appliesToIntelligent = z
+  .union([AppliesToSchema, z.enum(["Cost", "Time", "Both"]), z.string()])
+  .transform((s) => {
+    const lower = (s ?? "").toString().toLowerCase().trim();
+    if (lower === "time" || lower === "cost" || lower === "both") return lower as AppliesTo;
+    return "both";
+  });
+
+const VALID_CATEGORIES = [
+  "commercial", "programme", "design", "construction", "procurement", "hse", "authority", "operations", "other",
+] as const;
+const categoryIntelligent = z.union([RiskCategorySchema, z.string()]).transform((s) => {
+  const lower = (typeof s === "string" ? s : "").toLowerCase().trim();
+  return (VALID_CATEGORIES.includes(lower as (typeof VALID_CATEGORIES)[number]) ? lower : "other") as RiskCategory;
+});
+
+function numCoerce(minVal = 0): z.ZodType<number> {
+  return z.union([z.number(), z.string()]).transform((v) => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(minVal, n) : minVal;
+  });
+}
+function intCoerce(minVal = 0): z.ZodType<number> {
+  return z.union([z.number(), z.string()]).transform((v) => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(minVal, Math.floor(n)) : minVal;
+  });
+}
+
+/**
+ * Single-risk intelligent extraction draft (Generate AI Risk from free text).
+ * All numeric fields are required; use 0 when impact type does not apply.
+ * Post-mitigation fields: when mitigation is detected, AI must populate; otherwise omit and mapper uses pre-values.
+ */
+export const IntelligentExtractDraftSchema = z.object({
+  title: z.string().min(1).transform((s) => s.trim()),
+  description: z.string().optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
+  category: categoryIntelligent,
+  owner: z.union([z.string(), z.number()]).transform((s) => String(s ?? "").trim() || "Project Director"),
+  probability: z.union([z.number(), z.string()]).transform((v) => {
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;
+  }),
+  costMin: numCoerce(0),
+  costMostLikely: numCoerce(0),
+  costMax: numCoerce(0),
+  timeMin: intCoerce(0),
+  timeMostLikely: intCoerce(0),
+  timeMax: intCoerce(0),
+  appliesTo: appliesToIntelligent,
+  mitigation: z.string().optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
+  contingency: z.string().optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
+  /** Mitigation cost ($). Extracted from phrases like "at a cost of $250k". */
+  mitigationCost: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) && n >= 0 ? n : undefined;
+  }),
+  /** Post-mitigation probability 0–100. Never higher than pre; 0 if mitigation eliminates risk. */
+  postProbability: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : undefined;
+  }),
+  postCostMin: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, n) : undefined;
+  }),
+  postCostMostLikely: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, n) : undefined;
+  }),
+  postCostMax: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, n) : undefined;
+  }),
+  postTimeMin: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
+  }),
+  postTimeMostLikely: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
+  }),
+  postTimeMax: z.union([z.number(), z.string()]).optional().transform((v) => {
+    if (v === undefined || v === null || v === "") return undefined;
+    const n = typeof v === "string" ? Number(v) : v;
+    return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : undefined;
+  }),
+});
+export type IntelligentExtractDraft = z.infer<typeof IntelligentExtractDraftSchema>;

@@ -345,8 +345,7 @@ export function AddRiskModal({
     >
       <div
         ref={modalRef}
-        style={{ width: "80vw", height: "80vh", maxWidth: "100vw", maxHeight: "100vh" }}
-        className="shrink-0 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-xl min-h-[400px] min-w-[280px] overflow-hidden flex flex-col"
+        className="w-full max-w-[70vw] max-h-[90vh] shrink-0 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-2xl min-h-[400px] min-w-[280px] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header: title + close */}

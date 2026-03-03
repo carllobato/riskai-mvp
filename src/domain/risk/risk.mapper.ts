@@ -1,4 +1,5 @@
 import type { Risk, RiskDraft, RiskStatus } from "./risk.schema";
+import type { IntelligentExtractDraft } from "./risk.schema";
 import { buildRating, probabilityPctToScale, costToConsequenceScale, timeDaysToConsequenceScale } from "./risk.logic";
 import { makeId } from "@/lib/id";
 import { nowIso } from "@/lib/time";
@@ -53,6 +54,78 @@ export function draftToRisk(draft: RiskDraft): Risk {
 
 export function draftsToRisks(drafts: RiskDraft[]): Risk[] {
   return drafts.map(draftToRisk);
+}
+
+/**
+ * Convert an intelligent extraction draft (single free-text → structured risk) into a full Risk.
+ * Pre-mitigation fields are populated; when post-mitigation fields are present, residual rating is derived from them.
+ */
+export function intelligentDraftToRisk(draft: IntelligentExtractDraft): Risk {
+  const createdAt = nowIso();
+  const prePct = draft.probability;
+  const preCost = draft.costMostLikely;
+  const preTime = draft.timeMostLikely;
+  const probScale = probabilityPctToScale(prePct);
+  const consFromCost = costToConsequenceScale(preCost);
+  const consFromTime = timeDaysToConsequenceScale(preTime);
+  const consequence = Math.max(consFromCost, consFromTime, 1);
+  const inherentRating = buildRating(probScale, consequence);
+
+  const hasPost =
+    draft.postProbability !== undefined ||
+    draft.postCostMostLikely !== undefined ||
+    draft.postTimeMostLikely !== undefined;
+  const postPct = draft.postProbability ?? prePct;
+  const postCost = draft.postCostMostLikely ?? preCost;
+  const postTime = draft.postTimeMostLikely ?? preTime;
+  const probScalePost = probabilityPctToScale(postPct);
+  const consFromCostPost = costToConsequenceScale(postCost);
+  const consFromTimePost = timeDaysToConsequenceScale(postTime);
+  const consequencePost = Math.max(consFromCostPost, consFromTimePost, 1);
+  const residualRating = buildRating(probScalePost, consequencePost);
+
+  return {
+    id: makeId(),
+    title: draft.title,
+    description: draft.description,
+
+    category: draft.category,
+    status: AI_DRAFT_STATUS,
+
+    owner: draft.owner,
+    mitigation: draft.mitigation,
+    contingency: draft.contingency,
+
+    inherentRating,
+    residualRating,
+
+    dueDate: undefined,
+    costImpact: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
+    scheduleImpactDays: draft.appliesTo !== "cost" ? draft.timeMostLikely : undefined,
+
+    appliesTo: draft.appliesTo,
+    preMitigationProbabilityPct: draft.probability,
+    preMitigationCostMin: draft.appliesTo !== "time" ? draft.costMin : undefined,
+    preMitigationCostML: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
+    preMitigationCostMax: draft.appliesTo !== "time" ? draft.costMax : undefined,
+    preMitigationTimeMin: draft.appliesTo !== "cost" ? draft.timeMin : undefined,
+    preMitigationTimeML: draft.appliesTo !== "cost" ? draft.timeMostLikely : undefined,
+    preMitigationTimeMax: draft.appliesTo !== "cost" ? draft.timeMax : undefined,
+
+    mitigationCost: draft.mitigationCost,
+
+    postMitigationProbabilityPct: hasPost ? postPct : undefined,
+    postMitigationCostMin: draft.postCostMin,
+    postMitigationCostML: draft.postCostMostLikely,
+    postMitigationCostMax: draft.postCostMax,
+    postMitigationTimeMin: draft.postTimeMin,
+    postMitigationTimeML: draft.postTimeMostLikely,
+    postMitigationTimeMax: draft.postTimeMax,
+
+    baseCostImpact: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
+    createdAt,
+    updatedAt: createdAt,
+  };
 }
 
 /**

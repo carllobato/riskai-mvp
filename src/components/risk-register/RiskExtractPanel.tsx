@@ -1,45 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import type { Risk, RiskDraft } from "@/domain/risk/risk.schema";
-import { RiskSchema, RiskDraftSchema } from "@/domain/risk/risk.schema";
-import { draftsToRisks } from "@/domain/risk/risk.mapper";
+import { intelligentDraftToRisk } from "@/domain/risk/risk.mapper";
 import { useRiskRegister } from "@/store/risk-register.store";
 
 type Status = "idle" | "loading" | "error";
-
-function isDraftLike(item: unknown): item is RiskDraft {
-  if (!item || typeof item !== "object") return false;
-  const o = item as Record<string, unknown>;
-  return (
-    typeof o.probability === "number" &&
-    typeof o.consequence === "number" &&
-    o.inherentRating === undefined
-  );
-}
-
-function isRiskLike(item: unknown): item is Risk {
-  if (!item || typeof item !== "object") return false;
-  const o = item as Record<string, unknown>;
-  return o.inherentRating != null && typeof o.inherentRating === "object";
-}
-
-function normalizeRisks(raw: unknown): Risk[] {
-  const list = Array.isArray(raw) ? raw : [];
-  const result: Risk[] = [];
-
-  for (const item of list) {
-    if (isRiskLike(item)) {
-      const parsed = RiskSchema.safeParse(item);
-      if (parsed.success) result.push(parsed.data);
-    } else if (isDraftLike(item)) {
-      const parsed = RiskDraftSchema.safeParse(item);
-      if (parsed.success) result.push(draftsToRisks([parsed.data])[0]);
-    }
-  }
-
-  return result;
-}
 
 type RiskExtractPanelProps = { hideTitle?: boolean; showStatus?: boolean };
 
@@ -55,7 +20,7 @@ export function RiskExtractPanel({ hideTitle, showStatus = false }: RiskExtractP
     setStatus("loading");
 
     try {
-      const res = await fetch("/api/risks/extract", {
+      const res = await fetch("/api/ai/extract-risk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documentText }),
@@ -70,8 +35,14 @@ export function RiskExtractPanel({ hideTitle, showStatus = false }: RiskExtractP
         return;
       }
 
-      const risks = normalizeRisks(data?.risks);
-      appendRisks(risks);
+      const draft = data?.risk;
+      if (!draft) {
+        setErrorMessage("Invalid response: missing risk");
+        setStatus("error");
+        return;
+      }
+      const risk = intelligentDraftToRisk(draft);
+      appendRisks([risk]);
       setStatus("idle");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Network or unexpected error";
