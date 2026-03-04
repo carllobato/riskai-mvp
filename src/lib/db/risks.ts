@@ -4,7 +4,8 @@ import type { Risk } from "@/domain/risk/risk.schema";
 import { buildRating } from "@/domain/risk/risk.logic";
 import { costToConsequenceScale, timeDaysToConsequenceScale } from "@/domain/risk/risk.logic";
 
-const PROJECT_ID = "a8995152-7065-4f79-ab8a-015b6ab0a3ec";
+/** Default project UUID used when no projectId is provided (legacy single-project flow). */
+export const DEFAULT_PROJECT_ID = "a8995152-7065-4f79-ab8a-015b6ab0a3ec";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -49,7 +50,7 @@ function rowToRisk(row: RiskRow): Risk {
  * Map domain Risk to DB insert row. Ensures numeric fields are numbers; mitigation_cost defaults to 0.
  * DB id column is uuid; use risk.id only if already a valid UUID, else generate one for insert.
  */
-function riskToRow(risk: Risk): Omit<RiskRow, "project_id"> & { project_id: string } {
+function riskToRow(risk: Risk, projectId: string): Omit<RiskRow, "project_id"> & { project_id: string } {
   const preCostMl = risk.preMitigationCostML;
   const preTimeMl = risk.preMitigationTimeML;
   const mitigationCost = risk.mitigationCost;
@@ -58,7 +59,7 @@ function riskToRow(risk: Risk): Omit<RiskRow, "project_id"> & { project_id: stri
   const rowId = isUuid(risk.id) ? risk.id : crypto.randomUUID();
   return {
     id: rowId,
-    project_id: PROJECT_ID,
+    project_id: projectId,
     title: risk.title,
     description: risk.description ?? null,
     category: risk.category,
@@ -80,14 +81,16 @@ function riskToRow(risk: Risk): Omit<RiskRow, "project_id"> & { project_id: stri
 /**
  * Fetch all risks for the active project, ordered by created_at ascending.
  * Returns domain Risk[] for use in the store.
+ * @param projectId - Optional project UUID; when omitted uses default (legacy single-project).
  */
-export async function listRisks(): Promise<Risk[]> {
+export async function listRisks(projectId?: string): Promise<Risk[]> {
+  const pid = projectId ?? DEFAULT_PROJECT_ID;
   try {
     const supabase = supabaseBrowserClient();
     const { data, error } = await supabase
       .from("risks")
       .select("*")
-      .eq("project_id", PROJECT_ID)
+      .eq("project_id", pid)
       .order("created_at", { ascending: true });
 
     if (error) {
@@ -105,15 +108,17 @@ export async function listRisks(): Promise<Risk[]> {
 /**
  * Replace all risks for the active project: delete existing, then insert the given list.
  * Converts domain Risk[] to rows and sets project_id and mitigation_cost default.
+ * @param projectId - Optional project UUID; when omitted uses default (legacy single-project).
  */
-export async function replaceRisks(risks: Risk[]): Promise<void> {
+export async function replaceRisks(risks: Risk[], projectId?: string): Promise<void> {
+  const pid = projectId ?? DEFAULT_PROJECT_ID;
   try {
     const supabase = supabaseBrowserClient();
 
     const { error: deleteError } = await supabase
       .from("risks")
       .delete()
-      .eq("project_id", PROJECT_ID);
+      .eq("project_id", pid);
 
     if (deleteError) {
       console.error("[risks]", deleteError);
@@ -122,7 +127,7 @@ export async function replaceRisks(risks: Risk[]): Promise<void> {
 
     if (risks.length === 0) return;
 
-    const rows = risks.map((r) => riskToRow(r));
+    const rows = risks.map((r) => riskToRow(r, pid));
 
     const { error: insertError } = await supabase.from("risks").insert(rows);
 

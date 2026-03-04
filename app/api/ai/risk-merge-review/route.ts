@@ -3,6 +3,7 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { requireUser } from "@/lib/auth/requireUser";
+import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { RiskSchema } from "@/domain/risk/risk.schema";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
@@ -207,6 +208,14 @@ export async function POST(req: Request) {
         { error: "projectId is required" },
         { status: 400 }
       );
+    }
+
+    const access = await assertProjectAccess(projectId);
+    if (access.error === "unauthorized") {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+    if (access.error === "forbidden") {
+      return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 
     const risks: Risk[] = [];

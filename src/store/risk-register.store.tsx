@@ -38,10 +38,77 @@ import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
 import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { dlog, dwarn } from "@/lib/debug";
-import { createSnapshot } from "@/lib/db/snapshots";
+import { createSnapshot, type SimulationSnapshotRow } from "@/lib/db/snapshots";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
+const ACTIVE_PROJECT_KEY = "activeProjectId";
 const PERSIST_SCHEMA_VERSION = 1;
+
+/** Build store simulation state from a DB snapshot row (so "last run" data can be restored). */
+function buildSimulationFromDbRow(row: SimulationSnapshotRow): {
+  current: SimulationSnapshot;
+  neutral: MonteCarloNeutralSnapshot;
+} | null {
+  if (!row || typeof row !== "object") return null;
+  const iter = Number(row.iterations) || 0;
+  const p10c = Number(row.p10_cost) || 0;
+  const p50c = Number(row.p50_cost) || 0;
+  const p90c = Number(row.p90_cost) || 0;
+  const p10t = Number(row.p10_time) || 0;
+  const p50t = Number(row.p50_time) || 0;
+  const p90t = Number(row.p90_time) || 0;
+  const meanC = row.mean_cost != null ? Number(row.mean_cost) : p50c;
+  const meanT = row.mean_time != null ? Number(row.mean_time) : p50t;
+  const createdAt = row.created_at ?? new Date().toISOString();
+  const ts = new Date(createdAt).getTime();
+  const p80Cost = (p50c + p90c) / 2;
+  const p80Time = (p50t + p90t) / 2;
+  const current: SimulationSnapshot = {
+    id: (row as { id?: string }).id ?? `db-${createdAt}`,
+    timestampIso: createdAt,
+    iterations: iter,
+    p20Cost: p10c,
+    p50Cost: p50c,
+    p80Cost,
+    p90Cost: p90c,
+    totalExpectedCost: meanC,
+    totalExpectedDays: meanT,
+    risks: [],
+  };
+  const neutral: MonteCarloNeutralSnapshot = {
+    costSamples: [],
+    timeSamples: [],
+    summary: {
+      meanCost: meanC,
+      p20Cost: p10c,
+      p50Cost: p50c,
+      p80Cost,
+      p90Cost: p90c,
+      minCost: p10c,
+      maxCost: p90c,
+      meanTime: meanT,
+      p20Time: p10t,
+      p50Time: p50t,
+      p80Time,
+      p90Time: p90t,
+      minTime: p10t,
+      maxTime: p90t,
+    },
+    summaryReport: {
+      iterationCount: iter,
+      averageCost: meanC,
+      averageTime: meanT,
+      p50Cost: p50c,
+      p80Cost,
+      p90Cost: p90c,
+      minCost: p10c,
+      maxCost: p90c,
+    },
+    lastRunAt: ts,
+    iterationCount: iter,
+  };
+  return { current, neutral };
+}
 
 /** Scenario snapshots keyed by Day 10 profile (one engine, scenario changes parameters). */
 export type ScenarioSnapshotsMap = Record<ProjectionProfile, SimulationSnapshot>;
@@ -336,8 +403,10 @@ type Ctx = {
   deleteRisk: (id: string) => void;
   clearRisks: () => void;
   simulation: State["simulation"];
-  runSimulation: (iterations?: number) => Promise<void>;
+  runSimulation: (iterations?: number, projectId?: string) => Promise<void>;
   clearSimulationHistory: () => void;
+  /** Restore simulation state from a DB snapshot row (e.g. after loading getLatestSnapshot). */
+  hydrateSimulationFromDbSnapshot: (row: SimulationSnapshotRow) => void;
   setSimulationDelta: (delta: SimulationDelta | null) => void;
   /** True when any risk has status "draft"; simulation must not run until user saves drafts to open. */
   hasDraftRisks: boolean;
@@ -554,7 +623,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       deleteRisk: (id) => dispatch({ type: "risk/delete", id }),
       clearRisks: () => dispatch({ type: "risks/clear" }),
       simulation: state.simulation,
-      runSimulation: (iterations) => {
+      runSimulation: (iterations, projectIdFromCaller) => {
         const hasDraft = state.risks.some((r) => r.status === "draft");
         if (hasDraft) return Promise.resolve(); // Do not run simulation while any risk is in draft
         const iterCount = iterations ?? 10000;
@@ -592,18 +661,30 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         };
 
         const s = mcResult.summary;
-        const snapshotPromise = createSnapshot({
-          scenario: "neutral",
-          iterations: iterCount,
-          p10_cost: s.p20Cost,
-          p50_cost: s.p50Cost,
-          p90_cost: s.p90Cost,
-          p10_time: s.p20Time,
-          p50_time: s.p50Time,
-          p90_time: s.p90Time,
-          mean_cost: s.meanCost,
-          mean_time: s.meanTime,
-        });
+        let snapshotProjectId: string | undefined = projectIdFromCaller ?? undefined;
+        if (snapshotProjectId == null && typeof window !== "undefined") {
+          try {
+            const fromStorage = window.localStorage.getItem(ACTIVE_PROJECT_KEY);
+            snapshotProjectId = fromStorage ?? undefined;
+          } catch {
+            // localStorage unavailable (e.g. private browsing)
+          }
+        }
+        const snapshotPromise = createSnapshot(
+          {
+            scenario: "neutral",
+            iterations: iterCount,
+            p10_cost: s.p20Cost,
+            p50_cost: s.p50Cost,
+            p90_cost: s.p90Cost,
+            p10_time: s.p20Time,
+            p50_time: s.p50Time,
+            p90_time: s.p90Time,
+            mean_cost: s.meanCost,
+            mean_time: s.meanTime,
+          },
+          snapshotProjectId
+        );
         snapshotPromise.catch((e) => console.error("[snapshots]", e));
 
         const effectiveRisks = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived");
@@ -640,6 +721,19 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         return snapshotPromise;
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
+      hydrateSimulationFromDbSnapshot: (row) => {
+        const built = buildSimulationFromDbRow(row);
+        if (built) {
+          dispatch({
+            type: "simulation/hydrate",
+            payload: {
+              current: built.current,
+              history: [],
+              neutral: built.neutral,
+            },
+          });
+        }
+      },
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
       hasDraftRisks: state.risks.some((r) => r.status === "draft"),
       forwardPressure,

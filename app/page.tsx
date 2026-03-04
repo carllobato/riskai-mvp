@@ -1,5 +1,5 @@
-import { redirect } from "next/navigation";
+import { HomeRedirectClient } from "./HomeRedirectClient";
 
 export default function HomePage() {
-  redirect("/project");
+  return <HomeRedirectClient />;
 }

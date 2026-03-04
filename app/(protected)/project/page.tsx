@@ -130,23 +130,9 @@ const FIRST_INVALID_FIELD_ORDER = [
 
 const SAVED_CONFIRM_AUTO_HIDE_MS = 3000;
 
-function getInitialForm(): ProjectContext {
-  if (typeof window === "undefined") return defaultContext();
-  return loadProjectContext() ?? defaultContext();
-}
+export type ProjectInformationPageProps = { projectId?: string | null };
 
-function getInitialRawNumericFields(): RawNumericFields {
-  if (typeof window === "undefined") return {};
-  const stored = loadProjectContext();
-  if (!stored) return {};
-  return {
-    contingencyValue_input: stored.contingencyValue_input === 0 ? "" : String(stored.contingencyValue_input),
-    plannedDuration_months: stored.plannedDuration_months === 0 ? "" : String(stored.plannedDuration_months),
-    scheduleContingency_weeks: stored.scheduleContingency_weeks === 0 ? "" : String(stored.scheduleContingency_weeks),
-  };
-}
-
-export default function ProjectInformationPage() {
+export default function ProjectInformationPage({ projectId }: ProjectInformationPageProps = {}) {
   const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState<ProjectContext>(defaultContext());
   const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>({});
@@ -179,7 +165,7 @@ export default function ProjectInformationPage() {
   });
 
   useEffect(() => {
-    const stored = loadProjectContext();
+    const stored = loadProjectContext(projectId ?? undefined);
     if (stored) {
       setForm(stored);
       setRawNumericFields({
@@ -189,7 +175,7 @@ export default function ProjectInformationPage() {
       });
     }
     setMounted(true);
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     return () => {
@@ -240,7 +226,7 @@ export default function ProjectInformationPage() {
     const parsed = parseProjectContext(form);
     if (!parsed) return;
     const toSave: ProjectContext = parsed;
-    const ok = saveProjectContext(toSave);
+    const ok = saveProjectContext(toSave, projectId ?? undefined);
     if (ok) {
       setForm(toSave);
       setRawNumericFields({
@@ -260,16 +246,16 @@ export default function ProjectInformationPage() {
         body: JSON.stringify(toSave),
       }).catch(() => {});
     }
-  }, [form, rawNumericFields]);
+  }, [form, rawNumericFields, projectId]);
 
   const onClear = useCallback(() => {
     setShowClearConfirm(false);
-    clearProjectContext();
+    clearProjectContext(projectId ?? undefined);
     setForm(defaultContext());
     setRawNumericFields({});
     setSaved(false);
     setValidation({});
-  }, []);
+  }, [projectId]);
 
   const contingencyPct = getContingencyPercent(form);
   const approvedBudgetInUnit =

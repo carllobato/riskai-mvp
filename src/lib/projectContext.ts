@@ -219,11 +219,19 @@ export function formatMoneyMillions(m: number): string {
   return m % 1 === 0 ? `$${m.toFixed(0)}m` : `$${m.toFixed(1)}m`;
 }
 
-/** Load from localStorage. Returns null if missing or invalid. Applies migration for legacy schema. */
-export function loadProjectContext(): ProjectContext | null {
+function getProjectContextStorageKey(projectId?: string | null): string {
+  if (projectId && typeof projectId === "string" && projectId.trim()) {
+    return `${PROJECT_CONTEXT_STORAGE_KEY}_${projectId}`;
+  }
+  return PROJECT_CONTEXT_STORAGE_KEY;
+}
+
+/** Load from localStorage. When projectId is set, reads key for that project; else legacy single key. */
+export function loadProjectContext(projectId?: string | null): ProjectContext | null {
   if (typeof window === "undefined") return null;
   try {
-    const raw = window.localStorage.getItem(PROJECT_CONTEXT_STORAGE_KEY);
+    const key = getProjectContextStorageKey(projectId);
+    const raw = window.localStorage.getItem(key);
     if (!raw) return null;
     return parseProjectContext(JSON.parse(raw));
   } catch {
@@ -231,24 +239,26 @@ export function loadProjectContext(): ProjectContext | null {
   }
 }
 
-/** Save to localStorage. Validates and computes derived values before save. */
-export function saveProjectContext(ctx: ProjectContext): boolean {
+/** Save to localStorage. When projectId is set, writes to key for that project; else legacy single key. */
+export function saveProjectContext(ctx: ProjectContext, projectId?: string | null): boolean {
   if (typeof window === "undefined") return false;
   const parsed = parseProjectContext(ctx);
   if (!parsed) return false;
   try {
-    window.localStorage.setItem(PROJECT_CONTEXT_STORAGE_KEY, JSON.stringify(parsed));
+    const key = getProjectContextStorageKey(projectId);
+    window.localStorage.setItem(key, JSON.stringify(parsed));
     return true;
   } catch {
     return false;
   }
 }
 
-/** Clear the stored project context from localStorage. */
-export function clearProjectContext(): void {
+/** Clear the stored project context from localStorage. When projectId is set, clears that project's key only. */
+export function clearProjectContext(projectId?: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.removeItem(PROJECT_CONTEXT_STORAGE_KEY);
+    const key = getProjectContextStorageKey(projectId);
+    window.localStorage.removeItem(key);
   } catch {
     // ignore
   }

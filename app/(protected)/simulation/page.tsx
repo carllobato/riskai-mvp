@@ -1,16 +1,18 @@
 "use client";
 
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { getLatestSnapshot } from "@/lib/db/snapshots";
+import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import {
   getNeutralSummary,
   getNeutralSamples,
   getNeutralTimeSamples,
   getNeutralTimeSummary,
 } from "@/store/selectors";
-import { loadProjectContext, formatMoneyMillions } from "@/lib/projectContext";
+import { loadProjectContext, formatMoneyMillions, isProjectContextComplete } from "@/lib/projectContext";
 import { formatDurationDays } from "@/lib/formatDuration";
 import {
   distributionToCostCdf,
@@ -68,19 +70,90 @@ function MetricTile({
   );
 }
 
-export default function SimulationPage() {
-  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks } = useRiskRegister();
+const ACTIVE_PROJECT_KEY = "activeProjectId";
+
+export type SimulationPageProps = { projectId?: string | null };
+
+/** After load: we know whether this project has a snapshot. Only show results when hasSnapshot is true. */
+type SnapshotState = { projectId: string; hasSnapshot: boolean } | null;
+
+export default function SimulationPage({ projectId: urlProjectId }: SimulationPageProps = {}) {
+  const router = useRouter();
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, setRisks, hydrateSimulationFromDbSnapshot } = useRiskRegister();
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [projectContext, setProjectContext] = useState<ReturnType<typeof loadProjectContext>>(null);
+  const [gateChecked, setGateChecked] = useState(false);
+  /** If non-null and projectId matches current project: hasSnapshot true = show results, false = show Run simulation only. */
+  const [snapshotForProject, setSnapshotForProject] = useState<SnapshotState>(null);
+  const effectiveProjectIdRef = useRef<string | undefined>(undefined);
+  const hydrateRef = useRef(hydrateSimulationFromDbSnapshot);
+  hydrateRef.current = hydrateSimulationFromDbSnapshot;
+  const clearRef = useRef(clearSimulationHistory);
+  clearRef.current = clearSimulationHistory;
+  const setRisksRef = useRef(setRisks);
+  setRisksRef.current = setRisks;
+
+  const [activeProjectIdFromStorage, setActiveProjectIdFromStorage] = useState<string | null>(null);
+  /** UUID for DB/API: URL or storage when in project routes; in legacy mode use DEFAULT_PROJECT_ID (projectContext.projectName is a display name, not a UUID). */
+  const effectiveProjectId = urlProjectId ?? activeProjectIdFromStorage ?? (projectContext ? DEFAULT_PROJECT_ID : undefined);
+  effectiveProjectIdRef.current = effectiveProjectId;
+  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}/setup` : "/project";
 
   useEffect(() => {
-    async function load() {
-      const snapshot = await getLatestSnapshot();
-      if (snapshot?.created_at) {
-        setLastRun(snapshot.created_at);
-      }
+    if (typeof window === "undefined") return;
+    try {
+      setActiveProjectIdFromStorage(window.localStorage.getItem(ACTIVE_PROJECT_KEY));
+    } catch {
+      // localStorage unavailable (e.g. private browsing)
     }
-    load();
   }, []);
+
+  // Gate: redirect to setup only in legacy mode (no urlProjectId). When accessing via URL, global context is not required.
+  useEffect(() => {
+    const ctx = loadProjectContext();
+    setProjectContext(ctx);
+    setGateChecked(true);
+  }, []);
+  useEffect(() => {
+    if (!gateChecked) return;
+    if (urlProjectId) return;
+    if (!isProjectContextComplete(projectContext)) {
+      router.replace(setupRedirectPath);
+      return;
+    }
+  }, [gateChecked, projectContext, router, setupRedirectPath, urlProjectId]);
+
+  // When project changes: clear store, then load risks + snapshot for this project. Only show results if snapshot exists for this project.
+  useEffect(() => {
+    if (!gateChecked) return;
+    if (!isProjectContextComplete(projectContext) && !urlProjectId) return;
+    if (!effectiveProjectId) return;
+    setLastRun(null);
+    setSnapshotForProject(null);
+    clearRef.current();
+    const projectIdWeAreLoading = effectiveProjectId;
+    listRisks(projectIdWeAreLoading)
+      .then((loaded) => {
+        if (effectiveProjectIdRef.current !== projectIdWeAreLoading) return;
+        setRisksRef.current(loaded);
+      })
+      .catch((err) => console.error("[simulation] load risks", err));
+    getLatestSnapshot(projectIdWeAreLoading)
+      .then((snapshot) => {
+        if (effectiveProjectIdRef.current !== projectIdWeAreLoading) return;
+        const hasSnapshot = !!(snapshot?.created_at);
+        setSnapshotForProject({ projectId: projectIdWeAreLoading, hasSnapshot });
+        if (hasSnapshot && snapshot) {
+          setLastRun(snapshot.created_at ?? null);
+          hydrateRef.current(snapshot);
+        }
+      })
+      .catch((err) => {
+        if (effectiveProjectIdRef.current !== projectIdWeAreLoading) return;
+        setSnapshotForProject({ projectId: projectIdWeAreLoading, hasSnapshot: false });
+        console.error("[simulation] load snapshot", err);
+      });
+  }, [gateChecked, projectContext, urlProjectId, effectiveProjectId]);
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),
@@ -92,23 +165,37 @@ export default function SimulationPage() {
   const timeSamples = useMemo(() => getNeutralTimeSamples(analysisState), [analysisState]);
   const timeSummary = useMemo(() => getNeutralTimeSummary(analysisState), [analysisState]);
 
-  const projectContext = useMemo(() => loadProjectContext(), []);
   const iterationCount = simulation.neutral?.iterationCount ?? 0;
   const snapshotRisks = simulation.current?.risks ?? EMPTY_SNAPSHOT_RISKS;
 
   const hasData = neutralSummary != null;
+  /** Only show results when we've loaded for this project and it has a snapshot; else show Run simulation. Legacy: no effectiveProjectId but hasSnapshot. */
+  const currentProjectHasSnapshot =
+    (snapshotForProject?.projectId === effectiveProjectId && snapshotForProject.hasSnapshot) ||
+    (effectiveProjectId == null && (snapshotForProject?.hasSnapshot ?? false));
+  const showResults = currentProjectHasSnapshot && hasData;
+  const showRunOnly =
+    (snapshotForProject?.projectId === effectiveProjectId && !snapshotForProject.hasSnapshot) ||
+    (effectiveProjectId == null && !(snapshotForProject?.hasSnapshot ?? false));
+  const loadingSnapshot = effectiveProjectId != null && snapshotForProject?.projectId !== effectiveProjectId;
+
+  // Prefer project-specific context for display; fall back to gate (global) context
+  const displayContext = useMemo(
+    () => loadProjectContext(effectiveProjectId ?? null) ?? projectContext,
+    [effectiveProjectId, projectContext]
+  );
 
   const baseline: SimulationSectionBaseline | null = useMemo(() => {
-    const targetPNumeric = projectContext
-      ? riskAppetiteToPercent(projectContext.riskAppetite)
+    const targetPNumeric = displayContext
+      ? riskAppetiteToPercent(displayContext.riskAppetite)
       : 80;
-    const targetPLabel = projectContext?.riskAppetite ?? "P80";
+    const targetPLabel = displayContext?.riskAppetite ?? "P80";
     return {
       targetPNumeric,
       targetPLabel,
       approvedValue: 0,
     };
-  }, [projectContext]);
+  }, [displayContext]);
 
   const costCdf = useMemo((): CostCdfPoint[] | null => {
     if (!hasData) return null;
@@ -142,19 +229,19 @@ export default function SimulationPage() {
   }, [timeSummary, timeSamples]);
 
   const approvedBudgetBase = useMemo(() => {
-    if (!projectContext) return null;
-    return projectContext.approvedBudget_m * 1e6;
-  }, [projectContext]);
+    if (!displayContext) return null;
+    return displayContext.approvedBudget_m * 1e6;
+  }, [displayContext]);
 
   const plannedDurationDays = useMemo(() => {
-    if (!projectContext) return null;
-    return (projectContext.plannedDuration_months * 365) / 12;
-  }, [projectContext]);
+    if (!displayContext) return null;
+    return (displayContext.plannedDuration_months * 365) / 12;
+  }, [displayContext]);
 
   const contingencyDays = useMemo(() => {
-    if (!projectContext?.scheduleContingency_weeks) return null;
-    return projectContext.scheduleContingency_weeks * 7;
-  }, [projectContext]);
+    if (!displayContext?.scheduleContingency_weeks) return null;
+    return displayContext.scheduleContingency_weeks * 7;
+  }, [displayContext]);
 
   const costBaseline: SimulationSectionBaseline | null = useMemo(() => {
     if (!baseline) return null;
@@ -202,8 +289,13 @@ export default function SimulationPage() {
           type="button"
           onClick={async () => {
             try {
-              await runSimulation(10000);
-              setLastRun(new Date().toISOString());
+              await runSimulation(10000, effectiveProjectId ?? undefined);
+              const now = new Date().toISOString();
+              setLastRun(now);
+              setSnapshotForProject({
+                projectId: effectiveProjectId ?? "legacy",
+                hasSnapshot: true,
+              });
             } catch {
               // Snapshot insert failed; do not update timestamp
             }
@@ -222,7 +314,7 @@ export default function SimulationPage() {
         </button>
         </div>
       </div>
-      {lastRun && (
+      {currentProjectHasSnapshot && lastRun && (
         <div className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
           Last simulation run: {new Date(lastRun).toLocaleString()}
         </div>
@@ -233,18 +325,29 @@ export default function SimulationPage() {
         </p>
       )}
 
-      {!hasData && (
+      {loadingSnapshot && (
+        <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
+          <p className="text-[var(--foreground)] font-medium m-0">Loading simulation data…</p>
+        </div>
+      )}
+
+      {showRunOnly && (
         <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
           <p className="text-[var(--foreground)] font-medium m-0">
-            Run a simulation to see results.
+            No simulation run for this project yet. Run a simulation to see results.
           </p>
           <div className="mt-4 flex flex-wrap justify-center gap-3">
             <button
               type="button"
               onClick={async () => {
                 try {
-                  await runSimulation(10000);
-                  setLastRun(new Date().toISOString());
+                  await runSimulation(10000, effectiveProjectId ?? undefined);
+                  const now = new Date().toISOString();
+                  setLastRun(now);
+                  setSnapshotForProject({
+                    projectId: effectiveProjectId ?? "legacy",
+                    hasSnapshot: true,
+                  });
                 } catch {
                   // Snapshot insert failed; do not update timestamp
                 }
@@ -254,17 +357,19 @@ export default function SimulationPage() {
             >
               Run simulation
             </button>
-            <Link
-              href="/outputs"
-              className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors no-underline text-[var(--foreground)]"
-            >
-              Go to Outputs
-            </Link>
+            {effectiveProjectId && (
+              <Link
+                href={`/projects/${effectiveProjectId}/outputs`}
+                className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors no-underline text-[var(--foreground)]"
+              >
+                Go to Outputs
+              </Link>
+            )}
           </div>
         </div>
       )}
 
-      {hasData && (
+      {showResults && (
         <>
           {/* Group 1 — Baseline */}
           <section className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
@@ -275,12 +380,12 @@ export default function SimulationPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <MetricTile
                   label="Base value"
-                  value={formatDash(projectContext?.projectValue_m, (m) => formatMoneyMillions(m))}
+                  value={formatDash(displayContext?.projectValue_m, (m) => formatMoneyMillions(m))}
                   helper="Base value"
                 />
                 <MetricTile
                   label="Contingency Value ($)"
-                  value={formatDash(projectContext?.contingencyValue_m, (m) => formatMoneyMillions(m))}
+                  value={formatDash(displayContext?.contingencyValue_m, (m) => formatMoneyMillions(m))}
                   helper="Contingency budget"
                 />
                 <MetricTile
@@ -295,7 +400,7 @@ export default function SimulationPage() {
                 />
                 <MetricTile
                   label="Target P-Value"
-                  value={projectContext?.riskAppetite ?? "—"}
+                  value={displayContext?.riskAppetite ?? "—"}
                   helper="Risk appetite percentile"
                 />
               </div>
@@ -311,8 +416,8 @@ export default function SimulationPage() {
                 baseline={costBaseline}
                 results={costResults}
                 costCdf={costCdf}
-                formatCostValue={projectContext ? (dollars) => formatMoneyMillions(dollars / 1e6) : undefined}
-                contingencyValueDollars={projectContext ? projectContext.contingencyValue_m * 1e6 : undefined}
+                formatCostValue={displayContext ? (dollars) => formatMoneyMillions(dollars / 1e6) : undefined}
+                contingencyValueDollars={displayContext ? displayContext.contingencyValue_m * 1e6 : undefined}
               />
             )}
             {timeBaseline && (

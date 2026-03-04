@@ -5,7 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { selectDecisionByRiskId, selectDecisionScoreDelta } from "@/store/selectors";
 import { loadProjectContext, isProjectContextComplete } from "@/lib/projectContext";
-import { listRisks, replaceRisks } from "@/lib/db/risks";
+import { listRisks, replaceRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { mergeDraftToRisk } from "@/domain/risk/risk.mapper";
 import type { RiskMergeCluster, MergeRiskDraft } from "@/domain/risk/risk-merge.types";
@@ -65,7 +65,9 @@ function applyColumnFilters<T>(list: T[], filters: ColumnFilters, getValue: (ite
   return result;
 }
 
-function RiskRegisterContent() {
+export type RiskRegisterContentProps = { projectId?: string | null };
+
+export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterContentProps = {}) {
   const { risks, simulation, addRisk, updateRisk, setRisks } = useRiskRegister();
   const [saveToServerLoading, setSaveToServerLoading] = useState(false);
   const [saveToServerError, setSaveToServerError] = useState<string | null>(null);
@@ -92,41 +94,48 @@ function RiskRegisterContent() {
   const hasHydratedFromDbRef = useRef(false);
   const projectIdForHydrateRef = useRef<string | null>(null);
 
-  // Gate: redirect to /project if project context is missing or incomplete
+  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}/setup` : "/project";
+  /** UUID for DB/API: URL project when in project routes, else default (legacy). projectContext.projectName is a display name, not a UUID. */
+  const projectIdForDb = urlProjectId ?? DEFAULT_PROJECT_ID;
+
+  // Gate: load project context for gate/display. When urlProjectId is set use project-specific key; else legacy global key.
   useEffect(() => {
-    const ctx = loadProjectContext();
+    const ctx = loadProjectContext(urlProjectId ?? undefined);
     setProjectContext(ctx);
     setGateChecked(true);
-  }, []);
+  }, [urlProjectId]);
   useEffect(() => {
     if (!gateChecked) return;
+    if (urlProjectId) return;
     if (!isProjectContextComplete(projectContext)) {
-      router.replace("/project");
+      router.replace(setupRedirectPath);
       return;
     }
-  }, [gateChecked, projectContext, router]);
+  }, [gateChecked, projectContext, router, setupRedirectPath, urlProjectId]);
 
   // Hydrate risk store from Supabase only on initial mount or when projectId changes.
-  // Without this guard, setRisks (from context) gets a new reference when risks change, so the effect
-  // re-ran after every add/append and overwrote local state with stale DB state (no new risks yet).
+  // Use projectIdForDb (UUID): url project or DEFAULT_PROJECT_ID in legacy mode.
   useEffect(() => {
-    if (!isProjectContextComplete(projectContext)) return;
-    const projectId = projectContext?.projectName ?? null;
-    if (projectId !== projectIdForHydrateRef.current) {
-      projectIdForHydrateRef.current = projectId;
+    if (!isProjectContextComplete(projectContext) && !urlProjectId) return;
+    if (projectIdForDb !== projectIdForHydrateRef.current) {
+      projectIdForHydrateRef.current = projectIdForDb;
       hasHydratedFromDbRef.current = false;
     }
     if (hasHydratedFromDbRef.current) return;
     hasHydratedFromDbRef.current = true;
-    console.log("[risk-ui] hydrate/reset fired", { source: "db", totalBefore: risks.length });
-    listRisks()
+    if (process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
+      console.log("[risk-ui] hydrate/reset fired", { source: "db", totalBefore: risks.length, projectId: projectIdForDb });
+    }
+    listRisks(projectIdForDb)
       .then((loaded) => setRisks(loaded))
       .catch((err) => console.error("[risks]", err));
-  }, [projectContext, setRisks]);
+  }, [projectContext, urlProjectId, projectIdForDb, setRisks]);
 
-  // Log when risk list grows (after add/append) for debugging visibility of new risks
+  // Log when risk list grows (after add/append) for debugging visibility of new risks (dev only)
   useEffect(() => {
-    if (risks.length > prevRisksLengthRef.current) {
+    if (risks.length > prevRisksLengthRef.current && process.env.NODE_ENV === "development") {
+      // eslint-disable-next-line no-console
       console.log("[risk-ui] after add", {
         total: risks.length,
         ids: risks.map((r) => r.id ?? (r as Risk & { tempId?: string }).tempId).slice(-5),
@@ -139,8 +148,8 @@ function RiskRegisterContent() {
     setSaveToServerLoading(true);
     setSaveToServerError(null);
     try {
-      await replaceRisks(risks);
-      const next = await listRisks();
+      await replaceRisks(risks, projectIdForDb);
+      const next = await listRisks(projectIdForDb);
       setRisks(next);
     } catch (err) {
       const msg =
@@ -154,7 +163,7 @@ function RiskRegisterContent() {
     } finally {
       setSaveToServerLoading(false);
     }
-  }, [risks, setRisks]);
+  }, [risks, setRisks, projectIdForDb]);
 
   const state = useMemo(() => ({ simulation }), [simulation]);
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
@@ -207,11 +216,14 @@ function RiskRegisterContent() {
     return { filteredRisks: list, risksForFilterOptions };
   }, [risks, columnFilters, tableSortState]);
 
-  console.log("[risk-ui] render", {
-    total: risks.length,
-    visible: filteredRisks.length,
-    filterState: columnFilters,
-  });
+  if (process.env.NODE_ENV === "development") {
+    // eslint-disable-next-line no-console
+    console.log("[risk-ui] render", {
+      total: risks.length,
+      visible: filteredRisks.length,
+      filterState: columnFilters,
+    });
+  }
 
   // When opening the detail modal for a newly added risk, it may not be in filteredRisks (e.g. "Show flagged only").
   // Ensure the initial risk is included so the modal shows the correct risk instead of defaulting to the first filtered one.
@@ -234,7 +246,7 @@ function RiskRegisterContent() {
       highlightTimeoutRef.current = window.setTimeout(() => {
         el.classList.remove(FOCUS_HIGHLIGHT_CLASS);
         highlightTimeoutRef.current = null;
-        router.replace("/risk-register", { scroll: false });
+        router.replace(urlProjectId ? `/projects/${urlProjectId}/risks` : "/risk-register", { scroll: false });
       }, HIGHLIGHT_DURATION_MS);
     }, 100);
 
@@ -244,7 +256,7 @@ function RiskRegisterContent() {
       highlightTimeoutRef.current = null;
       el.classList.remove(FOCUS_HIGHLIGHT_CLASS);
     };
-  }, [focusRiskId, router]);
+  }, [focusRiskId, router, urlProjectId]);
 
   const handleAiReviewClick = useCallback(async () => {
     setAiReviewOpen(true);
@@ -252,9 +264,9 @@ function RiskRegisterContent() {
     setAiClusters([]);
     setAiReviewSkippedIds(new Set());
     setAiReviewLoading(true);
-    const projectId = projectContext?.projectName ?? "default";
+    const projectIdForApi = projectIdForDb;
     try {
-      const payload = { projectId, risks: risks.filter((r) => r.status !== "archived") };
+      const payload = { projectId: projectIdForApi, risks: risks.filter((r) => r.status !== "archived") };
       const res = await fetch("/api/ai/risk-merge-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -279,7 +291,7 @@ function RiskRegisterContent() {
     } finally {
       setAiReviewLoading(false);
     }
-  }, [projectContext?.projectName, risks]);
+  }, [projectIdForDb, risks]);
 
   const handleAcceptMerge = useCallback(
     (cluster: RiskMergeCluster, draft: MergeRiskDraft) => {
@@ -302,8 +314,9 @@ function RiskRegisterContent() {
     setAiReviewSkippedIds((prev) => new Set([...prev, clusterId]));
   }, []);
 
-  // Show loading until gate is checked; if incomplete we redirect in useEffect
-  if (!gateChecked || !isProjectContextComplete(projectContext)) {
+  // Show loading until gate is checked; in legacy mode (no urlProjectId) also require complete projectContext before showing content.
+  const blockContent = !gateChecked || (!urlProjectId && !isProjectContextComplete(projectContext));
+  if (blockContent) {
     return (
       <main style={{ padding: 24 }}>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>

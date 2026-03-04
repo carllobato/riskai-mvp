@@ -6,6 +6,25 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { ProjectSwitcher } from "@/components/ProjectSwitcher";
+
+const ACTIVE_PROJECT_KEY = "activeProjectId";
+
+function projectIdFromPathname(pathname: string | null): string | null {
+  if (!pathname || typeof pathname !== "string") return null;
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments[0] !== "projects" || !segments[1]) return null;
+  return segments[1];
+}
+
+function getActiveProjectIdFromStorage(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ACTIVE_PROJECT_KEY);
+  } catch {
+    return null;
+  }
+}
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -16,39 +35,61 @@ const CogIcon = () => (
   </svg>
 );
 
-const ALL_NAV_ITEMS: { href: string; label: string; icon?: "cog"; hideInMvp?: boolean }[] = [
-  { href: "/project", label: "Settings", icon: "cog" },
-  { href: "/risk-register", label: "Risk Register" },
+/** When projectSlug is set, href is /projects/[id]/[projectSlug]; else use legacy href. */
+const ALL_NAV_ITEMS: {
+  href: string;
+  projectSlug?: "setup" | "risks" | "outputs" | "simulation";
+  label: string;
+  icon?: "cog";
+  hideInMvp?: boolean;
+}[] = [
+  { href: "/project", projectSlug: "setup", label: "Settings", icon: "cog" },
+  { href: "/risk-register", projectSlug: "risks", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
-  { href: "/outputs", label: "Outputs", hideInMvp: true },
-  { href: "/simulation", label: "Simulation" },
+  { href: "/outputs", projectSlug: "outputs", label: "Outputs", hideInMvp: true },
+  { href: "/simulation", projectSlug: "simulation", label: "Simulation" },
   { href: "/analysis", label: "Analysis", hideInMvp: true },
   { href: "/day0", label: "Day 0", hideInMvp: true },
   ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
 ];
 
+function navHref(item: (typeof ALL_NAV_ITEMS)[number], projectId: string | null): string {
+  if (item.projectSlug && projectId) return `/projects/${projectId}/${item.projectSlug}`;
+  return item.href;
+}
+
 export function NavBar() {
   const pathname = usePathname();
+  const currentProjectId = projectIdFromPathname(pathname);
+  const [activeProjectIdFromStorage, setActiveProjectIdFromStorage] = useState<string | null>(null);
   const { theme, toggleTheme } = useTheme();
   const { uiMode } = useProjectionScenario();
   const [mounted, setMounted] = useState(false);
+
   useEffect(() => setMounted(true), []);
+  useEffect(() => {
+    setActiveProjectIdFromStorage(getActiveProjectIdFromStorage());
+  }, [pathname]);
+
+  const projectIdForNav = currentProjectId ?? activeProjectIdFromStorage;
+  const homeHref = projectIdForNav ? `/projects/${projectIdForNav}/risks` : "/";
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
       <Link
-        href="/project"
+        href={homeHref}
         className="text-lg font-semibold text-[var(--foreground)] no-underline shrink-0 hover:opacity-80 transition-opacity"
       >
         RiskAI
       </Link>
 
       <div className="flex items-center gap-1">
-        {ALL_NAV_ITEMS.filter((item) => !(item.hideInMvp && uiMode === "MVP")).map(({ href, label, icon }) => {
+        {ALL_NAV_ITEMS.filter((item) => !(item.hideInMvp && uiMode === "MVP")).map((item) => {
+          const href = navHref(item, projectIdForNav);
           const isActive = pathname === href;
           return (
             <Link
-              key={href}
+              key={item.projectSlug ? `${item.projectSlug}-${item.href}` : item.href}
               href={href}
               className={`
                 inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium no-underline transition-colors
@@ -58,14 +99,15 @@ export function NavBar() {
                 }
               `}
             >
-              {icon === "cog" && <CogIcon />}
-              {label}
+              {item.icon === "cog" && <CogIcon />}
+              {item.label}
             </Link>
           );
         })}
       </div>
 
       <div className="ml-auto flex items-center gap-3 shrink-0">
+        <ProjectSwitcher currentProjectId={currentProjectId ?? projectIdForNav ?? undefined} />
         <button
           type="button"
           onClick={async () => {
