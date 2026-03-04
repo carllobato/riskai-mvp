@@ -14,8 +14,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
-import type { UiMode } from "@/lib/debugGating";
 import { useRiskRegister } from "@/store/risk-register.store";
 import {
   getNeutralSummary,
@@ -33,6 +31,7 @@ import {
 import { loadProjectContext, type RiskAppetite } from "@/lib/projectContext";
 import { formatDurationDays } from "@/lib/formatDuration";
 import { ParityAuditPanel } from "@/components/debug/ParityAuditPanel";
+import { dlog } from "@/lib/debug";
 
 // --- Chart data types ---
 type DistributionPoint = { cost: number; frequency: number };
@@ -1163,8 +1162,8 @@ const MITIGATION_ROWS_PLACEHOLDER = [
 ];
 
 export default function AnalysisPage() {
-  const { uiMode, setUiMode } = useProjectionScenario();
-  const isDebug = uiMode === "Debug";
+  /** Debug UI lives only under /app/dev/*; MVP surface has no debug panels. */
+  const isDebug = false;
   const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks } = useRiskRegister();
 
   const analysisState = useMemo(
@@ -1190,7 +1189,7 @@ export default function AnalysisPage() {
       { label: "Schedule (P80)", valueFieldName: "p80Time", rawDays: neutralSummary.p80Time },
       { label: "Schedule (P90)", valueFieldName: "p90Time", rawDays: neutralSummary.p90Time },
     ];
-    console.debug("[Analysis schedule tiles] label → valueFieldName → rawDays", tiles);
+    dlog("[Analysis schedule tiles] label → valueFieldName → rawDays", tiles);
   }, [isDebug, neutralSummary]);
 
   const projectContext = useMemo(() => loadProjectContext(), []);
@@ -1264,37 +1263,6 @@ export default function AnalysisPage() {
           <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">
             Decision-grade summary and diagnostics.
           </p>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-neutral-500 dark:text-neutral-400 text-xs select-none">View</span>
-          <div
-            className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5"
-            role="group"
-            aria-label="Analysis view mode"
-          >
-            <button
-              type="button"
-              onClick={() => setUiMode("MVP" as UiMode)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                !isDebug
-                  ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
-                  : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-              }`}
-            >
-              Final
-            </button>
-            <button
-              type="button"
-              onClick={() => setUiMode("Debug" as UiMode)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                isDebug
-                  ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
-                  : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-              }`}
-            >
-              Debug
-            </button>
-          </div>
         </div>
       </div>
 

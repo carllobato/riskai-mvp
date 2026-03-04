@@ -82,7 +82,9 @@ export function ProjectExcelUploadSection() {
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedFileIdRef = useRef(selectedFileId);
-  selectedFileIdRef.current = selectedFileId;
+  useEffect(() => {
+    selectedFileIdRef.current = selectedFileId;
+  }, [selectedFileId]);
 
   const refresh = useCallback(async () => {
     setError(null);
@@ -119,20 +121,20 @@ export function ProjectExcelUploadSection() {
     let cancelled = false;
     setParseError(null);
     parseExcel(file.blob)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.rows.length === 0 && result.headers.length === 0) {
-          setParseError("Sheet is empty.");
+        .then((result) => {
+          if (cancelled) return;
+          if (result.rows.length === 0 && result.headers.length === 0) {
+            setParseError("Sheet is empty.");
+            setParsed(null);
+          } else {
+            setParsed(result);
+          }
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setParseError(err instanceof Error ? err.message : "Failed to parse file.");
           setParsed(null);
-        } else {
-          setParsed(result);
-        }
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setParseError(err instanceof Error ? err.message : "Failed to parse file.");
-        setParsed(null);
-      });
+        });
     return () => {
       cancelled = true;
     };

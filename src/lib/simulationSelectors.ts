@@ -3,7 +3,6 @@ import type {
   SimulationSnapshot,
 } from "@/domain/simulation/simulation.types";
 
-const DEFAULT_EPS = 1e-9;
 const DEFAULT_EPS_VOLATILITY = 1e-6;
 const DEFAULT_N = 5;
 
@@ -33,7 +32,6 @@ export function selectRiskIntelligenceMetrics(
   options: RiskIntelligenceOptions = {}
 ): Map<string, RiskIntelligenceMetrics> {
   const N = options.N ?? DEFAULT_N;
-  const eps = options.eps ?? DEFAULT_EPS;
   const result = new Map<string, RiskIntelligenceMetrics>();
 
   if (history.length === 0) return result;
@@ -188,6 +186,7 @@ const DEBUG_RISK_INTELLIGENCE = false;
  * Dev-only: log per-risk intelligence metrics for the given history.
  * No-op when DEBUG_RISK_INTELLIGENCE is false.
  */
+/* eslint-disable @typescript-eslint/no-unused-vars -- dev API; params reserved for future logging */
 export function dumpRiskIntelligenceMetrics(
   _history: SimulationSnapshot[],
   _options?: RiskIntelligenceOptions
@@ -195,3 +194,4 @@ export function dumpRiskIntelligenceMetrics(
   if (!DEBUG_RISK_INTELLIGENCE) return;
   // Dev-only: metrics available via selectRiskIntelligenceMetrics; no console output in production.
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */

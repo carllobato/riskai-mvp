@@ -83,15 +83,12 @@ export function ProjectionScenarioProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [profile, setProfileState] = useState<ProjectionProfile>("neutral");
-  const [lensMode, setLensModeState] = useState<ScenarioLensMode>("Manual");
-  const [uiMode, setUiModeState] = useState<UiMode>("MVP");
+  const [profile, setProfileState] = useState<ProjectionProfile>(() => getInitialProfile());
+  const [lensMode, setLensModeState] = useState<ScenarioLensMode>(() => getInitialLensMode());
+  const [uiMode, setUiModeState] = useState<UiMode>(() => getInitialUiMode());
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setProfileState(getInitialProfile());
-    setLensModeState(getInitialLensMode());
-    setUiModeState(getInitialUiMode());
     setMounted(true);
   }, []);
 

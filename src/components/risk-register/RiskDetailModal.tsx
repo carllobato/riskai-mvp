@@ -215,7 +215,6 @@ export function RiskDetailModal({
   const lastSyncedBaselineRef = useRef<string | null>(null);
 
   const currentRisk = risks[currentIndex] ?? null;
-  const totalSlots = risks.length + 1; // last slot is "Add new risk"
   const isAddNewSlot = currentIndex === risks.length;
   const hasMultipleOrAddNew = risks.length >= 1 || isAddNewSlot;
   const hasAddNewSlot = !!(onAddNew ?? onAddNewWithFile ?? onAddNewWithAI);
@@ -275,8 +274,8 @@ export function RiskDetailModal({
     if (!didInitialSyncRef.current) {
       didInitialSyncRef.current = true;
       const idx = getInitialIndex();
-      setCurrentIndex(idx);
       const risk = risks[idx];
+      setCurrentIndex(idx);
       if (risk) {
         syncFormFromRisk(risk);
         lastSyncedRiskIdRef.current = risk.id;
@@ -343,23 +342,26 @@ export function RiskDetailModal({
     };
   }, []);
 
-  // Sync form when the risk we're viewing changes (e.g. open modal or switch risk). Depend on id/currentIndex so we don't reset form when parent updates the same risk object (e.g. losing in-progress edits).
+  // Sync form when the risk we're viewing changes (e.g. open modal or switch risk). Ref guard avoids re-syncing when only currentRisk reference changed (same id). Deps use currentRisk?.id so effect runs only when id/index change, not on object reference change.
   useEffect(() => {
     if (!open || !currentRisk || currentIndex === risks.length) return;
+    if (lastSyncedRiskIdRef.current === currentRisk.id) return;
     syncFormFromRisk(currentRisk);
     lastSyncedRiskIdRef.current = currentRisk.id;
     lastSyncedBaselineRef.current = toComparableSnapshot(
       normalizeRiskForComparison(currentRisk) as Record<string, unknown>
     );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- currentRisk?.id intentionally used instead of currentRisk to avoid re-runs on same-risk reference change
   }, [currentIndex, open, currentRisk?.id, risks.length, syncFormFromRisk, normalizeRiskForComparison]);
 
-  // Clear "just saved" state when switching to a different risk so we don't suppress the dirty prompt for the wrong risk
+  // Clear "just saved" state when switching to a different risk so we don't suppress the dirty prompt for the wrong risk. Deps use currentRisk?.id so we only re-run when the viewed risk id changes, not on object reference change.
   useEffect(() => {
     if (!currentRisk) return;
     if (prevRiskIdRef.current != null && prevRiskIdRef.current !== currentRisk.id) {
       lastSavedSnapshotRef.current = null;
     }
     prevRiskIdRef.current = currentRisk.id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- depend on id only; currentRisk read from closure when effect runs
   }, [currentRisk?.id]);
 
   // Clear validation errors when switching risk or when modal opens
@@ -386,7 +388,7 @@ export function RiskDetailModal({
     } else {
       setCurrentIndex(0);
     }
-  }, [open, risks]);
+  }, [open, risks, currentIndex]);
 
   useEffect(() => {
     if (!open || !modalRef.current) return;
@@ -504,25 +506,48 @@ export function RiskDetailModal({
     postMitigationTimeMax,
   ]);
 
-  const isDirty = (() => {
-    if (!currentRisk || currentIndex === risks.length) return false;
-    // Don't treat as dirty until we've synced form from this risk (avoids false positive on open before sync runs)
-    if (lastSyncedRiskIdRef.current !== currentRisk.id) return false;
-    const updated = buildUpdatedRisk();
-    if (!updated) return false;
-    const currentSnapshot = toComparableSnapshot(updated as Record<string, unknown>);
-    // If we just saved this risk and form still matches that save, treat as not dirty
-    if (
-      lastSavedSnapshotRef.current?.id === currentRisk.id &&
-      lastSavedSnapshotRef.current.snapshot === currentSnapshot
-    ) {
-      return false;
-    }
-    // Compare to baseline captured when we synced (not recomputed), so we're immune to currentRisk reference/order differences
-    const baseline = lastSyncedBaselineRef.current;
-    if (baseline == null) return false;
-    return currentSnapshot !== baseline;
-  })();
+  const [isDirtyState, setIsDirtyState] = useState(false);
+  const isDirtyCancelledRef = useRef(false);
+  useEffect(() => {
+    isDirtyCancelledRef.current = false;
+    const update = () => {
+      if (isDirtyCancelledRef.current) return;
+      if (!currentRisk || currentIndex === risks.length) {
+        setIsDirtyState(false);
+        return;
+      }
+      if (lastSyncedRiskIdRef.current !== currentRisk.id) {
+        setIsDirtyState(false);
+        return;
+      }
+      const updated = buildUpdatedRisk();
+      if (!updated) {
+        setIsDirtyState(false);
+        return;
+      }
+      const currentSnapshot = toComparableSnapshot(updated as Record<string, unknown>);
+      if (
+        lastSavedSnapshotRef.current?.id === currentRisk.id &&
+        lastSavedSnapshotRef.current.snapshot === currentSnapshot
+      ) {
+        setIsDirtyState(false);
+        return;
+      }
+      const baseline = lastSyncedBaselineRef.current;
+      if (baseline == null) {
+        setIsDirtyState(false);
+        return;
+      }
+      setIsDirtyState(currentSnapshot !== baseline);
+    };
+    update();
+    return () => {
+      isDirtyCancelledRef.current = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- depend on currentRisk?.id to avoid re-runs on same-risk reference change; currentRisk read from closure
+  }, [currentRisk?.id, currentIndex, risks.length, buildUpdatedRisk]);
+
+  const isDirty = isDirtyState;
 
   const [pendingNav, setPendingNav] = useState<"prev" | "next" | "close" | "generateAI" | null>(null);
   const showSavePrompt = pendingNav !== null;

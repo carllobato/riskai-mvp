@@ -58,12 +58,8 @@ const containerClass =
   "rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 p-4 flex flex-col min-h-[280px] min-w-0";
 const boxTitleClass =
   "text-base font-medium text-[var(--foreground)] mb-2 border-b border-neutral-200 dark:border-neutral-700 pb-2";
-const cardButtonClass =
-  "border-2 border-dashed rounded-md p-4 text-center text-sm transition-colors flex-1 min-h-[80px] flex flex-col justify-center w-full border-neutral-300 dark:border-neutral-600 bg-neutral-50/50 dark:bg-neutral-800/30 hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-100/50 dark:hover:bg-neutral-800/50 text-neutral-700 dark:text-neutral-300 font-medium";
 const btnPrimary =
   "px-4 py-2 rounded-md bg-neutral-800 dark:bg-neutral-200 text-neutral-100 dark:text-neutral-900 text-sm font-medium hover:bg-neutral-700 dark:hover:bg-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-500 dark:focus:ring-neutral-400 shrink-0";
-const btnSecondary =
-  "px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 shrink-0";
 
 /** Context of the uploaded file – used to determine which API to run (not yet passed to API). */
 export type FileContext =

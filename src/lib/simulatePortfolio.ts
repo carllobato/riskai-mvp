@@ -5,7 +5,6 @@ import type { ProjectionProfile } from "@/lib/projectionProfiles";
 
 const DEFAULT_ITERATIONS = 10000;
 const DEFAULT_COST_SPREAD_PCT = 0.2;
-const DEBUG_SIM = false;
 
 /** Schedule impact (days) is clamped to 0–30 for simulation. */
 const SCHEDULE_IMPACT_DAYS_CAP = 30;

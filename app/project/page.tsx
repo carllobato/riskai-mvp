@@ -130,9 +130,25 @@ const FIRST_INVALID_FIELD_ORDER = [
 
 const SAVED_CONFIRM_AUTO_HIDE_MS = 3000;
 
+function getInitialForm(): ProjectContext {
+  if (typeof window === "undefined") return defaultContext();
+  return loadProjectContext() ?? defaultContext();
+}
+
+function getInitialRawNumericFields(): RawNumericFields {
+  if (typeof window === "undefined") return {};
+  const stored = loadProjectContext();
+  if (!stored) return {};
+  return {
+    contingencyValue_input: stored.contingencyValue_input === 0 ? "" : String(stored.contingencyValue_input),
+    plannedDuration_months: stored.plannedDuration_months === 0 ? "" : String(stored.plannedDuration_months),
+    scheduleContingency_weeks: stored.scheduleContingency_weeks === 0 ? "" : String(stored.scheduleContingency_weeks),
+  };
+}
+
 export default function ProjectInformationPage() {
-  const [form, setForm] = useState<ProjectContext>(defaultContext);
-  const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>({});
+  const [form, setForm] = useState<ProjectContext>(getInitialForm);
+  const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>(getInitialRawNumericFields);
   const [saved, setSaved] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showArchivedReviewModal, setShowArchivedReviewModal] = useState(false);
@@ -152,30 +168,14 @@ export default function ProjectInformationPage() {
   const plannedDurationRef = useRef<HTMLInputElement>(null);
   const targetCompletionDateRef = useRef<HTMLInputElement>(null);
   const scheduleContingencyRef = useRef<HTMLInputElement>(null);
-  const fieldRefs: Record<string, RefObject<HTMLInputElement | null>> = {
+  const fieldRefsRef = useRef<Record<string, RefObject<HTMLInputElement | null>>>({
     projectName: projectNameRef,
     projectValue_input: projectValueRef,
     contingencyValue_input: contingencyValueRef,
     plannedDuration_months: plannedDurationRef,
     targetCompletionDate: targetCompletionDateRef,
     scheduleContingency_weeks: scheduleContingencyRef,
-  };
-
-  const loadStored = useCallback(() => {
-    const stored = loadProjectContext();
-    if (stored) {
-      setForm(stored);
-      setRawNumericFields({
-        contingencyValue_input: stored.contingencyValue_input === 0 ? "" : String(stored.contingencyValue_input),
-        plannedDuration_months: stored.plannedDuration_months === 0 ? "" : String(stored.plannedDuration_months),
-        scheduleContingency_weeks: stored.scheduleContingency_weeks === 0 ? "" : String(stored.scheduleContingency_weeks),
-      });
-    }
-  }, []);
-
-  useEffect(() => {
-    loadStored();
-  }, [loadStored]);
+  });
 
   useEffect(() => {
     return () => {
@@ -218,7 +218,7 @@ export default function ProjectInformationPage() {
     setValidation(err);
     if (Object.keys(err).length > 0) {
       const firstKey = FIRST_INVALID_FIELD_ORDER.find((k) => err[k]);
-      const ref = firstKey ? fieldRefs[firstKey]?.current : null;
+      const ref = firstKey ? fieldRefsRef.current[firstKey]?.current : null;
       ref?.scrollIntoView({ behavior: "smooth", block: "center" });
       ref?.focus();
       return;
@@ -277,15 +277,15 @@ export default function ProjectInformationPage() {
         Project Settings
       </h1>
 
-      {/* 1) Project Details */}
+      {/* 1) Details */}
       <section className={cardClass + " mb-4"}>
         <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Project Details
+          Details
         </h2>
         <div className="space-y-3">
           <div>
             <label htmlFor="projectName" className={labelClass}>
-              Project name <span className="text-red-500">*</span>
+              Name <span className="text-red-500">*</span>
             </label>
             <input
               ref={projectNameRef}
@@ -360,7 +360,7 @@ export default function ProjectInformationPage() {
           </div>
           <div>
             <label htmlFor="projectValue_input" className={labelClass}>
-              Project Value (in selected unit) <span className="text-red-500">*</span>
+              Value (in selected unit) <span className="text-red-500">*</span>
             </label>
             <input
               ref={projectValueRef}
@@ -405,7 +405,7 @@ export default function ProjectInformationPage() {
           </div>
         </div>
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-          Risks remain at face value; unit only affects project context.
+          Risks remain at face value; unit only affects display.
         </p>
         <div className="mt-3 rounded border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/40 px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
           <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Derived</p>
@@ -414,7 +414,7 @@ export default function ProjectInformationPage() {
           </p>
           {showEquivalentInM && (
             <p className="mt-1">
-              Equivalent in $m: Project value = {formatMoneyMillions(form.projectValue_m)} · Contingency = {formatMoneyMillions(form.contingencyValue_m)} · Approved budget = {formatMoneyMillions(form.approvedBudget_m)}
+              Equivalent in $m: Value = {formatMoneyMillions(form.projectValue_m)} · Contingency = {formatMoneyMillions(form.contingencyValue_m)} · Approved budget = {formatMoneyMillions(form.approvedBudget_m)}
             </p>
           )}
         </div>
@@ -549,7 +549,7 @@ export default function ProjectInformationPage() {
           disabled={!isFormValid}
           className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--foreground)] text-[var(--background)] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
         >
-          Save Project Context
+          Save
         </button>
         <button
           type="button"
@@ -564,7 +564,7 @@ export default function ProjectInformationPage() {
           className="mt-3 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2.5 text-sm text-emerald-800 dark:text-emerald-200"
           role="status"
         >
-          Saved ✓ Project context updated.{" "}
+          Saved ✓ Settings updated.{" "}
           <Link href="/risk-register" className="underline underline-offset-2 hover:no-underline font-medium">
             Continue to Risk Register →
           </Link>
@@ -580,7 +580,7 @@ export default function ProjectInformationPage() {
         >
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-5 max-w-sm shadow-lg">
             <h2 id="clear-dialog-title" className="text-base font-semibold text-[var(--foreground)] mb-2">
-              Clear project context?
+              Clear settings?
             </h2>
             <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
               This will reset the form and remove saved data from this device.

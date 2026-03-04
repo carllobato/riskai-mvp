@@ -1,10 +1,14 @@
 import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ProjectionScenarioProvider } from "@/context/ProjectionScenarioContext";
 import { RiskRegisterProvider } from "@/store/risk-register.store";
 import { NavBar } from "@/components/NavBar";
+
+const geist = Geist({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-geist" });
+const geistMono = Geist_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
   title: "RiskAI",
@@ -32,14 +36,8 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
       </head>
-      <body className="antialiased font-sans bg-[var(--background)] text-[var(--foreground)]">
+      <body className={`antialiased font-sans bg-[var(--background)] text-[var(--foreground)] ${geist.variable} ${geistMono.variable}`}>
         <ThemeProvider>
           <ProjectionScenarioProvider>
             <RiskRegisterProvider>

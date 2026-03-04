@@ -4,10 +4,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { RiskSchema } from "@/domain/risk/risk.schema";
 import type { Risk } from "@/domain/risk/risk.schema";
-import {
-  RiskMergeReviewResponseSchema,
-  type RiskMergeCluster,
-} from "@/domain/risk/risk-merge.types";
+import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
 
 const MIN_MERGE_CONFIDENCE = 0.65;
 

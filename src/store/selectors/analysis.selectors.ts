@@ -148,6 +148,7 @@ export type TopMitigation = {
  * Top mitigation by ROI is provided by the mitigation-optimisation API, not the store.
  * Returns null; Analysis page can show "—" or call the API separately.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature required by selector interface
 export function getTopMitigation(_state: AnalysisSelectorState): TopMitigation | null {
   return null;
 }

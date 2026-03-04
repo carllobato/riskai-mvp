@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useMemo, useEffect } from "react";
+import React, { useMemo } from "react";
 import Link from "next/link";
 import { useRiskRegister } from "@/store/risk-register.store";
-import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import {
   getNeutralSummary,
   getNeutralSamples,
@@ -28,17 +27,12 @@ import {
   type CostResults,
   type TimeResults,
 } from "@/components/simulation/SimulationSection";
+import type { SimulationRiskSnapshot } from "@/domain/simulation/simulation.types";
 
 const DISTRIBUTION_BIN_COUNT = 28;
 
-function formatCost(value: number): string {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(value);
-}
+/** Stable empty array for snapshot risks to avoid new [] identity every render. */
+const EMPTY_SNAPSHOT_RISKS: SimulationRiskSnapshot[] = [];
 
 function formatDash<T>(value: T | undefined | null, formatter: (v: T) => string): string {
   if (value == null || (typeof value === "number" && !Number.isFinite(value))) return "—";
@@ -74,8 +68,6 @@ function MetricTile({
 }
 
 export default function SimulationPage() {
-  const { uiMode } = useProjectionScenario();
-  const isDebug = uiMode === "Debug";
   const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks } = useRiskRegister();
 
   const analysisState = useMemo(
@@ -90,7 +82,7 @@ export default function SimulationPage() {
 
   const projectContext = useMemo(() => loadProjectContext(), []);
   const iterationCount = simulation.neutral?.iterationCount ?? 0;
-  const snapshotRisks = simulation.current?.risks ?? [];
+  const snapshotRisks = simulation.current?.risks ?? EMPTY_SNAPSHOT_RISKS;
 
   const hasData = neutralSummary != null;
 
@@ -189,27 +181,6 @@ export default function SimulationPage() {
     [timeSamples, timeSummary, iterationCount, snapshotRisks]
   );
 
-  useEffect(() => {
-    if (isDebug && hasData && costCdf && approvedBudgetBase != null) {
-      const p = costCdf.length
-        ? (() => {
-            for (let i = 0; i < costCdf.length - 1; i++) {
-              const a = costCdf[i];
-              const b = costCdf[i + 1];
-              if (approvedBudgetBase >= a.cost && approvedBudgetBase <= b.cost) {
-                const t = (approvedBudgetBase - a.cost) / (b.cost - a.cost);
-                return a.cumulativePct + (b.cumulativePct - a.cumulativePct) * t;
-              }
-            }
-            return null;
-          })()
-        : null;
-      if (p != null) {
-        console.debug("[Simulation] Confidence at budget (cost):", `P${Math.round(p)}`);
-      }
-    }
-  }, [isDebug, hasData, costCdf, approvedBudgetBase]);
-
   return (
     <main className="p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -243,11 +214,6 @@ export default function SimulationPage() {
           <p className="text-[var(--foreground)] font-medium m-0">
             Run a simulation to see results.
           </p>
-          {isDebug && (
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 m-0">
-              No neutral snapshot; run simulation from Risk Register or Outputs.
-            </p>
-          )}
           <div className="mt-4 flex flex-wrap justify-center gap-3">
             <button
               type="button"
@@ -269,17 +235,17 @@ export default function SimulationPage() {
 
       {hasData && (
         <>
-          {/* Group 1 — Project Baseline */}
+          {/* Group 1 — Baseline */}
           <section className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
             <h2 className="text-base font-semibold text-[var(--foreground)] px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Project Baseline
+              Baseline
             </h2>
             <div className="p-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
                 <MetricTile
-                  label="Project Value"
+                  label="Base value"
                   value={formatDash(projectContext?.projectValue_m, (m) => formatMoneyMillions(m))}
-                  helper="Base project value"
+                  helper="Base value"
                 />
                 <MetricTile
                   label="Contingency Value ($)"
@@ -287,7 +253,7 @@ export default function SimulationPage() {
                   helper="Contingency budget"
                 />
                 <MetricTile
-                  label="Project Duration"
+                  label="Duration"
                   value={formatDash(plannedDurationDays, formatDurationDays)}
                   helper="Planned schedule duration"
                 />
@@ -313,7 +279,6 @@ export default function SimulationPage() {
                 mode="cost"
                 baseline={costBaseline}
                 results={costResults}
-                isDebug={isDebug}
                 costCdf={costCdf}
                 formatCostValue={projectContext ? (dollars) => formatMoneyMillions(dollars / 1e6) : undefined}
                 contingencyValueDollars={projectContext ? projectContext.contingencyValue_m * 1e6 : undefined}
@@ -325,66 +290,10 @@ export default function SimulationPage() {
                 mode="time"
                 baseline={timeBaseline}
                 results={timeResults}
-                isDebug={isDebug}
                 timeCdf={timeCdf}
               />
             )}
           </section>
-
-          {/* Diagnostic: Engine Details (expandable) */}
-          {isDebug && (
-            <section className="mt-8">
-              <details className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 overflow-hidden group">
-                <summary className="list-none px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 cursor-pointer font-semibold text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
-                  Engine Details
-                </summary>
-                <div className="p-4 text-sm space-y-3">
-                  <dl className="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2">
-                    <div>
-                      <dt className="text-neutral-500 dark:text-neutral-400">Iterations</dt>
-                      <dd className="font-mono font-medium">{iterationCount.toLocaleString()}</dd>
-                    </div>
-                    <div>
-                      <dt className="text-neutral-500 dark:text-neutral-400">Cost samples</dt>
-                      <dd className="font-mono font-medium">
-                        {costSamples?.length ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-neutral-500 dark:text-neutral-400">Time samples</dt>
-                      <dd className="font-mono font-medium">
-                        {timeSamples?.length ?? 0}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="text-neutral-500 dark:text-neutral-400">Risks in run</dt>
-                      <dd className="font-mono font-medium">{snapshotRisks.length}</dd>
-                    </div>
-                  </dl>
-                  {neutralSummary && (
-                    <div className="pt-2 border-t border-neutral-200 dark:border-neutral-700">
-                      <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">
-                        Cost percentiles (from run)
-                      </p>
-                      <p className="font-mono text-[var(--foreground)]">
-                        P20: {formatCost(neutralSummary.p20Cost)} · P50: {formatCost(neutralSummary.p50Cost)} · P80: {formatCost(neutralSummary.p80Cost)} · P90: {formatCost(neutralSummary.p90Cost)}
-                      </p>
-                    </div>
-                  )}
-                  {timeSummary && (
-                    <div>
-                      <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-1">
-                        Schedule percentiles (from run)
-                      </p>
-                      <p className="font-mono text-[var(--foreground)]">
-                        P20: {formatDurationDays(timeSummary.p20Time)} · P50: {formatDurationDays(timeSummary.p50Time)} · P80: {formatDurationDays(timeSummary.p80Time)} · P90: {formatDurationDays(timeSummary.p90Time)}
-                      </p>
-                    </div>
-                  )}
-                </div>
-              </details>
-            </section>
-          )}
         </>
       )}
     </main>

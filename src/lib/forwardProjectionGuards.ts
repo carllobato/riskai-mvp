@@ -7,6 +7,7 @@ import type { RiskSnapshot } from "@/domain/risk/risk-snapshot.types";
 import { computeMomentum } from "@/lib/riskMomentum";
 import { projectForward, buildRiskForecast, buildMitigationStressForecast } from "@/lib/riskForecast";
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- signature required by callers
 function ok(_label: string, pass: boolean, _detail?: string): boolean {
   return pass;
 }
@@ -15,7 +16,7 @@ function ok(_label: string, pass: boolean, _detail?: string): boolean {
  * 1) No history => momentum 0, no projectedCritical
  */
 function checkNoHistory(): boolean {
-  const { momentumPerCycle, confidence } = computeMomentum([]);
+  const { momentumPerCycle } = computeMomentum([]);
   const forecast = buildRiskForecast("test", null, []);
   const momentumOk = momentumPerCycle === 0;
   const noProjectedCritical = forecast.projectedCritical === false;

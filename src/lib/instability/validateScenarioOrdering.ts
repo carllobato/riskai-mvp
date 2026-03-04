@@ -1,7 +1,9 @@
 /**
  * Dev-only safeguard: check scenario ordering and neutral baseline consistency.
- * Does not block rendering; logs console.warn and returns flag on violation.
+ * Does not block rendering; logs via debug helper in development only.
  */
+
+import { dwarn } from "@/lib/debug";
 
 export type ScenarioTTCSnapshot = {
   conservativeTTC: number | null;
@@ -60,13 +62,11 @@ export function validateScenarioOrdering(
     const snap = snapshots[i]!;
     if (!isOrderingConsistent(snap) || !isNeutralBetweenExtremes(snap)) {
       valid = false;
-      if (typeof process !== "undefined" && process.env.NODE_ENV === "development") {
-        console.warn(
-          "[validateScenarioOrdering] Scenario ordering or neutral consistency violation at index",
-          i,
-          { conservativeTTC: snap.conservativeTTC, neutralTTC: snap.neutralTTC, aggressiveTTC: snap.aggressiveTTC }
-        );
-      }
+      dwarn(
+        "[validateScenarioOrdering] Scenario ordering or neutral consistency violation at index",
+        i,
+        { conservativeTTC: snap.conservativeTTC, neutralTTC: snap.neutralTTC, aggressiveTTC: snap.aggressiveTTC }
+      );
     }
   }
   if (!valid) {

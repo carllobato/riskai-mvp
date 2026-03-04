@@ -42,8 +42,8 @@ export type MitigationOptimisationResult = {
 };
 
 export function computeMitigationOptimisation(args: {
-  risks: any[];
-  neutralSnapshot: any;
+  risks: unknown[];
+  neutralSnapshot: unknown;
   spendSteps?: number[];
   benefitMetric?: BenefitMetric;
   budgetCap?: number;

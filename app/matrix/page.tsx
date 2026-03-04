@@ -50,8 +50,6 @@ const HEAT_TINT: Record<RiskLevel, string> = {
   extreme: "rgba(127, 29, 29, 0.12)",
 };
 
-const CELL_MIN_HEIGHT = 72;
-
 type MatrixMode = "Inherent" | "Residual";
 
 const MAX_TITLE_LEN = 16;

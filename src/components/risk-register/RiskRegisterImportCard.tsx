@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Risk, RiskDraft } from "@/domain/risk/risk.schema";
 import { RiskDraftSchema, RiskSchema } from "@/domain/risk/risk.schema";
 import { draftsToRisks } from "@/domain/risk/risk.mapper";
@@ -79,13 +79,18 @@ export function RiskRegisterImportCard() {
   const [importStatus, setImportStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [completeExpanded, setCompleteExpanded] = useState(false);
+  const selectedFileIdRef = useRef(selectedFileId);
+  useEffect(() => {
+    selectedFileIdRef.current = selectedFileId;
+  }, [selectedFileId]);
 
   const loadStored = useCallback(async () => {
     setParseError(null);
     try {
       const files = await loadFiles();
       setStoredFiles(files);
-      if (files.length > 0 && !selectedFileId) {
+      const currentSelected = selectedFileIdRef.current;
+      if (files.length > 0 && !currentSelected) {
         setSelectedFileId(files[0].id);
       }
       if (files.length === 0) {

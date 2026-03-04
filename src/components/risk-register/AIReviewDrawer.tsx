@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { Risk, RiskCategory, RiskStatus, AppliesTo } from "@/domain/risk/risk.schema";
+import type { Risk, RiskCategory, RiskStatus } from "@/domain/risk/risk.schema";
 import type { RiskMergeCluster, MergeRiskDraft } from "@/domain/risk/risk-merge.types";
 import { OWNER_OPTIONS, APPLIES_TO_OPTIONS } from "./riskFormConstants";
 
@@ -83,59 +83,6 @@ function riskValue(risk: Risk, key: string): string {
       return formatDays(risk.postMitigationTimeML ?? risk.scheduleImpactDays);
     case "postMitigationTimeMax":
       return risk.postMitigationTimeMax != null ? formatDays(risk.postMitigationTimeMax) : "—";
-    default:
-      return "—";
-  }
-}
-
-function draftValue(draft: MergeRiskDraft, key: string): string {
-  switch (key) {
-    case "title":
-      return draft.title ?? "—";
-    case "description":
-      return draft.description?.trim() || "—";
-    case "category":
-      return draft.category ?? "—";
-    case "status":
-      return draft.status ?? "—";
-    case "owner":
-      return draft.owner?.trim() || "Unassigned";
-    case "mitigation":
-      return draft.mitigation?.trim() || "—";
-    case "contingency":
-      return draft.contingency?.trim() || "—";
-    case "appliesTo":
-      return draft.appliesTo ?? "—";
-    case "preMitigationProbabilityPct":
-      return formatPct(draft.preMitigationProbabilityPct);
-    case "preMitigationCostMin":
-      return draft.preMitigationCostMin != null ? formatCost(draft.preMitigationCostMin) : "—";
-    case "preMitigationCostML":
-      return formatCost(draft.preMitigationCostML);
-    case "preMitigationCostMax":
-      return draft.preMitigationCostMax != null ? formatCost(draft.preMitigationCostMax) : "—";
-    case "preMitigationTimeMin":
-      return draft.preMitigationTimeMin != null ? formatDays(draft.preMitigationTimeMin) : "—";
-    case "preMitigationTimeML":
-      return formatDays(draft.preMitigationTimeML);
-    case "preMitigationTimeMax":
-      return draft.preMitigationTimeMax != null ? formatDays(draft.preMitigationTimeMax) : "—";
-    case "mitigationCost":
-      return draft.mitigationCost != null ? formatCost(draft.mitigationCost) : "—";
-    case "postMitigationProbabilityPct":
-      return formatPct(draft.postMitigationProbabilityPct);
-    case "postMitigationCostMin":
-      return draft.postMitigationCostMin != null ? formatCost(draft.postMitigationCostMin) : "—";
-    case "postMitigationCostML":
-      return formatCost(draft.postMitigationCostML);
-    case "postMitigationCostMax":
-      return draft.postMitigationCostMax != null ? formatCost(draft.postMitigationCostMax) : "—";
-    case "postMitigationTimeMin":
-      return draft.postMitigationTimeMin != null ? formatDays(draft.postMitigationTimeMin) : "—";
-    case "postMitigationTimeML":
-      return formatDays(draft.postMitigationTimeML);
-    case "postMitigationTimeMax":
-      return draft.postMitigationTimeMax != null ? formatDays(draft.postMitigationTimeMax) : "—";
     default:
       return "—";
   }

@@ -23,7 +23,9 @@ export type DecisionSelectorState = {
 /**
  * Build a map of riskId → intelligence metrics (triggerRate, velocity, volatility, stabilityScore)
  * from the Day 5 selector that returns an array.
+ * Kept for future use; not currently referenced.
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- reserved for future use
 function getIntelligenceByRiskId(state: DecisionSelectorState): Map<string, {
   triggerRate?: number;
   velocity?: number;

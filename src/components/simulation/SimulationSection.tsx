@@ -4,7 +4,6 @@ import React, { useMemo, useState, useRef, useEffect } from "react";
 import Link from "next/link";
 import {
   Area,
-  Bar,
   ComposedChart,
   ReferenceDot,
   ReferenceLine,
@@ -22,7 +21,6 @@ import {
   binSamplesIntoHistogram,
   binSamplesIntoTimeHistogram,
   distributionToCostCdf,
-  distributionToTimeCdf,
   barDataToCostCdf,
   barDataToTimeCdf,
   percentileFromSorted,
@@ -32,7 +30,6 @@ import {
   type CostCdfPoint,
   type TimeCdfPoint,
   type DistributionPoint,
-  type TimeDistributionPoint,
   type CostSummary,
   type TimeSummary,
 } from "@/lib/simulationDisplayUtils";
@@ -201,10 +198,10 @@ function CostChart({
   deltaToTargetP?: number | null;
 }) {
   const { samples, summary, iterationCount } = results;
-  const costSamples = samples ?? [];
+  const costSamples = useMemo(() => samples ?? [], [samples]);
   const divisor = costSamples.length > 0 ? iterationCount : 1;
 
-  const { smoothData, deciles, cdf } = useMemo(() => {
+  const { smoothData, deciles } = useMemo(() => {
     let barData: { cost: number; barPct: number }[] = [];
     let dist: DistributionPoint[] = [];
     if (costSamples.length > 0) {
@@ -678,7 +675,7 @@ function TimeChart({
   isDebug?: boolean;
 }) {
   const { samples, summary, iterationCount } = results;
-  const timeSamples = samples ?? [];
+  const timeSamples = useMemo(() => samples ?? [], [samples]);
 
   const { smoothData, deciles } = useMemo(() => {
     let barData: { time: number; barPct: number }[] = [];

@@ -181,7 +181,6 @@ export type TimeSummary = { p50Time: number; p80Time: number; p90Time: number; p
 
 /** Derive cost histogram from percentiles when raw samples are not stored. */
 export function deriveCostHistogramFromPercentiles(summary: CostSummary, numBins: number): DistributionPoint[] {
-  const p20 = summary.p20Cost ?? summary.p50Cost;
   const { p50Cost, p80Cost, p90Cost } = summary;
   const range = Math.max(p80Cost - p50Cost, 1);
   const min = Math.max(0, p50Cost - range * 0.6);

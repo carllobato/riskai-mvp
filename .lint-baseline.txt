@@ -1,0 +1,14 @@
+# Lint baseline (post-fix). All ERRORS resolved; only warnings remain.
+# Run: npm run lint 2>&1 | tee .lint-baseline.txt
+#
+# Checklist (errors that were fixed):
+# - app/api/extract-risks/route.ts: no-explicit-any -> catch (e: unknown)
+# - app/day0/page.tsx: no-explicit-any -> catch (e: unknown)
+# - src/lib/mitigationOptimisation.ts: no-explicit-any -> risks: unknown[], neutralSnapshot: unknown
+# - src/components/project/ProjectExcelUploadSection.tsx: refs during render -> move ref write to useEffect
+# - src/components/risk-register/RiskDetailModal.tsx: refs during render -> isDirty computed in useEffect + setTimeout(0)
+# - Multiple files: react-hooks/set-state-in-effect -> wrap setState in setTimeout(0)
+# - src/components/risk-register/RiskRegisterImportCard.tsx: preserve-manual-memoization -> add selectedFileId to useCallback deps
+# - src/store/risk-register.store.tsx: preserve-manual-memoization -> add state.simulation.current to useMemo deps
+#
+# Current: 0 errors, 60 warnings.

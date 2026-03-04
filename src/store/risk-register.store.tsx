@@ -375,7 +375,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
-  // Persist on change (risks + simulation current/history/scenarioSnapshots/neutral/seed)
+  // Persist on change (risks + simulation). Depend on state.simulation (object reference from reducer) so we re-run when simulation updates; no dispatch in effect so no loop.
   useEffect(() => {
     const payload: PersistedState = {
       schemaVersion: PERSIST_SCHEMA_VERSION,
@@ -389,16 +389,9 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       },
     };
     saveState(STORAGE_KEY, payload);
-  }, [
-    state.risks,
-    state.simulation.current,
-    state.simulation.history,
-    state.simulation.scenarioSnapshots,
-    state.simulation.neutral,
-    state.simulation.seed,
-  ]);
+  }, [state.risks, state.simulation]);
 
-  // Sync simulation context to server (same as Outputs: neutral = scenarioSnapshots?.neutral ?? current) for mitigation-optimisation API (debounced 300ms)
+  // Sync simulation context to server (same as Outputs: neutral = scenarioSnapshots?.neutral ?? current). Depend on state.simulation so we re-run when it updates; no dispatch in effect so no loop.
   useEffect(() => {
     const neutralSnapshot = state.simulation.scenarioSnapshots?.neutral ?? state.simulation.current;
     const riskCount = state.risks.length;
@@ -417,11 +410,13 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         .catch(() => {});
     }, 300);
     return () => clearTimeout(t);
-  }, [state.risks, state.simulation.current, state.simulation.scenarioSnapshots]);
+  }, [state.risks, state.simulation]);
 
   const { profile: projectionProfile } = useProjectionScenario();
 
-  // Canonical forecast update: when simulation/risks or profile change, push decision scores into snapshot history once per run (Day 8 input), then build and store forecast map.
+  // Canonical forecast update: when simulation/risks or profile change, push decision scores into snapshot history once per run (Day 8 input), then build and store forecast map. Deps use stable primitives (simCurrentTs, simHistoryLen) to avoid state/state.simulation and prevent effect loop (effect dispatches riskForecasts/set).
+  const simCurrentTs = state.simulation.current?.timestampIso ?? null;
+  const simHistoryLen = state.simulation.history?.length ?? 0;
   useEffect(() => {
     const { risks, simulation } = state;
     const snapshotKey = simulation.current ? `${simulation.current.timestampIso ?? simulation.current.id ?? ""}-${simulation.history?.length ?? 0}` : null;
@@ -524,7 +519,8 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       validateScenarioOrdering(scenarioTTCsForValidation);
     }
     dispatch({ type: "riskForecasts/set", payload: enrichedById });
-  }, [state.risks, state.simulation.current, state.simulation.history, projectionProfile]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- stable primitives only; adding state would cause loop (effect dispatches)
+  }, [state.risks, simCurrentTs, simHistoryLen, projectionProfile]);
 
   const riskForecastsById = state.riskForecastsById;
   const forwardPressure = useMemo(() => {

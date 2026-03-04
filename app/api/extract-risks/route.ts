@@ -41,9 +41,10 @@ export async function POST(req: Request) {
     ];
 
     return NextResponse.json({ risks });
-  } catch (e: any) {
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : "Unexpected server error";
     return NextResponse.json(
-      { error: e?.message || "Unexpected server error" },
+      { error: message },
       { status: 500 }
     );
   }

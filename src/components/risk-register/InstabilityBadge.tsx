@@ -2,10 +2,6 @@
 
 import { useRef, useState, useEffect } from "react";
 import type { InstabilityResult } from "@/types/instability";
-import type { ScenarioLensMode, ScenarioName } from "@/lib/instability/selectScenarioLens";
-import type { RiskWithInstability } from "@/lib/instability/selectScenarioLens";
-import type { UiMode } from "@/context/ProjectionScenarioContext";
-import { LensDebugIcon } from "@/components/debug/LensDebugIcon";
 
 const badgeBaseStyle: React.CSSProperties = {
   display: "inline-flex",
@@ -53,8 +49,8 @@ function badgeStyleForLevel(level: InstabilityResult["level"]): React.CSSPropert
   }
 }
 
-/** Meeting-mode level label: Stable | Moderate | Elevated | Critical */
-const meetingLevelLabel: Record<InstabilityResult["level"], string> = {
+/** Level label: Stable | Moderate | Elevated | Critical */
+const levelLabel: Record<InstabilityResult["level"], string> = {
   Low: "Stable",
   Moderate: "Moderate",
   High: "Elevated",
@@ -63,17 +59,8 @@ const meetingLevelLabel: Record<InstabilityResult["level"], string> = {
 
 export function InstabilityBadge({
   instability,
-  lensUsed,
-  manualScenario,
-  lensMode,
-  uiMode = "MVP",
 }: {
   instability: InstabilityResult | undefined;
-  /** Risk Register only: show "Lens used" in tooltip for debug (Debug only). */
-  lensUsed?: ScenarioName;
-  manualScenario?: ScenarioName;
-  lensMode?: ScenarioLensMode;
-  uiMode?: UiMode;
 }) {
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -95,34 +82,26 @@ export function InstabilityBadge({
     );
   }
 
-  const { index, level, breakdown, recommendedScenario, rationale, flags, momentum } = instability;
+  const { index, level, recommendedScenario, rationale } = instability;
   const style = badgeStyleForLevel(level);
-  const showMomentumIcon = uiMode === "Debug";
-  const momentumIcon = showMomentumIcon && (momentum === "Rising" ? "↑" : momentum === "Falling" ? "↓" : null);
-  const isMvp = uiMode === "MVP";
-  const badgeLabel = isMvp ? `EII ${index} · ${meetingLevelLabel[level]}` : `EII ${index}`;
+  const badgeLabel = `EII ${index} · ${levelLabel[level]}`;
 
   return (
     <div ref={wrapperRef} style={{ position: "relative", display: "inline-flex", alignItems: "center", gap: 2 }}>
       <button
         type="button"
-        style={{ ...style, minWidth: isMvp ? 72 : undefined }}
-        onClick={() => !isMvp && setOpen((o) => !o)}
-        title={isMvp ? `Escalation Instability Index: ${meetingLevelLabel[level]}` : "Escalation Instability Index — click for details"}
-        aria-expanded={isMvp ? false : open}
-        aria-haspopup={isMvp ? undefined : "dialog"}
+        style={{ ...style, minWidth: 72 }}
+        onClick={() => setOpen((o) => !o)}
+        title={`Escalation Instability Index: ${levelLabel[level]}`}
+        aria-expanded={open}
+        aria-haspopup="dialog"
       >
         {badgeLabel}
       </button>
-      {momentumIcon != null && (
-        <span style={{ fontSize: 10, opacity: 0.75, color: "var(--foreground)" }} title={momentum === "Rising" ? "EII rising vs last run" : "EII falling vs last run"} aria-hidden>
-          {momentumIcon}
-        </span>
-      )}
-      {open && !isMvp && (
+      {open && (
         <div
           role="dialog"
-          aria-label="EII breakdown"
+          aria-label="EII details"
           style={{
             position: "absolute",
             left: 0,
@@ -145,50 +124,10 @@ export function InstabilityBadge({
           <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>
             Level: {level}
           </div>
-          {uiMode === "Debug" && (
-            <>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 500, marginBottom: 4, color: "var(--foreground)", opacity: 0.9 }}>Breakdown</div>
-                <ul style={{ margin: 0, paddingLeft: 16, listStyle: "disc" }}>
-                  <li>velocityScore: {(breakdown.velocityScore * 100).toFixed(0)}%</li>
-                  <li>volatilityScore: {(breakdown.volatilityScore * 100).toFixed(0)}%</li>
-                  <li>sensitivityScore: {(breakdown.sensitivityScore * 100).toFixed(0)}%</li>
-                  <li>confidencePenalty: {(breakdown.confidencePenalty * 100).toFixed(0)}%</li>
-                  <li>momentumPenalty: {(breakdown.momentumPenalty * 100).toFixed(0)}%</li>
-                </ul>
-              </div>
-              <div style={{ marginBottom: 8 }}>
-                <div style={{ fontWeight: 500, marginBottom: 4 }}>Weights</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 8px" }}>
-                  {Object.entries(breakdown.weights).map(([k, v]) => (
-                    <span key={k} style={{ opacity: 0.85 }}>
-                      {k}: {(v * 100).toFixed(0)}%
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
           <div style={{ marginBottom: 8 }}>
             <div style={{ fontWeight: 500, marginBottom: 4 }}>Recommended scenario</div>
             <div style={{ opacity: 0.9 }}>{recommendedScenario}</div>
           </div>
-          {uiMode === "Debug" && lensUsed != null && (
-            <div style={{ marginBottom: 8, fontSize: 11, color: "var(--foreground)", opacity: 0.8, display: "flex", alignItems: "center", gap: 6 }}>
-              <span>
-                Lens used: {lensUsed}
-                {manualScenario != null ? ` (Manual: ${manualScenario})` : ""}
-              </span>
-              {lensMode != null && manualScenario != null && (
-                <LensDebugIcon
-                  risk={{ instability } as RiskWithInstability}
-                  lensMode={lensMode}
-                  manualScenario={manualScenario}
-                  uiMode={uiMode}
-                />
-              )}
-            </div>
-          )}
           {rationale.length > 0 && (
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontWeight: 500, marginBottom: 4 }}>Rationale</div>
@@ -197,29 +136,6 @@ export function InstabilityBadge({
                   <li key={i}>{r}</li>
                 ))}
               </ul>
-            </div>
-          )}
-          {uiMode === "Debug" && flags.length > 0 && (
-            <div>
-              <div style={{ fontWeight: 500, marginBottom: 4 }}>Flags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
-                {flags.map((f) => (
-                  <span
-                    key={f}
-                    style={{
-                      padding: "2px 6px",
-                      borderRadius: 4,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      backgroundColor: "rgba(128, 128, 128, 0.15)",
-                      color: "var(--foreground)",
-                      opacity: 0.9,
-                    }}
-                  >
-                    {f}
-                  </span>
-                ))}
-              </div>
             </div>
           )}
         </div>

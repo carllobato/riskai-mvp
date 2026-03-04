@@ -57,10 +57,8 @@ export function DecisionPanel() {
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
   const scoreDeltaByRiskId = useMemo(() => selectDecisionScoreDelta(state), [state]);
   const ranked = useMemo(() => selectRankedRisks(state), [state]);
-  const intelRows = useMemo(
-    () => selectLatestSnapshotRiskIntelligence(simulation.current, simulation.history ?? []),
-    [simulation.current, simulation.history]
-  );
+  // Intentionally computed per render; simulation.current is mutable so we avoid useMemo to prevent incorrect deps.
+  const intelRows = selectLatestSnapshotRiskIntelligence(simulation.current, simulation.history ?? []);
 
   const intelByRiskId = useMemo(() => {
     const map = new Map<string, { velocity: number; volatility: number; stability: number }>();
