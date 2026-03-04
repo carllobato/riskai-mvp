@@ -143,11 +143,16 @@ function normalizeProbability(p: unknown): number {
   return 0;
 }
 
-/** Safe percentile index: no .at(); index = floor((p/100) * length). */
+/**
+ * Percentile index for sorted data: 0-based nearest-rank with endpoints aligned.
+ * idx = floor((p/100) * (n - 1)) so p=0 -> first element, p=100 -> last element.
+ * Must match src/lib/simulationDisplayUtils.ts percentileFromSorted for consistent P50/P80/P90.
+ */
 function percentileIndex(samples: number[], percentile: number): number {
   if (samples.length === 0) return 0;
-  const idx = Math.floor((percentile / 100) * samples.length);
-  return Math.min(idx, samples.length - 1);
+  const n = samples.length;
+  const idx = Math.floor((percentile / 100) * (n - 1));
+  return Math.min(idx, n - 1);
 }
 
 function mean(arr: number[]): number {

@@ -73,7 +73,7 @@ export function percentileAtTime(cdf: TimeCdfPoint[], time: number): number | nu
   return null;
 }
 
-/** Percentile value from sorted array (0–100). */
+/** Percentile value from sorted array (0–100). Same formula as monteCarlo.ts percentileIndex: idx = floor((p/100)*(n-1)). */
 export function percentileFromSorted(sorted: number[], p: number): number {
   if (sorted.length === 0) return 0;
   const idx = Math.floor((p / 100) * (sorted.length - 1));

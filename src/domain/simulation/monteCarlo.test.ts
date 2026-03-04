@@ -127,4 +127,75 @@ describe("runMonteCarloSimulation", () => {
     assert.strictEqual(result.summary.p80Time, 10, "p80Time should be 10");
     assert.strictEqual(result.summary.p90Time, 10, "p90Time should be 10");
   });
+
+  it("single risk with 100% probability produces identical samples so percentiles equal the constant", () => {
+    const constantCost = 100_000;
+    const constantTimeDays = 10;
+    const risks: Risk[] = [
+      makeRisk({
+        id: "single",
+        status: "open",
+        probability: 1,
+        costImpact: constantCost,
+        scheduleImpactDays: constantTimeDays,
+      }),
+    ];
+    const result = runMonteCarloSimulation({ risks, iterations: 100, seed: 42 });
+    const s = result.summary;
+    assert.strictEqual(s.p20Cost, constantCost, "p20Cost should equal constant cost");
+    assert.strictEqual(s.p50Cost, constantCost, "p50Cost should equal constant cost");
+    assert.strictEqual(s.p80Cost, constantCost, "p80Cost should equal constant cost");
+    assert.strictEqual(s.p90Cost, constantCost, "p90Cost should equal constant cost");
+    assert.strictEqual(s.p20Time, constantTimeDays, "p20Time should equal constant time");
+    assert.strictEqual(s.p50Time, constantTimeDays, "p50Time should equal constant time");
+    assert.strictEqual(s.p80Time, constantTimeDays, "p80Time should equal constant time");
+    assert.strictEqual(s.p90Time, constantTimeDays, "p90Time should equal constant time");
+    assert(s.p50Cost <= s.p80Cost && s.p80Cost <= s.p90Cost, "cost percentiles should be non-decreasing");
+    assert(s.p50Time <= s.p80Time && s.p80Time <= s.p90Time, "time percentiles should be non-decreasing");
+  });
+
+  it("post-mitigation exposure is lower than pre-mitigation (P80 cost and time)", () => {
+    const preCost = 200_000;
+    const preTime = 20;
+    const postCost = 100_000;
+    const postTime = 10;
+    const iterations = 100;
+    const seed = 123;
+
+    const riskPreOnly: Risk[] = [
+      makeRisk({
+        id: "r1",
+        status: "open",
+        preMitigationProbabilityPct: 100,
+        preMitigationCostML: preCost,
+        preMitigationTimeML: preTime,
+      }),
+    ];
+    const riskWithPost: Risk[] = [
+      makeRisk({
+        id: "r1",
+        status: "open",
+        preMitigationProbabilityPct: 100,
+        preMitigationCostML: preCost,
+        preMitigationTimeML: preTime,
+        postMitigationProbabilityPct: 100,
+        postMitigationCostML: postCost,
+        postMitigationTimeML: postTime,
+      }),
+    ];
+
+    const resultPre = runMonteCarloSimulation({ risks: riskPreOnly, iterations, seed });
+    const resultPost = runMonteCarloSimulation({ risks: riskWithPost, iterations, seed });
+
+    assert.strictEqual(getEffectiveRiskInputs(riskPreOnly[0])?.sourceUsed, "pre");
+    assert.strictEqual(getEffectiveRiskInputs(riskWithPost[0])?.sourceUsed, "post");
+
+    assert(resultPost.summary.p80Cost < resultPre.summary.p80Cost, "post P80 cost should be lower than pre");
+    assert(resultPost.summary.p80Time < resultPre.summary.p80Time, "post P80 time should be lower than pre");
+
+    assert.strictEqual(resultPre.summary.p80Cost, preCost, "pre run: constant cost so P80 = pre cost");
+    assert.strictEqual(resultPre.summary.p80Time, preTime, "pre run: constant time so P80 = pre time");
+    assert.strictEqual(resultPost.summary.p80Cost, postCost, "post run: constant cost so P80 = post cost");
+    assert.strictEqual(resultPost.summary.p80Time, postTime, "post run: constant time so P80 = post time");
+  });
 });
