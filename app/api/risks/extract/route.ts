@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { requireUser } from "@/lib/auth/requireUser";
 import { RiskDraftResponseSchema } from "@/domain/risk/risk.schema";
 
 const EXTRACT_SYSTEM = `You are a risk analyst. Extract risk items from the user's document.
@@ -24,6 +25,9 @@ Return ONLY a single JSON object, no markdown, no commentary. Shape:
 Do NOT include: id, inherentRating, residualRating, score, level, timestamps, or any other fields.`;
 
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const body = await req.json().catch(() => ({}));
     const documentText = typeof body?.documentText === "string" ? body.documentText : "";

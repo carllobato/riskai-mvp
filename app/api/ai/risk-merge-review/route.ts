@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { requireUser } from "@/lib/auth/requireUser";
 import { RiskSchema } from "@/domain/risk/risk.schema";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
@@ -192,6 +193,9 @@ function buildUserPayload(risks: Risk[]): string {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   const start = Date.now();
   try {
     const body = await req.json().catch(() => ({}));

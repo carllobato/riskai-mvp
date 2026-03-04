@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { requireUser } from "@/lib/auth/requireUser";
 import { IntelligentExtractDraftSchema } from "@/domain/risk/risk.schema";
 
 const EXTRACT_SYSTEM = `You are an expert risk analyst for a decision intelligence platform. Your job is to turn free-text risk descriptions into a fully populated, structured risk record. You must EXTRACT explicit values and INFER missing values from context. Never leave fields blank when reasonable inference can be made.
@@ -130,6 +131,9 @@ Example with full mitigation (residual = 0): { "title": "Supplier Delivery Slip"
 Example with partial mitigation (residual reduced): postProbability = 30, postCost/postTime = 50% of pre; mitigationCost = 250000 (separate).`;
 
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     const body = await req.json().catch(() => ({}));
     const documentText = typeof body?.documentText === "string" ? body.documentText : "";

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SimulationSnapshot } from "@/domain/simulation/simulation.types";
+import { requireUser } from "@/lib/auth/requireUser";
 import { setSimulationContext } from "@/lib/getSimulationContext";
 import { dlog } from "@/lib/debug";
 
@@ -28,6 +29,9 @@ function extractNeutralP80ForDebug(snapshot: unknown): number | null {
  * Called by client when risks or simulation state changes so mitigation API can load internally.
  */
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     let body: unknown;
     try {

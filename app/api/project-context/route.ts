@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { parseProjectContext } from "@/lib/projectContext";
 import { setProjectContext } from "@/lib/getProjectContext";
+import { requireUser } from "@/lib/auth/requireUser";
 
 /**
  * POST: Sync project context from client (same data as Project Information page).
@@ -8,6 +9,9 @@ import { setProjectContext } from "@/lib/getProjectContext";
  * Client persists to localStorage; this endpoint is optional sync.
  */
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     let body: unknown;
     try {

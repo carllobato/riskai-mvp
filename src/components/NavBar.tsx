@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
+import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -65,6 +66,16 @@ export function NavBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3 shrink-0">
+        <button
+          type="button"
+          onClick={async () => {
+            await supabaseBrowserClient().auth.signOut();
+            window.location.href = "/login";
+          }}
+          className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
+        >
+          Logout
+        </button>
         {mounted ? (
           <button
             type="button"

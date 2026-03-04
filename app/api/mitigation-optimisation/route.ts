@@ -9,6 +9,7 @@
  */
 import { NextResponse } from "next/server";
 import { getSimulationContext, getSimulationContextStatus } from "@/lib/getSimulationContext";
+import { requireUser } from "@/lib/auth/requireUser";
 import { computeMitigationOptimisation, getNeutralP80Cost } from "@/engine/mitigationOptimisation";
 import type { BenefitMetric } from "@/engine/mitigationOptimisation";
 import { dlog, dwarn, isDev } from "@/lib/debug";
@@ -61,6 +62,9 @@ function devHeaders(status: ReturnType<typeof getSimulationContextStatus>) {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     dlog("[api/mit-opt] POST called");
     let body: Body;
@@ -133,6 +137,9 @@ export async function POST(req: Request) {
 
 /** DEV self-test: GET uses same internal loader as POST (no Monte Carlo). */
 export async function GET() {
+  const auth = await requireUser();
+  if (auth instanceof NextResponse) return auth;
+
   try {
     dlog("[api/mit-opt] GET called");
     const { risks, neutralSnapshot } = await getSimulationContext();
