@@ -44,3 +44,23 @@ export async function createSnapshot(snapshot: SimulationSnapshotInput): Promise
     throw error;
   }
 }
+
+/**
+ * Fetch the most recent simulation snapshot for the project.
+ */
+export async function getLatestSnapshot() {
+  const supabase = supabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("simulation_snapshots")
+    .select("*")
+    .eq("project_id", PROJECT_ID)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error) {
+    console.error("[snapshot fetch error]", error);
+  }
+
+  return data;
+}

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import Link from "next/link";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { getLatestSnapshot } from "@/lib/db/snapshots";
 import {
   getNeutralSummary,
   getNeutralSamples,
@@ -69,6 +70,17 @@ function MetricTile({
 
 export default function SimulationPage() {
   const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks } = useRiskRegister();
+  const [lastRun, setLastRun] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      const snapshot = await getLatestSnapshot();
+      if (snapshot?.created_at) {
+        setLastRun(snapshot.created_at);
+      }
+    }
+    load();
+  }, []);
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),
@@ -203,6 +215,11 @@ export default function SimulationPage() {
         </button>
         </div>
       </div>
+      {lastRun && (
+        <div className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
+          Last simulation run: {new Date(lastRun).toLocaleString()}
+        </div>
+      )}
       {hasDraftRisks && (
         <p className="text-sm text-amber-600 dark:text-amber-400 mt-2 text-right" role="status">
           Review and save all draft risks in the Risk Register before running simulation.
