@@ -211,10 +211,10 @@ export async function POST(req: Request) {
     }
 
     const access = await assertProjectAccess(projectId);
-    if (access.error === "unauthorized") {
+    if ("error" in access && access.error === "unauthorized") {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
-    if (access.error === "forbidden") {
+    if ("error" in access && access.error === "forbidden") {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }
 

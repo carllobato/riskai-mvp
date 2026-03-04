@@ -171,11 +171,11 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   const hasData = neutralSummary != null;
   /** Only show results when we've loaded for this project and it has a snapshot; else show Run simulation. Legacy: no effectiveProjectId but hasSnapshot. */
   const currentProjectHasSnapshot =
-    (snapshotForProject?.projectId === effectiveProjectId && snapshotForProject.hasSnapshot) ||
+    (snapshotForProject?.projectId === effectiveProjectId && snapshotForProject?.hasSnapshot) ||
     (effectiveProjectId == null && (snapshotForProject?.hasSnapshot ?? false));
   const showResults = currentProjectHasSnapshot && hasData;
   const showRunOnly =
-    (snapshotForProject?.projectId === effectiveProjectId && !snapshotForProject.hasSnapshot) ||
+    (snapshotForProject?.projectId === effectiveProjectId && !snapshotForProject?.hasSnapshot) ||
     (effectiveProjectId == null && !(snapshotForProject?.hasSnapshot ?? false));
   const loadingSnapshot = effectiveProjectId != null && snapshotForProject?.projectId !== effectiveProjectId;
 

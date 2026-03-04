@@ -13,10 +13,10 @@ export default async function ProjectLayout({
 }) {
   const { projectId } = await params;
   const access = await assertProjectAccess(projectId);
-  if (access.error === "unauthorized") {
+  if ("error" in access && access.error === "unauthorized") {
     redirect("/login");
   }
-  if (access.error === "forbidden") {
+  if ("error" in access && access.error === "forbidden") {
     if (process.env.NODE_ENV === "development") {
       // eslint-disable-next-line no-console
       console.log("[projects] access denied or not found", { projectId });
