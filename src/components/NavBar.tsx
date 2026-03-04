@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
@@ -29,6 +30,8 @@ export function NavBar() {
   const pathname = usePathname();
   const { theme, toggleTheme } = useTheme();
   const { uiMode } = useProjectionScenario();
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
@@ -62,21 +65,25 @@ export function NavBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        <button
-          type="button"
-          role="switch"
-          aria-checked={theme === "dark"}
-          aria-label="Toggle theme"
-          title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-          onClick={toggleTheme}
-          className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
-        >
-          <span
-            className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out ${
-              theme === "dark" ? "translate-x-4" : "translate-x-0"
-            }`}
-          />
-        </button>
+        {mounted ? (
+          <button
+            type="button"
+            role="switch"
+            aria-checked={theme === "dark"}
+            aria-label="Toggle theme"
+            title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={toggleTheme}
+            className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out ${
+                theme === "dark" ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </button>
+        ) : (
+          <span className="inline-block h-5 w-9 shrink-0 rounded-full border border-neutral-300 bg-neutral-200" aria-hidden />
+        )}
       </div>
     </nav>
   );
