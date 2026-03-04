@@ -27,6 +27,11 @@ function makeRisk(overrides: Partial<Risk> = {}): Risk {
   };
 }
 
+function assertFiniteNonNegative(label: string, value: number): void {
+  assert.ok(Number.isFinite(value), `${label} should be finite, got ${value}`);
+  assert.ok(value >= 0, `${label} should be >= 0, got ${value}`);
+}
+
 describe("getEffectiveRiskInputs", () => {
   it("returns null for closed risks", () => {
     const risk = makeRisk({ status: "closed" });
@@ -197,5 +202,142 @@ describe("runMonteCarloSimulation", () => {
     assert.strictEqual(resultPre.summary.p80Time, preTime, "pre run: constant time so P80 = pre time");
     assert.strictEqual(resultPost.summary.p80Cost, postCost, "post run: constant cost so P80 = post cost");
     assert.strictEqual(resultPost.summary.p80Time, postTime, "post run: constant time so P80 = post time");
+  });
+
+  it("no NaN or negative in summary percentiles for normal run", () => {
+    const risks: Risk[] = [
+      makeRisk({ id: "r1", probability: 0.3, costImpact: 50_000, scheduleImpactDays: 10 }),
+      makeRisk({ id: "r2", probability: 0.5, costImpact: 100_000, scheduleImpactDays: 20 }),
+      makeRisk({ id: "r3", probability: 0.2, costImpact: 25_000, scheduleImpactDays: 5 }),
+      makeRisk({ id: "r4", probability: 0.4, costImpact: 75_000, scheduleImpactDays: 15 }),
+    ];
+    const result = runMonteCarloSimulation({ risks, iterations: 500, seed: 123 });
+    const s = result.summary;
+
+    assertFiniteNonNegative("p20Cost", s.p20Cost);
+    assertFiniteNonNegative("p50Cost", s.p50Cost);
+    assertFiniteNonNegative("p80Cost", s.p80Cost);
+    assertFiniteNonNegative("p90Cost", s.p90Cost);
+    assertFiniteNonNegative("p20Time", s.p20Time);
+    assertFiniteNonNegative("p50Time", s.p50Time);
+    assertFiniteNonNegative("p80Time", s.p80Time);
+    assertFiniteNonNegative("p90Time", s.p90Time);
+    assertFiniteNonNegative("meanCost", s.meanCost);
+    assertFiniteNonNegative("meanTime", s.meanTime);
+    assertFiniteNonNegative("minCost", s.minCost);
+    assertFiniteNonNegative("maxCost", s.maxCost);
+    assertFiniteNonNegative("minTime", s.minTime);
+    assertFiniteNonNegative("maxTime", s.maxTime);
+  });
+
+  it("no NaN or negative when risks include zero impacts", () => {
+    const risks: Risk[] = [
+      makeRisk({ id: "z1", probability: 0.5, costImpact: 0, scheduleImpactDays: 0 }),
+      makeRisk({ id: "z2", probability: 0.3, costImpact: 100_000, scheduleImpactDays: 10 }),
+      makeRisk({ id: "z3", probability: 0.2, costImpact: 0, scheduleImpactDays: 5 }),
+      makeRisk({ id: "z4", probability: 0.4, costImpact: 50_000, scheduleImpactDays: 0 }),
+    ];
+    const result = runMonteCarloSimulation({ risks, iterations: 500, seed: 456 });
+    const s = result.summary;
+
+    assertFiniteNonNegative("p20Cost", s.p20Cost);
+    assertFiniteNonNegative("p50Cost", s.p50Cost);
+    assertFiniteNonNegative("p80Cost", s.p80Cost);
+    assertFiniteNonNegative("p90Cost", s.p90Cost);
+    assertFiniteNonNegative("p20Time", s.p20Time);
+    assertFiniteNonNegative("p50Time", s.p50Time);
+    assertFiniteNonNegative("p80Time", s.p80Time);
+    assertFiniteNonNegative("p90Time", s.p90Time);
+    assertFiniteNonNegative("meanCost", s.meanCost);
+    assertFiniteNonNegative("meanTime", s.meanTime);
+    assertFiniteNonNegative("minCost", s.minCost);
+    assertFiniteNonNegative("maxCost", s.maxCost);
+    assertFiniteNonNegative("minTime", s.minTime);
+    assertFiniteNonNegative("maxTime", s.maxTime);
+  });
+
+  it("zero risks does not crash and returns zeroed summary", () => {
+    const result = runMonteCarloSimulation({ risks: [], iterations: 200, seed: 1 });
+    const s = result.summary;
+
+    assertFiniteNonNegative("p20Cost", s.p20Cost);
+    assertFiniteNonNegative("p50Cost", s.p50Cost);
+    assertFiniteNonNegative("p80Cost", s.p80Cost);
+    assertFiniteNonNegative("p90Cost", s.p90Cost);
+    assertFiniteNonNegative("p20Time", s.p20Time);
+    assertFiniteNonNegative("p50Time", s.p50Time);
+    assertFiniteNonNegative("p80Time", s.p80Time);
+    assertFiniteNonNegative("p90Time", s.p90Time);
+    assertFiniteNonNegative("meanCost", s.meanCost);
+    assertFiniteNonNegative("meanTime", s.meanTime);
+    assertFiniteNonNegative("minCost", s.minCost);
+    assertFiniteNonNegative("maxCost", s.maxCost);
+    assertFiniteNonNegative("minTime", s.minTime);
+    assertFiniteNonNegative("maxTime", s.maxTime);
+
+    assert(s.p20Cost <= s.p50Cost && s.p50Cost <= s.p80Cost && s.p80Cost <= s.p90Cost, "cost percentiles should be non-decreasing");
+    assert(s.p20Time <= s.p50Time && s.p50Time <= s.p80Time && s.p80Time <= s.p90Time, "time percentiles should be non-decreasing");
+
+    if (s.meanCost === 0 && s.meanTime === 0) {
+      assert.strictEqual(s.p20Cost, 0);
+      assert.strictEqual(s.p50Cost, 0);
+      assert.strictEqual(s.p80Cost, 0);
+      assert.strictEqual(s.p90Cost, 0);
+      assert.strictEqual(s.meanCost, 0);
+      assert.strictEqual(s.minCost, 0);
+      assert.strictEqual(s.maxCost, 0);
+      assert.strictEqual(s.p20Time, 0);
+      assert.strictEqual(s.p50Time, 0);
+      assert.strictEqual(s.p80Time, 0);
+      assert.strictEqual(s.p90Time, 0);
+      assert.strictEqual(s.meanTime, 0);
+      assert.strictEqual(s.minTime, 0);
+      assert.strictEqual(s.maxTime, 0);
+    } else {
+      assert.strictEqual(s.p20Cost, s.p50Cost, "baseline: cost p20 should equal p50");
+      assert.strictEqual(s.p50Cost, s.p80Cost, "baseline: cost p50 should equal p80");
+      assert.strictEqual(s.p80Cost, s.p90Cost, "baseline: cost p80 should equal p90");
+      assert.strictEqual(s.minCost, s.maxCost, "baseline: cost min should equal max");
+      assert.strictEqual(s.meanCost, s.minCost, "baseline: cost mean should equal min");
+      assert.strictEqual(s.p20Time, s.p50Time, "baseline: time p20 should equal p50");
+      assert.strictEqual(s.p50Time, s.p80Time, "baseline: time p50 should equal p80");
+      assert.strictEqual(s.p80Time, s.p90Time, "baseline: time p80 should equal p90");
+      assert.strictEqual(s.minTime, s.maxTime, "baseline: time min should equal max");
+      assert.strictEqual(s.meanTime, s.minTime, "baseline: time mean should equal min");
+    }
+  });
+
+  it("100 risks does not crash and returns valid summary", () => {
+    const risks: Risk[] = [];
+    for (let i = 1; i <= 100; i++) {
+      risks.push(
+        makeRisk({
+          id: `stress-${i}`,
+          probability: ((i % 10) + 1) / 10,
+          costImpact: i * 1000,
+          scheduleImpactDays: i % 30,
+        })
+      );
+    }
+    const result = runMonteCarloSimulation({ risks, iterations: 300, seed: 2 });
+    const s = result.summary;
+
+    assertFiniteNonNegative("p20Cost", s.p20Cost);
+    assertFiniteNonNegative("p50Cost", s.p50Cost);
+    assertFiniteNonNegative("p80Cost", s.p80Cost);
+    assertFiniteNonNegative("p90Cost", s.p90Cost);
+    assertFiniteNonNegative("p20Time", s.p20Time);
+    assertFiniteNonNegative("p50Time", s.p50Time);
+    assertFiniteNonNegative("p80Time", s.p80Time);
+    assertFiniteNonNegative("p90Time", s.p90Time);
+    assertFiniteNonNegative("meanCost", s.meanCost);
+    assertFiniteNonNegative("meanTime", s.meanTime);
+    assertFiniteNonNegative("minCost", s.minCost);
+    assertFiniteNonNegative("maxCost", s.maxCost);
+    assertFiniteNonNegative("minTime", s.minTime);
+    assertFiniteNonNegative("maxTime", s.maxTime);
+
+    assert(s.p20Cost <= s.p50Cost && s.p50Cost <= s.p80Cost && s.p80Cost <= s.p90Cost, "cost percentiles should be non-decreasing");
+    assert(s.p20Time <= s.p50Time && s.p50Time <= s.p80Time && s.p80Time <= s.p90Time, "time percentiles should be non-decreasing");
   });
 });
