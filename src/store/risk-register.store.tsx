@@ -336,7 +336,7 @@ type Ctx = {
   deleteRisk: (id: string) => void;
   clearRisks: () => void;
   simulation: State["simulation"];
-  runSimulation: (iterations?: number) => void;
+  runSimulation: (iterations?: number) => Promise<void>;
   clearSimulationHistory: () => void;
   setSimulationDelta: (delta: SimulationDelta | null) => void;
   /** True when any risk has status "draft"; simulation must not run until user saves drafts to open. */
@@ -556,7 +556,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       simulation: state.simulation,
       runSimulation: (iterations) => {
         const hasDraft = state.risks.some((r) => r.status === "draft");
-        if (hasDraft) return; // Do not run simulation while any risk is in draft
+        if (hasDraft) return Promise.resolve(); // Do not run simulation while any risk is in draft
         const iterCount = iterations ?? 10000;
         const seed =
           state.simulation.seed != null
@@ -592,7 +592,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         };
 
         const s = mcResult.summary;
-        createSnapshot({
+        const snapshotPromise = createSnapshot({
           scenario: "neutral",
           iterations: iterCount,
           p10_cost: s.p20Cost,
@@ -603,7 +603,8 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           p90_time: s.p90Time,
           mean_cost: s.meanCost,
           mean_time: s.meanTime,
-        }).catch((e) => console.error("[snapshots]", e));
+        });
+        snapshotPromise.catch((e) => console.error("[snapshots]", e));
 
         const effectiveRisks = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived");
         const conservativeRisks = effectiveRisks.map((r) =>
@@ -636,6 +637,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
             delta: calculateDelta(previous, neutralSnapshot),
           });
         }
+        return snapshotPromise;
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),

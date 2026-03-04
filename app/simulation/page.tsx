@@ -200,7 +200,14 @@ export default function SimulationPage() {
         <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => runSimulation(10000)}
+          onClick={async () => {
+            try {
+              await runSimulation(10000);
+              setLastRun(new Date().toISOString());
+            } catch {
+              // Snapshot insert failed; do not update timestamp
+            }
+          }}
           disabled={hasDraftRisks}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
@@ -234,7 +241,14 @@ export default function SimulationPage() {
           <div className="mt-4 flex flex-wrap justify-center gap-3">
             <button
               type="button"
-              onClick={() => runSimulation(10000)}
+              onClick={async () => {
+                try {
+                  await runSimulation(10000);
+                  setLastRun(new Date().toISOString());
+                } catch {
+                  // Snapshot insert failed; do not update timestamp
+                }
+              }}
               disabled={hasDraftRisks}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
