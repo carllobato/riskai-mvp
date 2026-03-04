@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { selectDecisionByRiskId, selectDecisionScoreDelta } from "@/store/selectors";
 import { loadProjectContext, isProjectContextComplete } from "@/lib/projectContext";
+import { listRisks, replaceRisks } from "@/lib/db/risks";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { mergeDraftToRisk } from "@/domain/risk/risk.mapper";
 import type { RiskMergeCluster, MergeRiskDraft } from "@/domain/risk/risk-merge.types";
@@ -65,7 +66,9 @@ function applyColumnFilters<T>(list: T[], filters: ColumnFilters, getValue: (ite
 }
 
 function RiskRegisterContent() {
-  const { risks, simulation, addRisk, updateRisk } = useRiskRegister();
+  const { risks, simulation, addRisk, updateRisk, setRisks } = useRiskRegister();
+  const [saveToServerLoading, setSaveToServerLoading] = useState(false);
+  const [saveToServerError, setSaveToServerError] = useState<string | null>(null);
   const [aiReviewOpen, setAiReviewOpen] = useState(false);
   const [aiReviewLoading, setAiReviewLoading] = useState(false);
   const [aiReviewError, setAiReviewError] = useState<string | null>(null);
@@ -85,6 +88,9 @@ function RiskRegisterContent() {
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
   const highlightTimeoutRef = useRef<number | null>(null);
+  const prevRisksLengthRef = useRef(risks.length);
+  const hasHydratedFromDbRef = useRef(false);
+  const projectIdForHydrateRef = useRef<string | null>(null);
 
   // Gate: redirect to /project if project context is missing or incomplete
   useEffect(() => {
@@ -99,6 +105,56 @@ function RiskRegisterContent() {
       return;
     }
   }, [gateChecked, projectContext, router]);
+
+  // Hydrate risk store from Supabase only on initial mount or when projectId changes.
+  // Without this guard, setRisks (from context) gets a new reference when risks change, so the effect
+  // re-ran after every add/append and overwrote local state with stale DB state (no new risks yet).
+  useEffect(() => {
+    if (!isProjectContextComplete(projectContext)) return;
+    const projectId = projectContext?.projectName ?? null;
+    if (projectId !== projectIdForHydrateRef.current) {
+      projectIdForHydrateRef.current = projectId;
+      hasHydratedFromDbRef.current = false;
+    }
+    if (hasHydratedFromDbRef.current) return;
+    hasHydratedFromDbRef.current = true;
+    console.log("[risk-ui] hydrate/reset fired", { source: "db", totalBefore: risks.length });
+    listRisks()
+      .then((loaded) => setRisks(loaded))
+      .catch((err) => console.error("[risks]", err));
+  }, [projectContext, setRisks]);
+
+  // Log when risk list grows (after add/append) for debugging visibility of new risks
+  useEffect(() => {
+    if (risks.length > prevRisksLengthRef.current) {
+      console.log("[risk-ui] after add", {
+        total: risks.length,
+        ids: risks.map((r) => r.id ?? (r as Risk & { tempId?: string }).tempId).slice(-5),
+      });
+    }
+    prevRisksLengthRef.current = risks.length;
+  }, [risks]);
+
+  const handleSaveToServer = useCallback(async () => {
+    setSaveToServerLoading(true);
+    setSaveToServerError(null);
+    try {
+      await replaceRisks(risks);
+      const next = await listRisks();
+      setRisks(next);
+    } catch (err) {
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof (err as { message?: string })?.message === "string"
+            ? (err as { message: string }).message
+            : String(err);
+      setSaveToServerError(msg);
+      console.error("[risks]", err);
+    } finally {
+      setSaveToServerLoading(false);
+    }
+  }, [risks, setRisks]);
 
   const state = useMemo(() => ({ simulation }), [simulation]);
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);
@@ -150,6 +206,12 @@ function RiskRegisterContent() {
     }
     return { filteredRisks: list, risksForFilterOptions };
   }, [risks, columnFilters, tableSortState]);
+
+  console.log("[risk-ui] render", {
+    total: risks.length,
+    visible: filteredRisks.length,
+    filterState: columnFilters,
+  });
 
   // When opening the detail modal for a newly added risk, it may not be in filteredRisks (e.g. "Show flagged only").
   // Ensure the initial risk is included so the modal shows the correct risk instead of defaulting to the first filtered one.
@@ -257,7 +319,14 @@ function RiskRegisterContent() {
           onAiReviewClick={handleAiReviewClick}
           aiReviewLoading={aiReviewLoading}
           onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
+          onSaveToServer={handleSaveToServer}
+          saveToServerLoading={saveToServerLoading}
         />
+        {saveToServerError && (
+          <p className="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">
+            Save failed: {saveToServerError}
+          </p>
+        )}
       </div>
       <RiskRegisterTable
           risks={filteredRisks}
@@ -311,6 +380,7 @@ function RiskRegisterContent() {
         open={showAddNewRiskChoiceModal}
         onClose={() => setShowAddNewRiskChoiceModal(false)}
         onRisksAdded={(riskIds) => {
+          setColumnFilters({});
           setShowAddNewRiskChoiceModal(false);
           if (riskIds.length > 0) {
             setDetailInitialRiskId(riskIds[0]);

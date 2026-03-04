@@ -38,6 +38,7 @@ import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
 import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { dlog, dwarn } from "@/lib/debug";
+import { createSnapshot } from "@/lib/db/snapshots";
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const PERSIST_SCHEMA_VERSION = 1;
@@ -166,8 +167,13 @@ function reducer(state: State, action: Action): State {
       const newRisks = action.risks
         .filter((r) => !existingIds.has(r.id))
         .map((r) => {
-          const risk = ensureScoreHistory({ ...r, riskNumber: r.riskNumber ?? nextNum++ });
-          return risk;
+          const withStableKey = r.id
+            ? r
+            : { ...r, tempId: (r as Risk & { tempId?: string }).tempId ?? crypto.randomUUID() };
+          return ensureScoreHistory({
+            ...withStableKey,
+            riskNumber: withStableKey.riskNumber ?? nextNum++,
+          });
         });
       return { ...state, risks: [...state.risks, ...newRisks] };
     }
@@ -212,9 +218,15 @@ function reducer(state: State, action: Action): State {
 
     case "risk/add": {
       const nextNum = maxRiskNumber(state.risks) + 1;
+      const withStableKey = action.risk.id
+        ? action.risk
+        : {
+            ...action.risk,
+            tempId: (action.risk as Risk & { tempId?: string }).tempId ?? crypto.randomUUID(),
+          };
       const risk = ensureScoreHistory({
-        ...action.risk,
-        riskNumber: action.risk.riskNumber ?? nextNum,
+        ...withStableKey,
+        riskNumber: withStableKey.riskNumber ?? nextNum,
       });
       return { ...state, risks: [risk, ...state.risks] };
     }
@@ -351,6 +363,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     const saved = loadState<PersistedState | { risks?: unknown[]; simulation?: { current?: SimulationSnapshot; history?: SimulationSnapshot[] } }>(STORAGE_KEY);
     if (!saved || typeof saved !== "object") return;
     const risks = "risks" in saved && Array.isArray(saved.risks) ? saved.risks : [];
+    console.log("[risk-ui] hydrate/reset fired", { source: "local", totalBefore: 0 });
     if (risks.length > 0) {
       const migrated = migrateRisks(risks);
       if (migrated.length) dispatch({ type: "risks/set", risks: migrated });
@@ -577,6 +590,20 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           lastRunAt: Date.now(),
           iterationCount: iterCount,
         };
+
+        const s = mcResult.summary;
+        createSnapshot({
+          scenario: "neutral",
+          iterations: iterCount,
+          p10_cost: s.p20Cost,
+          p50_cost: s.p50Cost,
+          p90_cost: s.p90Cost,
+          p10_time: s.p20Time,
+          p50_time: s.p50Time,
+          p90_time: s.p90Time,
+          mean_cost: s.meanCost,
+          mean_time: s.meanTime,
+        }).catch((e) => console.error("[snapshots]", e));
 
         const effectiveRisks = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived");
         const conservativeRisks = effectiveRisks.map((r) =>

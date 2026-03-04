@@ -4,16 +4,22 @@ import { useRiskRegister } from "@/store/risk-register.store";
 import { getRandomDemoRisksToAdd } from "@/data/demoRisks";
 import type { ProjectContext } from "@/lib/projectContext";
 
-export function RiskRegisterHeader({
-  onAiReviewClick,
-  aiReviewLoading = false,
-  onGenerateAiRiskClick,
-}: {
+export type RiskRegisterHeaderProps = {
   projectContext?: ProjectContext | null;
   onAiReviewClick?: () => void;
   aiReviewLoading?: boolean;
   onGenerateAiRiskClick?: () => void;
-}) {
+  onSaveToServer?: () => void | Promise<void>;
+  saveToServerLoading?: boolean;
+};
+
+export function RiskRegisterHeader({
+  onAiReviewClick,
+  aiReviewLoading = false,
+  onGenerateAiRiskClick,
+  onSaveToServer,
+  saveToServerLoading = false,
+}: RiskRegisterHeaderProps) {
   const { clearRisks, addRisk, appendRisks } = useRiskRegister();
 
   return (
@@ -25,6 +31,16 @@ export function RiskRegisterHeader({
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        {onSaveToServer && (
+          <button
+            type="button"
+            onClick={() => onSaveToServer()}
+            disabled={saveToServerLoading}
+            className="px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 disabled:pointer-events-none"
+          >
+            {saveToServerLoading ? "Saving…" : "Save"}
+          </button>
+        )}
         {onGenerateAiRiskClick && (
           <button
             type="button"

@@ -504,7 +504,7 @@ export function RiskRegisterTable({
         <>
           {risks.map((risk, index) => (
             <RiskRegisterRow
-              key={risk.id}
+              key={risk.id ?? (risk as { tempId?: string }).tempId ?? index}
               risk={risk}
               rowIndex={index}
               decision={decisionById[risk.id]}
