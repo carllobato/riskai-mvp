@@ -17,8 +17,22 @@ export async function updateSession(request: NextRequest) {
   }
 
   const { pathname } = request.nextUrl;
+
+  // API routes: no redirect; handlers use requireUser() and return 401 JSON
+  if (pathname.startsWith("/api")) {
+    return NextResponse.next({ request });
+  }
+
+  // Pass pathname to server so (protected) layout can use it for ?next=
+  const headers = new Headers(request.headers);
+  headers.set("x-pathname", pathname);
+  const requestWithPath = new Request(request.url, {
+    method: request.method,
+    headers,
+  });
+
   const response = NextResponse.next({
-    request,
+    request: requestWithPath,
   });
 
   try {
@@ -51,17 +65,9 @@ export async function updateSession(request: NextRequest) {
       return response;
     }
 
-    if (!user) {
-      const loginUrl = new URL("/login", request.url);
-      loginUrl.searchParams.set("next", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
+    // Page auth is enforced by app/(protected)/layout.tsx; do not redirect here
     return response;
   } catch {
-    if (isPublicPath(pathname)) {
-      return response;
-    }
-    return NextResponse.redirect(new URL("/login", request.url));
+    return response;
   }
 }
