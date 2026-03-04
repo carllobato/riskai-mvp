@@ -147,8 +147,9 @@ function getInitialRawNumericFields(): RawNumericFields {
 }
 
 export default function ProjectInformationPage() {
-  const [form, setForm] = useState<ProjectContext>(getInitialForm);
-  const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>(getInitialRawNumericFields);
+  const [mounted, setMounted] = useState(false);
+  const [form, setForm] = useState<ProjectContext>(defaultContext());
+  const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>({});
   const [saved, setSaved] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showArchivedReviewModal, setShowArchivedReviewModal] = useState(false);
@@ -176,6 +177,19 @@ export default function ProjectInformationPage() {
     targetCompletionDate: targetCompletionDateRef,
     scheduleContingency_weeks: scheduleContingencyRef,
   });
+
+  useEffect(() => {
+    const stored = loadProjectContext();
+    if (stored) {
+      setForm(stored);
+      setRawNumericFields({
+        contingencyValue_input: stored.contingencyValue_input === 0 ? "" : String(stored.contingencyValue_input),
+        plannedDuration_months: stored.plannedDuration_months === 0 ? "" : String(stored.plannedDuration_months),
+        scheduleContingency_weeks: stored.scheduleContingency_weeks === 0 ? "" : String(stored.scheduleContingency_weeks),
+      });
+    }
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -410,7 +424,7 @@ export default function ProjectInformationPage() {
         <div className="mt-3 rounded border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/40 px-3 py-2 text-xs text-neutral-600 dark:text-neutral-400">
           <p className="font-medium text-neutral-700 dark:text-neutral-300 mb-1">Derived</p>
           <p>
-            Contingency %: {contingencyPct != null ? `${contingencyPct.toFixed(1)}%` : "—"} · Approved budget (in selected unit): {approvedBudgetInUnit}
+            Contingency %: {mounted && contingencyPct != null ? `${contingencyPct.toFixed(1)}%` : "—"} · Approved budget (in selected unit): {mounted ? approvedBudgetInUnit : "—"}
           </p>
           {showEquivalentInM && (
             <p className="mt-1">
