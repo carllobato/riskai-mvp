@@ -25,7 +25,7 @@ function formatStatusLabel(status: RiskStatus): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function formatCategoryLabel(category: RiskCategory | null | undefined): string {
+function formatCategoryLabel(category: RiskCategory | "" | null | undefined): string {
   if (category == null || category === "") return "—";
   return category.charAt(0).toUpperCase() + category.slice(1);
 }
