@@ -1165,7 +1165,8 @@ const MITIGATION_ROWS_PLACEHOLDER = [
 export default function AnalysisPage() {
   const { uiMode, setUiMode } = useProjectionScenario();
   const isDebug = uiMode === "Debug";
-  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount } = useRiskRegister();
+  const [runBlockedInvalidCount, setRunBlockedInvalidCount] = useState<number | null>(null);
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),
@@ -1181,6 +1182,10 @@ export default function AnalysisPage() {
   const modelStatus = useMemo(() => getModelStatus(analysisState), [analysisState]);
   const engineHealth = useMemo(() => getEngineHealth(analysisState), [analysisState]);
   const analysisAudit = useMemo(() => getAnalysisAudit(analysisState), [analysisState]);
+
+  useEffect(() => {
+    if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
+  }, [invalidRunnableCount]);
 
   useEffect(() => {
     if (!isDebug || !neutralSummary) return;
@@ -1301,8 +1306,13 @@ export default function AnalysisPage() {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => runSimulation(10000)}
-          disabled={hasDraftRisks}
+          onClick={async () => {
+            const result = await runSimulation(10000);
+            if (!result.ran && result.blockReason === "invalid") {
+              setRunBlockedInvalidCount(result.invalidCount);
+            }
+          }}
+          disabled={hasDraftRisks || invalidRunnableCount > 0}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Run Simulation
@@ -1319,6 +1329,16 @@ export default function AnalysisPage() {
             Review and save all draft risks in the Risk Register before running simulation.
           </p>
         )}
+        {invalidRunnableCount > 0 && (
+          <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
+            Fix {invalidRunnableCount} risk{invalidRunnableCount !== 1 ? "s" : ""} to run simulation.
+          </p>
+        )}
+        {runBlockedInvalidCount != null && runBlockedInvalidCount > 0 && (
+          <p className="text-sm text-amber-700 dark:text-amber-300 font-medium" role="alert">
+            Simulation blocked: fix {runBlockedInvalidCount} risk{runBlockedInvalidCount !== 1 ? "s" : ""} to run simulation.
+          </p>
+        )}
       </div>
 
       {!hasData && (
@@ -1333,8 +1353,14 @@ export default function AnalysisPage() {
           )}
           <button
             type="button"
-            onClick={() => runSimulation(10000)}
-            className="mt-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors"
+            onClick={async () => {
+              const result = await runSimulation(10000);
+              if (!result.ran && result.blockReason === "invalid") {
+                setRunBlockedInvalidCount(result.invalidCount);
+              }
+            }}
+            disabled={hasDraftRisks || invalidRunnableCount > 0}
+            className="mt-4 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
             Run simulation
           </button>

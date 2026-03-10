@@ -39,6 +39,13 @@ import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { dlog, dwarn } from "@/lib/debug";
 import { createSnapshot, type SimulationSnapshotRow } from "@/lib/db/snapshots";
+import { isRiskValid } from "@/domain/risk/runnable-risk.validator";
+
+/** Return type for runSimulation: ran true when simulation executed; blockReason and invalidCount when blocked. */
+export type RunSimulationResult =
+  | { ran: true }
+  | { ran: false; blockReason: "draft" }
+  | { ran: false; blockReason: "invalid"; invalidCount: number };
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const ACTIVE_PROJECT_KEY = "activeProjectId";
@@ -403,13 +410,15 @@ type Ctx = {
   deleteRisk: (id: string) => void;
   clearRisks: () => void;
   simulation: State["simulation"];
-  runSimulation: (iterations?: number, projectId?: string) => Promise<void>;
+  runSimulation: (iterations?: number, projectId?: string) => Promise<RunSimulationResult>;
   clearSimulationHistory: () => void;
   /** Restore simulation state from a DB snapshot row (e.g. after loading getLatestSnapshot). */
   hydrateSimulationFromDbSnapshot: (row: SimulationSnapshotRow) => void;
   setSimulationDelta: (delta: SimulationDelta | null) => void;
   /** True when any risk has status "draft"; simulation must not run until user saves drafts to open. */
   hasDraftRisks: boolean;
+  /** Count of runnable (non-draft, non-closed, non-archived) risks that fail runnable validation. */
+  invalidRunnableCount: number;
   /** Portfolio forward pressure from mitigation stress forecasts (derived from risks + snapshot history). */
   forwardPressure: PortfolioForwardPressure;
   /** Per-risk mitigation stress forecast keyed by riskId (for row-level projection signals). */
@@ -605,6 +614,13 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
   }, [state.risks, simCurrentTs, simHistoryLen, projectionProfile]);
 
   const riskForecastsById = state.riskForecastsById;
+  const invalidRunnableCount = useMemo(() => {
+    const runnable = state.risks.filter(
+      (r) => r.status !== "draft" && r.status !== "closed" && r.status !== "archived"
+    );
+    return runnable.filter((r) => !isRiskValid(r)).length;
+  }, [state.risks]);
+
   const forwardPressure = useMemo(() => {
     const list = Object.values(riskForecastsById);
     const profile = list[0]?.projectionProfileUsed;
@@ -625,7 +641,14 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       simulation: state.simulation,
       runSimulation: (iterations, projectIdFromCaller) => {
         const hasDraft = state.risks.some((r) => r.status === "draft");
-        if (hasDraft) return Promise.resolve(); // Do not run simulation while any risk is in draft
+        if (hasDraft) return Promise.resolve({ ran: false, blockReason: "draft" });
+        const runnable = state.risks.filter(
+          (r) => r.status !== "closed" && r.status !== "archived"
+        );
+        const invalidCount = runnable.filter((r) => !isRiskValid(r)).length;
+        if (invalidCount > 0) {
+          return Promise.resolve({ ran: false, blockReason: "invalid", invalidCount });
+        }
         const iterCount = iterations ?? 10000;
         const seed =
           state.simulation.seed != null
@@ -687,7 +710,9 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         );
         snapshotPromise.catch((e) => console.error("[snapshots]", e));
 
-        const effectiveRisks = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived");
+        const effectiveRisks = state.risks.filter(
+          (r) => r.status !== "closed" && r.status !== "archived"
+        );
         const conservativeRisks = effectiveRisks.map((r) =>
           applyScenarioToRiskInputs(r, "conservative")
         );
@@ -718,7 +743,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
             delta: calculateDelta(previous, neutralSnapshot),
           });
         }
-        return snapshotPromise;
+        return snapshotPromise.then(() => ({ ran: true } as const));
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
       hydrateSimulationFromDbSnapshot: (row) => {
@@ -736,10 +761,11 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       },
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
       hasDraftRisks: state.risks.some((r) => r.status === "draft"),
+      invalidRunnableCount,
       forwardPressure,
       riskForecastsById,
     }),
-    [state.risks, state.simulation, forwardPressure, riskForecastsById]
+    [state.risks, state.simulation, invalidRunnableCount, forwardPressure, riskForecastsById]
   );
 
   return <RiskRegisterContext.Provider value={value}>{children}</RiskRegisterContext.Provider>;

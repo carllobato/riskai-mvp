@@ -25,7 +25,8 @@ function formatStatusLabel(status: RiskStatus): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-function formatCategoryLabel(category: RiskCategory): string {
+function formatCategoryLabel(category: RiskCategory | null | undefined): string {
+  if (category == null || category === "") return "—";
   return category.charAt(0).toUpperCase() + category.slice(1);
 }
 
@@ -68,12 +69,15 @@ function truncateDescription(desc: string): string {
 export function RiskRegisterRow({
   risk,
   onRiskClick,
+  validationErrors,
 }: {
   risk: Risk;
   rowIndex?: number;
   decision?: DecisionMetrics | null;
   scoreDelta?: number;
   onRiskClick?: (risk: Risk) => void;
+  /** When present and non-empty, a compact error summary is shown under the row (e.g. from runnable validator). */
+  validationErrors?: string[];
 }) {
   const { updateRisk } = useRiskRegister();
   const readOnly = Boolean(onRiskClick);
@@ -107,28 +111,31 @@ export function RiskRegisterRow({
     ? "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr) minmax(96px, 96px)"
     : "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr)";
 
+  const hasValidationErrors = Boolean(validationErrors?.length);
+
   return (
-    <div
-      id={`risk-${risk.id}`}
-      role={onRiskClick ? "row" : undefined}
-      tabIndex={onRiskClick && hasDescription ? 0 : undefined}
-      onClick={handleRowClick}
-      onFocus={handleRowFocus}
-      onBlur={handleRowBlur}
-      className={[
-        onRiskClick && "cursor-pointer transition-colors hover:bg-neutral-50/80 dark:hover:bg-neutral-800/50 hover:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
-        isDraft && "bg-amber-50/40 dark:bg-amber-950/20 border-l-2 border-l-amber-400/60 dark:border-l-amber-500/50",
-      ].filter(Boolean).join(" ")}
-      style={{
-        display: "grid",
-        gridTemplateColumns: gridCols,
-        padding: "10px 12px",
-        borderBottom: "1px solid #eee",
-        alignItems: "center",
-        gap: 10,
-        minWidth: 0,
-      }}
-    >
+    <div className={hasValidationErrors ? "border-b border-neutral-200 dark:border-neutral-700" : undefined}>
+      <div
+        id={`risk-${risk.id}`}
+        role={onRiskClick ? "row" : undefined}
+        tabIndex={onRiskClick && hasDescription ? 0 : undefined}
+        onClick={handleRowClick}
+        onFocus={handleRowFocus}
+        onBlur={handleRowBlur}
+        className={[
+          onRiskClick && "cursor-pointer transition-colors hover:bg-neutral-50/80 dark:hover:bg-neutral-800/50 hover:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] dark:hover:shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06)]",
+          isDraft && "bg-amber-50/40 dark:bg-amber-950/20 border-l-2 border-l-amber-400/60 dark:border-l-amber-500/50",
+        ].filter(Boolean).join(" ")}
+        style={{
+          display: "grid",
+          gridTemplateColumns: gridCols,
+          padding: "10px 12px",
+          borderBottom: hasValidationErrors ? "none" : "1px solid #eee",
+          alignItems: "center",
+          gap: 10,
+          minWidth: 0,
+        }}
+      >
       {/* Risk ID (persistent 001, 002, …) */}
       <span className={cellTextClass} title={risk.id}>
         {riskIdDisplay}
@@ -285,6 +292,16 @@ export function RiskRegisterRow({
           >
             View / Edit
           </button>
+        </div>
+      )}
+      </div>
+      {hasValidationErrors && (
+        <div
+          className="px-3 py-1.5 text-xs text-amber-700 dark:text-amber-300 bg-amber-50/80 dark:bg-amber-950/30 border-b border-neutral-200 dark:border-neutral-700"
+          role="status"
+          aria-live="polite"
+        >
+          {validationErrors!.join(" · ")}
         </div>
       )}
     </div>

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import type { Risk, RiskLevel } from "@/domain/risk/risk.schema";
 import type { DecisionMetrics } from "@/domain/decision/decision.types";
+import { getRiskValidationErrors } from "@/domain/risk/runnable-risk.validator";
 import { RiskRegisterRow } from "@/components/risk-register/RiskRegisterRow";
 
 const LEVEL_LETTER: Record<RiskLevel, string> = { low: "L", medium: "M", high: "H", extreme: "E" };
@@ -128,14 +129,14 @@ function getDistinctValues(risks: Risk[], column: SortColumn): string[] {
   if (column === "preRating" || column === "postRating") {
     const ratingLetters = arr.filter((x) => RATING_ORDER.includes(x));
     const other = arr.filter((x) => !RATING_ORDER.includes(x)); // e.g. "N/A" for postRating
-    return [...sortRatingOptions(ratingLetters), ...other.sort((a, b) => a.localeCompare(b))];
+    return [...sortRatingOptions(ratingLetters), ...other.sort((a, b) => (a ?? "").localeCompare(b ?? ""))];
   }
   if (column === "mitigationMovement") {
     const movementOrder = ["↑", "→", "↓"]; // up (worsening), same (stable), down (improving)
     const order = new Map(movementOrder.map((v, i) => [v, i]));
     return [...arr].sort((a, b) => (order.get(a) ?? 999) - (order.get(b) ?? 999));
   }
-  return arr.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  return arr.sort((a, b) => (a ?? "").localeCompare(b ?? "", undefined, { sensitivity: "base" }));
 }
 
 function FilterIcon({ active }: { active?: boolean }) {
@@ -510,6 +511,7 @@ export function RiskRegisterTable({
               decision={decisionById[risk.id]}
               scoreDelta={scoreDeltaByRiskId[risk.id]}
               onRiskClick={onRiskClick}
+              validationErrors={getRiskValidationErrors(risk)}
             />
           ))}
           {onAddNewClick && showActions && (

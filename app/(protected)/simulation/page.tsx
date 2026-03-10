@@ -79,8 +79,9 @@ type SnapshotState = { projectId: string; hasSnapshot: boolean } | null;
 
 export default function SimulationPage({ projectId: urlProjectId }: SimulationPageProps = {}) {
   const router = useRouter();
-  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, setRisks, hydrateSimulationFromDbSnapshot } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount, setRisks, hydrateSimulationFromDbSnapshot } = useRiskRegister();
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [runBlockedInvalidCount, setRunBlockedInvalidCount] = useState<number | null>(null);
   const [projectContext, setProjectContext] = useState<ReturnType<typeof loadProjectContext>>(null);
   const [gateChecked, setGateChecked] = useState(false);
   /** If non-null and projectId matches current project: hasSnapshot true = show results, false = show Run simulation only. */
@@ -97,6 +98,10 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   /** UUID for DB/API: URL or storage when in project routes; in legacy mode use DEFAULT_PROJECT_ID (projectContext.projectName is a display name, not a UUID). */
   const effectiveProjectId = urlProjectId ?? activeProjectIdFromStorage ?? (projectContext ? DEFAULT_PROJECT_ID : undefined);
   effectiveProjectIdRef.current = effectiveProjectId;
+
+  useEffect(() => {
+    if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
+  }, [invalidRunnableCount]);
   const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}/setup` : "/project";
 
   useEffect(() => {
@@ -289,18 +294,24 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
           type="button"
           onClick={async () => {
             try {
-              await runSimulation(10000, effectiveProjectId ?? undefined);
-              const now = new Date().toISOString();
-              setLastRun(now);
-              setSnapshotForProject({
-                projectId: effectiveProjectId ?? "legacy",
-                hasSnapshot: true,
-              });
+              const result = await runSimulation(10000, effectiveProjectId ?? undefined);
+              if (!result.ran && result.blockReason === "invalid") {
+                setRunBlockedInvalidCount(result.invalidCount);
+                return;
+              }
+              if (result.ran) {
+                const now = new Date().toISOString();
+                setLastRun(now);
+                setSnapshotForProject({
+                  projectId: effectiveProjectId ?? "legacy",
+                  hasSnapshot: true,
+                });
+              }
             } catch {
               // Snapshot insert failed; do not update timestamp
             }
           }}
-          disabled={hasDraftRisks}
+          disabled={hasDraftRisks || invalidRunnableCount > 0}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Run Simulation
@@ -324,6 +335,16 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
           Review and save all draft risks in the Risk Register before running simulation.
         </p>
       )}
+      {invalidRunnableCount > 0 && (
+        <p className="text-sm text-amber-600 dark:text-amber-400 mt-2 text-right" role="status">
+          Fix {invalidRunnableCount} risk{invalidRunnableCount !== 1 ? "s" : ""} to run simulation.
+        </p>
+      )}
+      {runBlockedInvalidCount != null && runBlockedInvalidCount > 0 && (
+        <p className="text-sm text-amber-700 dark:text-amber-300 font-medium mt-2" role="alert">
+          Simulation blocked: fix {runBlockedInvalidCount} risk{runBlockedInvalidCount !== 1 ? "s" : ""} to run simulation.
+        </p>
+      )}
 
       {loadingSnapshot && (
         <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
@@ -341,18 +362,24 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
               type="button"
               onClick={async () => {
                 try {
-                  await runSimulation(10000, effectiveProjectId ?? undefined);
-                  const now = new Date().toISOString();
-                  setLastRun(now);
-                  setSnapshotForProject({
-                    projectId: effectiveProjectId ?? "legacy",
-                    hasSnapshot: true,
-                  });
+                  const result = await runSimulation(10000, effectiveProjectId ?? undefined);
+                  if (!result.ran && result.blockReason === "invalid") {
+                    setRunBlockedInvalidCount(result.invalidCount);
+                    return;
+                  }
+                  if (result.ran) {
+                    const now = new Date().toISOString();
+                    setLastRun(now);
+                    setSnapshotForProject({
+                      projectId: effectiveProjectId ?? "legacy",
+                      hasSnapshot: true,
+                    });
+                  }
                 } catch {
                   // Snapshot insert failed; do not update timestamp
                 }
               }}
-              disabled={hasDraftRisks}
+              disabled={hasDraftRisks || invalidRunnableCount > 0}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               Run simulation

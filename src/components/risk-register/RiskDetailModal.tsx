@@ -14,6 +14,7 @@ import {
   costToConsequenceScale,
   timeDaysToConsequenceScale,
 } from "@/domain/risk/risk.logic";
+import { getRiskValidationErrors } from "@/domain/risk/runnable-risk.validator";
 import { nowIso } from "@/lib/time";
 import { OWNER_OPTIONS, APPLIES_TO_OPTIONS } from "./riskFormConstants";
 
@@ -820,6 +821,15 @@ export function RiskDetailModal({
           ) : (
             currentRisk && (
               <div className="space-y-6">
+                {(() => {
+                  const runnableErrors = getRiskValidationErrors(currentRisk);
+                  return runnableErrors.length > 0 ? (
+                    <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-2 text-sm text-amber-800 dark:text-amber-200" role="status">
+                      <p className="font-medium mb-1">Fix these to run simulation:</p>
+                      <ul className="list-disc list-inside">{runnableErrors.map((e) => <li key={e}>{e}</li>)}</ul>
+                    </div>
+                  ) : null;
+                })()}
                 {validationErrors.length > 0 && (
                   <div className="rounded-md bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 px-3 py-2 text-sm text-red-800 dark:text-red-200" role="alert">
                     <p className="font-medium mb-1">Complete all required fields before saving (non-draft risks):</p>

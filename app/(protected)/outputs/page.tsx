@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { listRisks } from "@/lib/db/risks";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
@@ -32,7 +32,8 @@ export type OutputsPageProps = { projectId?: string | null };
 
 export default function OutputsPage({ projectId }: OutputsPageProps = {}) {
   const { profile: scenarioProfile } = useProjectionScenario();
-  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, riskForecastsById, forwardPressure, setRisks } = useRiskRegister();
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount, riskForecastsById, forwardPressure, setRisks } = useRiskRegister();
+  const [runBlockedInvalidCount, setRunBlockedInvalidCount] = useState<number | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -42,6 +43,10 @@ export default function OutputsPage({ projectId }: OutputsPageProps = {}) {
     // Intentionally depend only on projectId; setRisks identity changes when store state updates and would cause a re-fetch loop.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
+  useEffect(() => {
+    if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
+  }, [invalidRunnableCount]);
+
   const selectedScenarioId: EngineScenarioId = normalizeScenarioId(scenarioProfile);
   const scenarioComparison = useMemo(
     () => computeScenarioComparison(
@@ -105,8 +110,13 @@ export default function OutputsPage({ projectId }: OutputsPageProps = {}) {
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <button
           type="button"
-          onClick={() => runSimulation(10000, projectId ?? undefined)}
-          disabled={hasDraftRisks}
+          onClick={async () => {
+            const result = await runSimulation(10000, projectId ?? undefined);
+            if (!result.ran && result.blockReason === "invalid") {
+              setRunBlockedInvalidCount(result.invalidCount);
+            }
+          }}
+          disabled={hasDraftRisks || invalidRunnableCount > 0}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Run Simulation
@@ -121,6 +131,16 @@ export default function OutputsPage({ projectId }: OutputsPageProps = {}) {
         {hasDraftRisks && (
           <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
             Review and save all draft risks in the Risk Register before running simulation.
+          </p>
+        )}
+        {invalidRunnableCount > 0 && (
+          <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
+            Fix {invalidRunnableCount} risk{invalidRunnableCount !== 1 ? "s" : ""} to run simulation.
+          </p>
+        )}
+        {runBlockedInvalidCount != null && runBlockedInvalidCount > 0 && (
+          <p className="text-sm text-amber-700 dark:text-amber-300 font-medium" role="alert">
+            Simulation blocked: fix {runBlockedInvalidCount} risk{runBlockedInvalidCount !== 1 ? "s" : ""} to run simulation.
           </p>
         )}
       </div>
