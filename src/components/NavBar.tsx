@@ -6,9 +6,10 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import type { User } from "@supabase/supabase-js";
 import { ProjectSwitcher } from "@/components/ProjectSwitcher";
 
-const ACTIVE_PROJECT_KEY = "activeProjectId";
+const LOGIN_URL = "/login?next=" + encodeURIComponent("/");
 
 function projectIdFromPathname(pathname: string | null): string | null {
   if (!pathname || typeof pathname !== "string") return null;
@@ -17,13 +18,16 @@ function projectIdFromPathname(pathname: string | null): string | null {
   return segments[1];
 }
 
-function getActiveProjectIdFromStorage(): string | null {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(ACTIVE_PROJECT_KEY);
-  } catch {
-    return null;
-  }
+/** True if pathname is a known app route (not a 404). */
+function isKnownAppRoute(pathname: string | null): boolean {
+  if (!pathname || typeof pathname !== "string") return false;
+  if (pathname === "/") return true;
+  if (pathname.startsWith("/login")) return true;
+  if (pathname.startsWith("/projects")) return true;
+  if (pathname.startsWith("/create-project")) return true;
+  if (pathname.startsWith("/project-not-found")) return true;
+  if (pathname.startsWith("/dev")) return true;
+  return false;
 }
 
 const isDev = process.env.NODE_ENV === "development";
@@ -53,57 +57,95 @@ const ALL_NAV_ITEMS: {
   ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
 ];
 
-function navHref(item: (typeof ALL_NAV_ITEMS)[number], projectId: string | null): string {
-  if (item.projectSlug && projectId) return `/projects/${projectId}/${item.projectSlug}`;
-  // When no project, point to home so user is sent to create-project or project list (coherent MVP routes).
-  if (item.projectSlug) return "/";
+function isValidProjectId(id: string | null | undefined): id is string {
+  return typeof id === "string" && id !== "undefined" && id.trim().length > 0;
+}
+
+function navHref(
+  item: (typeof ALL_NAV_ITEMS)[number],
+  projectId: string | null,
+  isLoggedIn: boolean
+): string {
+  if (!isLoggedIn) return LOGIN_URL;
+  if (item.projectSlug && isValidProjectId(projectId)) return "/projects/" + projectId + "/" + item.projectSlug;
+  if (item.projectSlug) return "/projects";
   return item.href;
 }
 
 export function NavBar() {
   const pathname = usePathname();
   const currentProjectId = projectIdFromPathname(pathname);
-  const [activeProjectIdFromStorage, setActiveProjectIdFromStorage] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null | "loading">("loading");
   const { theme, toggleTheme } = useTheme();
   const { uiMode } = useProjectionScenario();
   const [mounted, setMounted] = useState(false);
+  const isLoggedIn = user !== null && user !== "loading";
 
   useEffect(() => setMounted(true), []);
   useEffect(() => {
-    setActiveProjectIdFromStorage(getActiveProjectIdFromStorage());
-  }, [pathname]);
+    const supabase = supabaseBrowserClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
 
-  // On project-not-found, do not use storage so nav links go to legacy routes or home, not the invalid project.
-  const projectIdForNav =
-    pathname === "/project-not-found" ? currentProjectId : (currentProjectId ?? activeProjectIdFromStorage);
-  // On home, create-project, or project-not-found, "RiskAI" links to real home; elsewhere to active project risks.
-  const isNonProjectPage = pathname === "/" || pathname === "/create-project" || pathname === "/project-not-found";
-  const homeHref = isNonProjectPage ? "/" : (projectIdForNav ? `/projects/${projectIdForNav}/risks` : "/");
+  // Use only the project ID from the URL for nav links. When not on a project page (e.g. /projects list,
+  // create-project), do not use the last-loaded project from storage so Risk Register etc. don't link into a project.
+  const isUnknownRoute = !isKnownAppRoute(pathname);
+  const projectIdForNav = currentProjectId;
+  // Logo: project list when logged in, login when logged out.
+  const homeHref = isLoggedIn ? "/projects" : LOGIN_URL;
+
+  // On 404, use full-page links so leaving the page remounts the app and restores the nav.
+  const useFullPageLinks = isUnknownRoute;
+
+  const logoClassName = "text-lg font-semibold text-[var(--foreground)] no-underline shrink-0 hover:opacity-80 transition-opacity";
+  const navLinkClassName = (isActive: boolean) =>
+    "inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium no-underline transition-colors " +
+    (isActive
+      ? "bg-neutral-200 dark:bg-neutral-700 text-[var(--foreground)] underline underline-offset-4"
+      : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800");
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
-      <Link
-        href={homeHref}
-        className="text-lg font-semibold text-[var(--foreground)] no-underline shrink-0 hover:opacity-80 transition-opacity"
-      >
-        RiskAI
-      </Link>
+      {useFullPageLinks ? (
+        <a href={homeHref} className={logoClassName}>
+          RiskAI
+        </a>
+      ) : (
+        <Link href={homeHref} className={logoClassName}>
+          RiskAI
+        </Link>
+      )}
 
       <div className="flex items-center gap-1">
         {ALL_NAV_ITEMS.filter((item) => !(item.hideInMvp && uiMode === "MVP")).map((item) => {
-          const href = navHref(item, projectIdForNav);
-          const isActive = pathname === href;
+          const href = navHref(item, projectIdForNav, isLoggedIn);
+          const isActive = !!currentProjectId && pathname === href;
+          const itemKey = item.projectSlug ? item.projectSlug + "-" + item.href : item.href;
+          if (useFullPageLinks) {
+            return (
+              <a
+                key={itemKey}
+                href={href}
+                className={navLinkClassName(isActive)}
+              >
+                {item.icon === "cog" && <CogIcon />}
+                {item.label}
+              </a>
+            );
+          }
           return (
             <Link
-              key={item.projectSlug ? `${item.projectSlug}-${item.href}` : item.href}
+              key={itemKey}
               href={href}
-              className={`
-                inline-flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium no-underline transition-colors
-                ${isActive
-                  ? "bg-neutral-200 dark:bg-neutral-700 text-[var(--foreground)] underline underline-offset-4"
-                  : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800"
-                }
-              `}
+              className={navLinkClassName(isActive)}
             >
               {item.icon === "cog" && <CogIcon />}
               {item.label}
@@ -113,17 +155,37 @@ export function NavBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        <ProjectSwitcher currentProjectId={currentProjectId ?? projectIdForNav ?? undefined} />
-        <button
-          type="button"
-          onClick={async () => {
-            await supabaseBrowserClient().auth.signOut();
-            window.location.href = "/login";
-          }}
-          className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
-        >
-          Logout
-        </button>
+        {isLoggedIn && !useFullPageLinks && (
+          <ProjectSwitcher
+            currentProjectId={isValidProjectId(currentProjectId) ? currentProjectId : undefined}
+          />
+        )}
+        {isLoggedIn ? (
+          <button
+            type="button"
+            onClick={async () => {
+              await supabaseBrowserClient().auth.signOut();
+              window.location.href = "/login";
+            }}
+            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
+          >
+            Logout
+          </button>
+        ) : useFullPageLinks ? (
+          <a
+            href={LOGIN_URL}
+            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 no-underline"
+          >
+            Log in
+          </a>
+        ) : (
+          <Link
+            href={LOGIN_URL}
+            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 no-underline"
+          >
+            Log in
+          </Link>
+        )}
         {mounted ? (
           <button
             type="button"
@@ -135,9 +197,10 @@ export function NavBar() {
             className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
           >
             <span
-              className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out ${
-                theme === "dark" ? "translate-x-4" : "translate-x-0"
-              }`}
+              className={
+                "pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out " +
+                (theme === "dark" ? "translate-x-4" : "translate-x-0")
+              }
             />
           </button>
         ) : (

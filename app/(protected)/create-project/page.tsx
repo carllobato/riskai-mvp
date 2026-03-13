@@ -88,8 +88,8 @@ export default function CreateProjectPage() {
         </p>
       )}
       <p className="mt-6 text-sm text-neutral-500 dark:text-neutral-400">
-        <Link href="/" className="underline hover:no-underline">
-          ← Back to home
+        <Link href="/projects" className="underline hover:no-underline">
+          ← Back to projects
         </Link>
       </p>
     </main>

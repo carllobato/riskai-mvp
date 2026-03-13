@@ -1098,7 +1098,7 @@ export function SimulationSection(props: SimulationSectionProps) {
                 ) : contingencyValueDollars != null && isDebug ? (
                   <>
                     Contingency adjustment to achieve{" "}
-                    <Link href={settingsHref ?? "/"} className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
+                    <Link href={settingsHref ?? "/projects"} className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
                       Target P-Value ({targetPLabel})
                     </Link>
                   </>

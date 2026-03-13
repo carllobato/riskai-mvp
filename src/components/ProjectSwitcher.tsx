@@ -94,18 +94,23 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
   const currentProject = projects?.find((p) => p.id === currentProjectId);
   const displayName = currentProject?.name ?? "Project";
   const showDropdown = (projects?.length ?? 0) >= 1;
+  const isOnProjectPage = !!routeInfo;
   const targetSubpage = currentProjectIdFromUrl && routeInfo ? routeInfo.subpage : "risks";
+  const buttonLabel = isOnProjectPage ? `Project: ${displayName}` : "Select project";
+  const selectedProjectIdForList = isOnProjectPage ? currentProjectId : null;
 
   const selectProject = useCallback(
     (projectId: string) => {
+      const id = typeof projectId === "string" && projectId !== "undefined" && projectId.trim() ? projectId : null;
+      if (!id) return;
       try {
-        window.localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);
+        window.localStorage.setItem(ACTIVE_PROJECT_KEY, id);
       } catch {
         // ignore
       }
-      setActiveFromStorage(projectId);
+      setActiveFromStorage(id);
       setDropdownOpen(false);
-      router.replace(`/projects/${projectId}/${targetSubpage}`);
+      router.replace("/projects/" + id + "/" + targetSubpage);
     },
     [targetSubpage, router]
   );
@@ -179,7 +184,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
         aria-label="Switch project"
         className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-sm font-medium text-neutral-700 dark:text-neutral-300 border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors truncate max-w-[220px]"
       >
-        <span className="truncate">Project: {displayName}</span>
+        <span className="truncate">{buttonLabel}</span>
         {showDropdown && <ChevronDown />}
       </button>
 
@@ -189,13 +194,13 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
           className="absolute right-0 top-full mt-1 min-w-[200px] max-h-64 overflow-auto rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-lg py-1 z-50"
         >
           {projects.map((p) => (
-            <li key={p.id} role="option" aria-selected={p.id === currentProjectId}>
+            <li key={p.id} role="option" aria-selected={p.id === selectedProjectIdForList}>
               <button
                 type="button"
                 onClick={() => selectProject(p.id)}
                 className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800"
               >
-                {p.id === currentProjectId ? (
+                {p.id === selectedProjectIdForList ? (
                   <span className="text-emerald-600 dark:text-emerald-400" aria-hidden>
                     <CheckIcon />
                   </span>

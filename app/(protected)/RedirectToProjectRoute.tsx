@@ -15,10 +15,12 @@ export function RedirectToProjectRoute({ slug }: { slug: ProjectSlug }) {
   const router = useRouter();
 
   useEffect(() => {
-    const activeId =
+    const raw =
       typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_PROJECT_KEY) : null;
+    const activeId =
+      typeof raw === "string" && raw !== "undefined" && raw.trim().length > 0 ? raw : null;
     if (activeId) {
-      router.replace(`/projects/${activeId}/${slug}`);
+      router.replace("/projects/" + activeId + "/" + slug);
     } else {
       router.replace("/");
     }

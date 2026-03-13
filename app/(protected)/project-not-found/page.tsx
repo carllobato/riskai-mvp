@@ -6,7 +6,7 @@ import Link from "next/link";
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
 export default function ProjectNotFoundPage() {
-  // Clear stale active project so nav and "Go to home" don't use the invalid ID.
+  // Clear stale active project so nav and "Go to projects" don't use the invalid ID.
   useEffect(() => {
     try {
       if (typeof window !== "undefined") window.localStorage.removeItem(ACTIVE_PROJECT_KEY);
@@ -22,15 +22,15 @@ export default function ProjectNotFoundPage() {
           Project not found or access denied
         </h1>
         <p className="text-sm text-neutral-600 dark:text-neutral-400">
-          The project you’re looking for doesn’t exist or you don’t have access to it. Go home to
-          open a project or create a new one.
+          The project you’re looking for doesn’t exist or you don’t have access to it. Go to your projects to
+          open one or create a new one.
         </p>
         <div className="flex flex-wrap justify-center gap-3 pt-2">
           <Link
-            href="/"
+            href="/projects"
             className="px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
           >
-            Go to home
+            Go to projects
           </Link>
           <Link
             href="/create-project"

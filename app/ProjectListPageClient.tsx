@@ -7,7 +7,9 @@ import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { ProjectRow } from "@/lib/projects";
 import { fetchProjectsClient } from "@/lib/projects";
 
-export function HomePageClient() {
+const PROJECTS_PATH = "/projects";
+
+export function ProjectListPageClient() {
   const router = useRouter();
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [projects, setProjects] = useState<ProjectRow[]>([]);
@@ -55,7 +57,7 @@ export function HomePageClient() {
     return (
       <main className="min-h-[40vh] flex flex-col items-center justify-center px-4">
         <p className="text-sm text-red-600 dark:text-red-400">Failed to load projects.</p>
-        <Link href="/" className="mt-2 text-sm text-neutral-600 dark:text-neutral-400 underline hover:no-underline">
+        <Link href={PROJECTS_PATH} className="mt-2 text-sm text-neutral-600 dark:text-neutral-400 underline hover:no-underline">
           Try again
         </Link>
       </main>
@@ -65,7 +67,7 @@ export function HomePageClient() {
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
       <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
-        Home
+        Projects
       </h1>
       <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-8">
         Your projects. Open one to manage risks or create a new project.
@@ -74,7 +76,7 @@ export function HomePageClient() {
       {projects.length === 0 ? (
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-6 text-center">
           <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
-            You don’t have any projects yet.
+            You don't have any projects yet.
           </p>
           <Link
             href="/create-project"
