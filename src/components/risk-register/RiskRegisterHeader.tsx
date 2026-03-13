@@ -1,7 +1,6 @@
 "use client";
 
 import { useRiskRegister } from "@/store/risk-register.store";
-import { getRandomDemoRisksToAdd } from "@/data/demoRisks";
 import type { ProjectContext } from "@/lib/projectContext";
 
 export type RiskRegisterHeaderProps = {
@@ -20,7 +19,7 @@ export function RiskRegisterHeader({
   onSaveToServer,
   saveToServerLoading = false,
 }: RiskRegisterHeaderProps) {
-  const { clearRisks, addRisk, appendRisks } = useRiskRegister();
+  const { clearRisks } = useRiskRegister();
 
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -60,23 +59,6 @@ export function RiskRegisterHeader({
             AI Review
           </button>
         )}
-        <button
-          type="button"
-          onClick={() => appendRisks(getRandomDemoRisksToAdd(10))}
-          className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-        >
-          Add x10
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            const [risk] = getRandomDemoRisksToAdd(1);
-            if (risk) addRisk(risk);
-          }}
-          className="px-3 py-1.5 text-sm rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-        >
-          Add x1
-        </button>
         <button
           type="button"
           onClick={clearRisks}

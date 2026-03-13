@@ -21,7 +21,7 @@ export default async function ProjectLayout({
       // eslint-disable-next-line no-console
       console.log("[projects] access denied or not found", { projectId });
     }
-    redirect("/");
+    redirect("/project-not-found");
   }
 
   return (

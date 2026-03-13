@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
-import type { Risk, RiskRating } from "@/domain/risk/risk.schema";
+import type { Risk } from "@/domain/risk/risk.schema";
 import type {
   SimulationSnapshot,
   SimulationDelta,
@@ -146,19 +146,6 @@ function ensureScoreHistory(risk: Risk): Risk {
     ...risk,
     scoreHistory: Array.isArray(risk.scoreHistory) ? risk.scoreHistory : [],
   };
-}
-
-/** Migrate persisted risks from legacy inherent/residual to inherentRating/residualRating. Optional fields (lastMitigationUpdate, scoreHistory, etc.) preserved from raw; undefined is safe. */
-function migrateRisks(risks: unknown[]): Risk[] {
-  return risks.map((r) => {
-    if (!r || typeof r !== "object") return null;
-    const raw = r as Record<string, unknown>;
-    const inherentRating = (raw.inherentRating as RiskRating | undefined) ?? (raw.inherent as RiskRating | undefined);
-    const residualRating = (raw.residualRating as RiskRating | undefined) ?? (raw.residual as RiskRating | undefined) ?? inherentRating;
-    if (!inherentRating || !residualRating) return null;
-    const risk = { ...raw, inherentRating, residualRating } as Risk;
-    return ensureScoreHistory(risk);
-  }).filter((r): r is Risk => r != null);
 }
 
 /** Max riskNumber in list, or 0 if none. */
@@ -436,16 +423,10 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     if (DEBUG_FORWARD_PROJECTION) runForwardProjectionGuards();
   }, []);
 
-  // Hydrate once: restore risks and simulation from localStorage (backward compat: old format had only risks or full state)
+  // Hydrate once: restore simulation only from localStorage. Risks are loaded from Supabase as single source of truth (see risk-register page).
   useEffect(() => {
     const saved = loadState<PersistedState | { risks?: unknown[]; simulation?: { current?: SimulationSnapshot; history?: SimulationSnapshot[] } }>(STORAGE_KEY);
     if (!saved || typeof saved !== "object") return;
-    const risks = "risks" in saved && Array.isArray(saved.risks) ? saved.risks : [];
-    console.log("[risk-ui] hydrate/reset fired", { source: "local", totalBefore: 0 });
-    if (risks.length > 0) {
-      const migrated = migrateRisks(risks);
-      if (migrated.length) dispatch({ type: "risks/set", risks: migrated });
-    }
     const sim = "simulation" in saved && saved.simulation && Array.isArray((saved.simulation as PersistedState["simulation"]).history) ? saved.simulation as PersistedState["simulation"] : null;
     if (sim) {
       const ensureP20 = (s: SimulationSnapshot | undefined): SimulationSnapshot | undefined => {

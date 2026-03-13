@@ -37,6 +37,7 @@ export function HomeRedirectClient() {
         const activeId =
           typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_PROJECT_KEY) : null;
         const ownedIds = new Set(list.map((p) => p.id));
+        // Only use activeId if it is in owned list so invalid/deleted project never redirects.
         const targetId =
           (activeId && ownedIds.has(activeId) ? activeId : null) ?? list[0]?.id ?? null;
 

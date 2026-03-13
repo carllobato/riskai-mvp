@@ -71,7 +71,9 @@ export function NavBar() {
     setActiveProjectIdFromStorage(getActiveProjectIdFromStorage());
   }, [pathname]);
 
-  const projectIdForNav = currentProjectId ?? activeProjectIdFromStorage;
+  // On project-not-found, do not use storage so nav links go to legacy routes or home, not the invalid project.
+  const projectIdForNav =
+    pathname === "/project-not-found" ? currentProjectId : (currentProjectId ?? activeProjectIdFromStorage);
   const homeHref = projectIdForNav ? `/projects/${projectIdForNav}/risks` : "/";
 
   return (

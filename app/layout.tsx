@@ -43,9 +43,6 @@ export default function RootLayout({
             <RiskRegisterProvider>
               <NavBar />
               {children}
-              <footer className="mt-auto py-2 px-4 text-center text-xs text-neutral-400 dark:text-neutral-500">
-                Day 10 – Forecast Confidence &amp; Scenario Control
-              </footer>
             </RiskRegisterProvider>
           </ProjectionScenarioProvider>
         </ThemeProvider>

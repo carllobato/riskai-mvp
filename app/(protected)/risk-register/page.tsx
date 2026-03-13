@@ -86,6 +86,9 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const [showCreateRiskFileModal, setShowCreateRiskFileModal] = useState(false);
   const [showCreateRiskAIModal, setShowCreateRiskAIModal] = useState(false);
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [risksLoadError, setRisksLoadError] = useState<string | null>(null);
+  const [risksLoading, setRisksLoading] = useState(true);
+  const [loadRetryKey, setLoadRetryKey] = useState(0);
   const router = useRouter();
   const searchParams = useSearchParams();
   const focusRiskId = searchParams.get("focusRiskId");
@@ -114,28 +117,37 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   }, [gateChecked, projectContext, router, setupRedirectPath, urlProjectId]);
 
   // Hydrate risk store from Supabase only on initial mount or when projectId changes.
-  // Use projectIdForDb (UUID): url project or DEFAULT_PROJECT_ID in legacy mode.
+  // No fallback to local/example data: on failure show error and clear risks.
   useEffect(() => {
     if (!isProjectContextComplete(projectContext) && !urlProjectId) return;
     if (projectIdForDb !== projectIdForHydrateRef.current) {
       projectIdForHydrateRef.current = projectIdForDb;
       hasHydratedFromDbRef.current = false;
     }
-    if (hasHydratedFromDbRef.current) return;
+    if (hasHydratedFromDbRef.current && loadRetryKey === 0) return;
+    if (loadRetryKey > 0) hasHydratedFromDbRef.current = false;
     hasHydratedFromDbRef.current = true;
-    if (process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
-      console.log("[risk-ui] hydrate/reset fired", { source: "db", totalBefore: risks.length, projectId: projectIdForDb });
-    }
+    setRisksLoading(true);
+    setRisksLoadError(null);
     listRisks(projectIdForDb)
-      .then((loaded) => setRisks(loaded))
-      .catch((err) => console.error("[risks]", err));
-  }, [projectContext, urlProjectId, projectIdForDb, setRisks]);
+      .then((loaded) => {
+        setRisks(loaded);
+        setRisksLoadError(null);
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setRisksLoadError(msg);
+        setRisks([]);
+        if (process.env.NODE_ENV === "development") {
+          console.error("[risks] listRisks failed", err);
+        }
+      })
+      .finally(() => setRisksLoading(false));
+  }, [projectContext, urlProjectId, projectIdForDb, setRisks, loadRetryKey]);
 
   // Log when risk list grows (after add/append) for debugging visibility of new risks (dev only)
   useEffect(() => {
     if (risks.length > prevRisksLengthRef.current && process.env.NODE_ENV === "development") {
-      // eslint-disable-next-line no-console
       console.log("[risk-ui] after add", {
         total: risks.length,
         ids: risks.map((r) => r.id ?? (r as Risk & { tempId?: string }).tempId).slice(-5),
@@ -258,7 +270,6 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   }, [risks, columnFilters, tableSortState]);
 
   if (process.env.NODE_ENV === "development") {
-    // eslint-disable-next-line no-console
     console.log("[risk-ui] render", {
       total: risks.length,
       visible: filteredRisks.length,
@@ -355,6 +366,11 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     setAiReviewSkippedIds((prev) => new Set([...prev, clusterId]));
   }, []);
 
+  const handleRetryLoad = useCallback(() => {
+    setRisksLoadError(null);
+    setLoadRetryKey((k) => k + 1);
+  }, []);
+
   // Show loading until gate is checked; in legacy mode (no urlProjectId) also require complete projectContext before showing content.
   const blockContent = !gateChecked || (!urlProjectId && !isProjectContextComplete(projectContext));
 
@@ -362,6 +378,57 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     return (
       <main style={{ padding: 24 }}>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
+      </main>
+    );
+  }
+
+  if (risksLoading) {
+    return (
+      <main style={{ padding: 24 }}>
+        <div className="mb-8">
+          <RiskRegisterHeader
+            projectContext={projectContext}
+            onAiReviewClick={handleAiReviewClick}
+            aiReviewLoading={aiReviewLoading}
+            onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
+            onSaveToServer={handleSaveToServer}
+            saveToServerLoading={saveToServerLoading}
+          />
+        </div>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading risks…</p>
+      </main>
+    );
+  }
+
+  if (risksLoadError) {
+    return (
+      <main style={{ padding: 24 }}>
+        <div className="mb-8">
+          <RiskRegisterHeader
+            projectContext={projectContext}
+            onAiReviewClick={handleAiReviewClick}
+            aiReviewLoading={aiReviewLoading}
+            onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
+            onSaveToServer={handleSaveToServer}
+            saveToServerLoading={saveToServerLoading}
+          />
+        </div>
+        <div
+          className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/20 p-4"
+          role="alert"
+        >
+          <p className="text-sm font-medium text-red-800 dark:text-red-200">
+            Failed to load risks
+          </p>
+          <p className="mt-1 text-sm text-red-700 dark:text-red-300">{risksLoadError}</p>
+          <button
+            type="button"
+            onClick={handleRetryLoad}
+            className="mt-3 px-3 py-1.5 text-sm font-medium rounded-md border border-red-300 dark:border-red-700 bg-white dark:bg-neutral-800 text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
+          >
+            Retry
+          </button>
+        </div>
       </main>
     );
   }
@@ -383,6 +450,22 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
           </p>
         )}
       </div>
+      {risks.length === 0 ? (
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-8 text-center">
+          <p className="text-neutral-600 dark:text-neutral-400 font-medium">No risks in this project</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-500">
+            Add a risk manually, from file, or with AI to get started.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowAddNewRiskChoiceModal(true)}
+            className="mt-4 px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+          >
+            Add risk
+          </button>
+        </div>
+      ) : (
+        <>
       <RiskRegisterTable
           risks={filteredRisks}
           risksForFilterOptions={risksForFilterOptions}
@@ -469,6 +552,8 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         onAcceptMerge={handleAcceptMerge}
         onSkipCluster={handleSkipCluster}
       />
+        </>
+      )}
     </main>
   );
 }
