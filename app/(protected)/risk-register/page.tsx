@@ -147,7 +147,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   /** Merge server-returned risks with current local risks: prefer server values so DB-populated data is not overwritten; only use local when server value is missing (e.g. legacy DB without extended columns). When matchByIndex is true (e.g. right after replaceRisks), pairs by array index so newly saved risks with temp IDs that got real UUIDs still get local fallbacks. Otherwise matches by id only. */
   const mergeServerRisksWithLocal = useCallback(
     (serverRisks: Risk[], localRisks: Risk[], matchByIndex?: boolean): Risk[] => {
-      const preferServer = <T>(serverVal: T, localVal: T): T =>
+      const preferServer = <T,>(serverVal: T, localVal: T): T =>
         serverVal !== undefined && serverVal !== null ? serverVal : localVal;
       const applyLocalOverrides = (server: Risk, local: Risk): Risk => ({
         ...server,
@@ -357,6 +357,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
 
   // Show loading until gate is checked; in legacy mode (no urlProjectId) also require complete projectContext before showing content.
   const blockContent = !gateChecked || (!urlProjectId && !isProjectContextComplete(projectContext));
+
   if (blockContent) {
     return (
       <main style={{ padding: 24 }}>
