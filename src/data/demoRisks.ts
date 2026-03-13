@@ -1,7 +1,7 @@
 /**
  * Demo/seed risk data with all required fields completed.
- * Mix of risks with mitigation applied and without (post rating N/A).
- * Bank of 100 risks; "Load demo" adds 10 randomly chosen (with new ids) to the register.
+ * Used by Add x10 / Add x1: preloads risks from a pool of 100 (10 templates × 10).
+ * Mix of risks with mitigation (status "mitigating") and without (status "open").
  */
 
 import type { Risk, RiskCategory } from "@/domain/risk/risk.schema";
@@ -11,9 +11,48 @@ import { makeId } from "@/lib/id";
 
 const NOW = new Date().toISOString();
 
+/** Keys that must be present for form validation (pre/post cost and time min, ML, max). */
+function pickPrePostFromPartial(partial: {
+  preMitigationProbabilityPct?: number;
+  preMitigationCostMin?: number;
+  preMitigationCostML?: number;
+  preMitigationCostMax?: number;
+  preMitigationTimeMin?: number;
+  preMitigationTimeML?: number;
+  preMitigationTimeMax?: number;
+  postMitigationProbabilityPct?: number;
+  postMitigationCostMin?: number;
+  postMitigationCostML?: number;
+  postMitigationCostMax?: number;
+  postMitigationTimeMin?: number;
+  postMitigationTimeML?: number;
+  postMitigationTimeMax?: number;
+}) {
+  const pre = {
+    preMitigationProbabilityPct: partial.preMitigationProbabilityPct,
+    preMitigationCostMin: partial.preMitigationCostMin,
+    preMitigationCostML: partial.preMitigationCostML,
+    preMitigationCostMax: partial.preMitigationCostMax,
+    preMitigationTimeMin: partial.preMitigationTimeMin,
+    preMitigationTimeML: partial.preMitigationTimeML,
+    preMitigationTimeMax: partial.preMitigationTimeMax,
+  };
+  const post = {
+    postMitigationProbabilityPct: partial.postMitigationProbabilityPct,
+    postMitigationCostMin: partial.postMitigationCostMin,
+    postMitigationCostML: partial.postMitigationCostML,
+    postMitigationCostMax: partial.postMitigationCostMax,
+    postMitigationTimeMin: partial.postMitigationTimeMin,
+    postMitigationTimeML: partial.postMitigationTimeML,
+    postMitigationTimeMax: partial.postMitigationTimeMax,
+  };
+  return { ...pre, ...post };
+}
+
 function demoRisk(partial: Parameters<typeof createRisk>[0]): Risk {
   const r = createRisk(partial);
-  return { ...r, createdAt: NOW, updatedAt: NOW };
+  const prePost = pickPrePostFromPartial(partial as Parameters<typeof pickPrePostFromPartial>[0]);
+  return { ...r, ...prePost, createdAt: NOW, updatedAt: NOW };
 }
 
 /** Full pre-mitigation fields for appliesTo "both" (cost + time). */
@@ -44,8 +83,10 @@ function postBoth(postPct: number, costMin: number, costML: number, costMax: num
 }
 
 /**
- * Returns demo risks with all required fields completed.
- * Some have mitigation (description + post-mitigation data); some do not (post shows N/A).
+ * Returns 10 demo risk templates with all required fields completed.
+ * Required: title, description, category, status, owner, appliesTo, pre cost/time, inherentRating, residualRating, baseCostImpact, costImpact, scheduleImpactDays, probability.
+ * With mitigation: mitigation text, mitigationCost (optional), and full post-mitigation cost/time/probability.
+ * Without mitigation: no mitigation/post fields (UI shows N/A).
  */
 export function getDemoRisks(): Risk[] {
   return [
@@ -69,6 +110,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 20,
       probability: 0.4,
     }),
+    // --- No mitigation (no mitigation text, no post-mitigation fields) ---
     demoRisk({
       id: "demo-2",
       riskNumber: 2,
@@ -78,7 +120,7 @@ export function getDemoRisks(): Risk[] {
       status: "open",
       owner: "Risk Owner",
       ...preBoth(35, 20_000, 45_000, 80_000, 7, 21, 45),
-      mitigation: "", // No mitigation applied — post will show N/A
+      mitigation: "",
       inherentRating: buildRating(2, 3),
       residualRating: buildRating(2, 3),
       baseCostImpact: 45_000,
@@ -86,6 +128,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 21,
       probability: 0.35,
     }),
+    // --- With mitigation ---
     demoRisk({
       id: "demo-3",
       riskNumber: 3,
@@ -124,6 +167,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 35,
       probability: 0.3,
     }),
+    // --- No mitigation (no mitigation text, no post-mitigation fields) ---
     demoRisk({
       id: "demo-5",
       riskNumber: 5,
@@ -133,7 +177,7 @@ export function getDemoRisks(): Risk[] {
       status: "open",
       owner: "Procurement",
       ...preBoth(70, 50_000, 95_000, 160_000, 0, 14, 30),
-      mitigation: "", // No mitigation — post N/A
+      mitigation: "",
       inherentRating: buildRating(4, 3),
       residualRating: buildRating(4, 3),
       baseCostImpact: 95_000,
@@ -141,6 +185,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 14,
       probability: 0.7,
     }),
+    // --- With mitigation ---
     demoRisk({
       id: "demo-6",
       riskNumber: 6,
@@ -198,6 +243,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 7,
       probability: 0.25,
     }),
+    // --- No mitigation (no mitigation text, no post-mitigation fields) ---
     demoRisk({
       id: "demo-9",
       riskNumber: 9,
@@ -207,7 +253,7 @@ export function getDemoRisks(): Risk[] {
       status: "open",
       owner: "Commercial",
       ...preBoth(25, 200_000, 420_000, 750_000, 30, 60, 120),
-      mitigation: "", // No mitigation — post N/A
+      mitigation: "",
       inherentRating: buildRating(2, 5),
       residualRating: buildRating(2, 5),
       baseCostImpact: 420_000,
@@ -215,6 +261,7 @@ export function getDemoRisks(): Risk[] {
       scheduleImpactDays: 60,
       probability: 0.25,
     }),
+    // --- With mitigation ---
     demoRisk({
       id: "demo-10",
       riskNumber: 10,
@@ -248,16 +295,74 @@ const DEMO_RISKS_BANK: Risk[] = (() => {
   return out;
 })();
 
+function isNum(v: unknown): v is number {
+  return typeof v === "number" && Number.isFinite(v);
+}
+
+/** Ensure all runnable-validator fields are present as numbers (handles undefined from spread/persistence). */
+function ensureRunnableFields(risk: Risk): Risk {
+  const prePct = isNum(risk.preMitigationProbabilityPct) ? risk.preMitigationProbabilityPct : 50;
+  const preCostML = isNum(risk.preMitigationCostML) ? risk.preMitigationCostML : (risk.baseCostImpact ?? 0);
+  const preTimeML = isNum(risk.preMitigationTimeML) ? risk.preMitigationTimeML : 0;
+  const preCostMin = isNum(risk.preMitigationCostMin) ? risk.preMitigationCostMin : 0;
+  const preCostMax = isNum(risk.preMitigationCostMax) ? risk.preMitigationCostMax : Math.max(preCostML, preCostMin);
+  const preTimeMin = isNum(risk.preMitigationTimeMin) ? risk.preMitigationTimeMin : 0;
+  const preTimeMax = isNum(risk.preMitigationTimeMax) ? risk.preMitigationTimeMax : Math.max(preTimeML, preTimeMin);
+
+  const hasMitigation = Boolean(risk.mitigation?.trim());
+  const postPct = isNum(risk.postMitigationProbabilityPct) ? risk.postMitigationProbabilityPct : 30;
+  const postCostML = isNum(risk.postMitigationCostML) ? risk.postMitigationCostML : (risk.costImpact ?? preCostML);
+  const postTimeML = isNum(risk.postMitigationTimeML) ? risk.postMitigationTimeML : (risk.scheduleImpactDays ?? preTimeML);
+  const postCostMin = isNum(risk.postMitigationCostMin) ? risk.postMitigationCostMin : 0;
+  const postCostMax = isNum(risk.postMitigationCostMax) ? risk.postMitigationCostMax : Math.max(postCostML, postCostMin);
+  const postTimeMin = isNum(risk.postMitigationTimeMin) ? risk.postMitigationTimeMin : 0;
+  const postTimeMax = isNum(risk.postMitigationTimeMax) ? risk.postMitigationTimeMax : Math.max(postTimeML, postTimeMin);
+
+  return {
+    ...risk,
+    preMitigationProbabilityPct: prePct,
+    preMitigationCostMin: preCostMin,
+    preMitigationCostML: preCostML,
+    preMitigationCostMax: preCostMax,
+    preMitigationTimeMin: preTimeMin,
+    preMitigationTimeML: preTimeML,
+    preMitigationTimeMax: preTimeMax,
+    ...(hasMitigation
+      ? {
+          postMitigationProbabilityPct: postPct,
+          postMitigationCostMin: postCostMin,
+          postMitigationCostML: postCostML,
+          postMitigationCostMax: postCostMax,
+          postMitigationTimeMin: postTimeMin,
+          postMitigationTimeML: postTimeML,
+          postMitigationTimeMax: postTimeMax,
+        }
+      : {
+          postMitigationProbabilityPct: undefined,
+          postMitigationCostMin: undefined,
+          postMitigationCostML: undefined,
+          postMitigationCostMax: undefined,
+          postMitigationTimeMin: undefined,
+          postMitigationTimeML: undefined,
+          postMitigationTimeMax: undefined,
+        }),
+  };
+}
+
 /**
- * Returns `count` risks randomly chosen from the 100-risk bank, each cloned with a new unique id
- * so they can be appended to the register without id collisions. Use for "Load demo" to add
- * 10 risks to the existing register.
+ * Returns `count` risks randomly chosen from the 100-risk bank, each cloned with a new unique id.
+ * Status is preserved from the template (e.g. "open", "mitigating", "monitoring").
+ * All required runnable fields (pre/post cost and time min, ML, max) are guaranteed numeric.
+ * Used by "Add x10" and "Add x1" in the risk register.
  */
 export function getRandomDemoRisksToAdd(count: number): Risk[] {
   const shuffled = [...DEMO_RISKS_BANK].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, Math.min(count, shuffled.length)).map((r) => ({
-    ...r,
-    id: makeId(),
-    riskNumber: undefined,
-  }));
+  return shuffled.slice(0, Math.min(count, shuffled.length)).map((r) => {
+    const base = {
+      ...r,
+      id: makeId(),
+      riskNumber: undefined,
+    };
+    return ensureRunnableFields(base);
+  });
 }

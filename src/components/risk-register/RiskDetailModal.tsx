@@ -234,33 +234,66 @@ export function RiskDetailModal({
     setOwner(isOwnerInList ? ownerVal : ownerVal ? "Other" : "");
     setOwnerCustom(isOwnerInList ? "" : ownerVal);
     setAppliesTo(risk.appliesTo ?? "both");
-    setApplyMitigation(!!risk.mitigation?.trim());
+    const hasMitigation = !!risk.mitigation?.trim();
+    setApplyMitigation(hasMitigation);
     setMitigation(risk.mitigation ?? "");
     setMitigationCost(risk.mitigationCost?.toString() ?? "");
-    // Pre-Mitigation: from new fields or derive from inherent
-    setPreMitigationProbabilityPct(
+    // Pre-Mitigation: from new fields or derive from inherent (pre-time ML: do not fall back to scheduleImpactDays, which is post/base)
+    const prePct =
       risk.preMitigationProbabilityPct != null
-        ? String(risk.preMitigationProbabilityPct)
-        : String((risk.inherentRating.probability / 5) * 100)
+        ? risk.preMitigationProbabilityPct
+        : (risk.inherentRating.probability / 5) * 100;
+    const preCostML = risk.preMitigationCostML ?? risk.baseCostImpact ?? 0;
+    const preTimeML = risk.preMitigationTimeML ?? 0;
+    setPreMitigationProbabilityPct(String(prePct));
+    setPreMitigationCostMin(
+      risk.preMitigationCostMin?.toString() ?? (preCostML != null ? "0" : "")
     );
-    setPreMitigationCostMin(risk.preMitigationCostMin?.toString() ?? "");
-    setPreMitigationCostML(risk.preMitigationCostML?.toString() ?? risk.baseCostImpact?.toString() ?? "");
-    setPreMitigationCostMax(risk.preMitigationCostMax?.toString() ?? "");
-    setPreMitigationTimeMin(risk.preMitigationTimeMin?.toString() ?? "");
-    setPreMitigationTimeML(risk.preMitigationTimeML?.toString() ?? risk.scheduleImpactDays?.toString() ?? "");
-    setPreMitigationTimeMax(risk.preMitigationTimeMax?.toString() ?? "");
-    // Post-Mitigation: from new fields or derive from residual
-    setPostMitigationProbabilityPct(
-      risk.postMitigationProbabilityPct != null
-        ? String(risk.postMitigationProbabilityPct)
-        : String((risk.residualRating.probability / 5) * 100)
+    setPreMitigationCostML(String(preCostML));
+    setPreMitigationCostMax(
+      risk.preMitigationCostMax?.toString() ?? (preCostML != null ? String(preCostML) : "")
     );
-    setPostMitigationCostMin(risk.postMitigationCostMin?.toString() ?? "");
-    setPostMitigationCostML(risk.postMitigationCostML?.toString() ?? risk.costImpact?.toString() ?? "");
-    setPostMitigationCostMax(risk.postMitigationCostMax?.toString() ?? "");
-    setPostMitigationTimeMin(risk.postMitigationTimeMin?.toString() ?? "");
-    setPostMitigationTimeML(risk.postMitigationTimeML?.toString() ?? "");
-    setPostMitigationTimeMax(risk.postMitigationTimeMax?.toString() ?? "");
+    setPreMitigationTimeMin(
+      risk.preMitigationTimeMin?.toString() ?? (preTimeML != null ? "0" : "")
+    );
+    setPreMitigationTimeML(String(preTimeML));
+    setPreMitigationTimeMax(
+      risk.preMitigationTimeMax?.toString() ?? (preTimeML != null ? String(preTimeML) : "")
+    );
+    // Post-Mitigation: only set form state when risk has mitigation, so dirty check (buildUpdatedRisk with applyMitigation) matches. When no mitigation, leave post fields empty so we don't get false positives.
+    if (hasMitigation) {
+      const postPct =
+        risk.postMitigationProbabilityPct != null
+          ? risk.postMitigationProbabilityPct
+          : (risk.residualRating.probability / 5) * 100;
+      const postCostML =
+        risk.postMitigationCostML ?? risk.costImpact ?? preCostML;
+      const postTimeML =
+        risk.postMitigationTimeML ?? risk.scheduleImpactDays ?? preTimeML;
+      setPostMitigationProbabilityPct(String(postPct));
+      setPostMitigationCostMin(
+        risk.postMitigationCostMin?.toString() ?? (postCostML != null ? "0" : "")
+      );
+      setPostMitigationCostML(postCostML != null ? String(postCostML) : "");
+      setPostMitigationCostMax(
+        risk.postMitigationCostMax?.toString() ?? (postCostML != null ? String(postCostML) : "")
+      );
+      setPostMitigationTimeMin(
+        risk.postMitigationTimeMin?.toString() ?? (postTimeML != null ? "0" : "")
+      );
+      setPostMitigationTimeML(postTimeML != null ? String(postTimeML) : "");
+      setPostMitigationTimeMax(
+        risk.postMitigationTimeMax?.toString() ?? (postTimeML != null ? String(postTimeML) : "")
+      );
+    } else {
+      setPostMitigationProbabilityPct("");
+      setPostMitigationCostMin("");
+      setPostMitigationCostML("");
+      setPostMitigationCostMax("");
+      setPostMitigationTimeMin("");
+      setPostMitigationTimeML("");
+      setPostMitigationTimeMax("");
+    }
   }, []);
 
   useEffect(() => {
@@ -284,14 +317,23 @@ export function RiskDetailModal({
     }
   }, [open, getInitialIndex, risks, syncFormFromRisk]);
 
-  /** Normalize a risk the same way buildUpdatedRisk normalizes form output, so we can compare without false positives (e.g. "" vs undefined). */
+  /** Normalize a risk the same way buildUpdatedRisk normalizes form output, so we can compare without false positives (e.g. "" vs undefined). When there is no mitigation text, post-mitigation fields are undefined to match buildUpdatedRisk when applyMitigation is false. When mitigation exists but post min/max are missing (e.g. old DB), derive same defaults as buildUpdatedRisk (0 for min, ML for max) so dirty check does not false-positive. Pre-mitigation min/max use same defaults as buildUpdatedRisk (0 for min, Math.max(ML, min) for max) so undefined does not trigger a false dirty. */
   const normalizeRiskForComparison = useCallback((risk: Risk): Risk => {
+    const toNum = (v: unknown): number | undefined =>
+      typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" ? (Number.isFinite(Number(v)) ? Number(v) : undefined) : undefined;
+    const toInt = (v: unknown): number | undefined => {
+      const n = toNum(v);
+      return n != null ? Math.floor(n) : undefined;
+    };
+    const hasMitigation = Boolean(risk.mitigation?.trim());
     const prePct = risk.preMitigationProbabilityPct ?? (risk.inherentRating.probability / 5) * 100;
-    const postPct = risk.postMitigationProbabilityPct ?? (risk.residualRating.probability / 5) * 100;
     const preCostML = risk.preMitigationCostML ?? risk.baseCostImpact ?? 0;
-    const preTimeML = risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
-    const postCostML = risk.postMitigationCostML ?? risk.costImpact ?? preCostML;
-    const postTimeML = risk.postMitigationTimeML ?? risk.preMitigationTimeML ?? risk.scheduleImpactDays ?? 0;
+    const preTimeML = risk.preMitigationTimeML ?? 0;
+    const postPct = hasMitigation
+      ? (risk.postMitigationProbabilityPct ?? (risk.residualRating.probability / 5) * 100)
+      : undefined;
+    const postCostML = hasMitigation ? (risk.postMitigationCostML ?? risk.costImpact ?? preCostML) : undefined;
+    const postTimeML = hasMitigation ? (risk.postMitigationTimeML ?? risk.scheduleImpactDays ?? preTimeML) : undefined;
     const applies = risk.appliesTo ?? "both";
     const preP = probabilityPctToScale(prePct);
     const preC =
@@ -300,15 +342,36 @@ export function RiskDetailModal({
         : applies === "cost"
           ? costToConsequenceScale(preCostML)
           : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
-    const postP = probabilityPctToScale(postPct);
-    const postC =
-      applies === "time"
-        ? timeDaysToConsequenceScale(postTimeML)
-        : applies === "cost"
-          ? costToConsequenceScale(postCostML)
-          : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
     const inherentRating = buildRating(preP, preC);
-    const residualRating = buildRating(postP, postC);
+    const residualRating =
+      hasMitigation && postPct != null && postCostML != null && postTimeML != null
+        ? buildRating(
+            probabilityPctToScale(postPct),
+            applies === "time"
+              ? timeDaysToConsequenceScale(postTimeML)
+              : applies === "cost"
+                ? costToConsequenceScale(postCostML)
+                : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML))
+          )
+        : inherentRating;
+    // When mitigation exists and we have post ML values, default missing post min/max to same as buildUpdatedRisk (0 for min, Math.max(ML, min) for max) so dirty check matches even when min > ML (partial data).
+    const postCostMin =
+      hasMitigation ? (risk.postMitigationCostMin ?? (postCostML != null ? 0 : undefined)) : undefined;
+    const postCostMax =
+      hasMitigation
+        ? (risk.postMitigationCostMax ?? (postCostML != null ? Math.max(postCostML, postCostMin ?? 0) : undefined))
+        : undefined;
+    const postTimeMin =
+      hasMitigation ? (risk.postMitigationTimeMin ?? (postTimeML != null ? 0 : undefined)) : undefined;
+    const postTimeMax =
+      hasMitigation
+        ? (risk.postMitigationTimeMax ?? (postTimeML != null ? Math.max(postTimeML, postTimeMin ?? 0) : undefined))
+        : undefined;
+    // Apply same defaults as buildUpdatedRisk for pre-mitigation min/max (0 for min, Math.max(ML, min) for max) so dirty check does not false-positive when fields are undefined.
+    const preCostMin = toNum(risk.preMitigationCostMin) ?? 0;
+    const preCostMax = toNum(risk.preMitigationCostMax) ?? Math.max(preCostML, preCostMin);
+    const preTimeMin = toInt(risk.preMitigationTimeMin) ?? 0;
+    const preTimeMax = toInt(risk.preMitigationTimeMax) ?? Math.max(preTimeML, preTimeMin);
     return {
       ...risk,
       title: (risk.title ?? "").trim() || risk.title,
@@ -318,27 +381,27 @@ export function RiskDetailModal({
       owner: risk.owner?.trim() || undefined,
       appliesTo: applies,
       preMitigationProbabilityPct: prePct,
-      preMitigationCostMin: risk.preMitigationCostMin ?? undefined,
+      preMitigationCostMin: preCostMin,
       preMitigationCostML: preCostML ?? undefined,
-      preMitigationCostMax: risk.preMitigationCostMax ?? undefined,
-      preMitigationTimeMin: risk.preMitigationTimeMin ?? undefined,
+      preMitigationCostMax: preCostMax,
+      preMitigationTimeMin: preTimeMin,
       preMitigationTimeML: preTimeML ?? undefined,
-      preMitigationTimeMax: risk.preMitigationTimeMax ?? undefined,
-      mitigation: risk.mitigation?.trim() || undefined,
-      mitigationCost: risk.mitigationCost ?? undefined,
-      postMitigationProbabilityPct: postPct,
-      postMitigationCostMin: risk.postMitigationCostMin ?? undefined,
+      preMitigationTimeMax: preTimeMax,
+      mitigation: hasMitigation ? (risk.mitigation?.trim() || undefined) : undefined,
+      mitigationCost: hasMitigation ? (risk.mitigationCost ?? undefined) : undefined,
+      postMitigationProbabilityPct: postPct ?? undefined,
+      postMitigationCostMin: postCostMin,
       postMitigationCostML: postCostML ?? undefined,
-      postMitigationCostMax: risk.postMitigationCostMax ?? undefined,
-      postMitigationTimeMin: risk.postMitigationTimeMin ?? undefined,
+      postMitigationCostMax: postCostMax,
+      postMitigationTimeMin: postTimeMin,
       postMitigationTimeML: postTimeML ?? undefined,
-      postMitigationTimeMax: risk.postMitigationTimeMax ?? undefined,
+      postMitigationTimeMax: postTimeMax,
       inherentRating,
       residualRating,
       baseCostImpact: preCostML ?? undefined,
-      costImpact: postCostML ?? undefined,
-      scheduleImpactDays: postTimeML ?? undefined,
-      probability: postPct / 100,
+      costImpact: hasMitigation ? (postCostML ?? undefined) : (preCostML ?? undefined),
+      scheduleImpactDays: hasMitigation ? (postTimeML ?? undefined) : (preTimeML ?? undefined),
+      probability: (hasMitigation && postPct != null ? postPct : prePct) / 100,
       updatedAt: "",
     };
   }, []);
@@ -430,7 +493,7 @@ export function RiskDetailModal({
     return Number.isFinite(v) ? v : undefined;
   };
 
-  /** Build the risk as it would be saved from current form state (for dirty check and save). When applyMitigation is false, residual = inherent and no mitigation fields. */
+  /** Build the risk as it would be saved from current form state (for dirty check and save). When applyMitigation is false, residual = inherent and no mitigation fields. Derives min/max from ML when form leaves them empty so saved risk always passes runnable validation. */
   const buildUpdatedRisk = useCallback((): Risk | null => {
     if (!currentRisk) return null;
     const prePct = parseNum(preMitigationProbabilityPct) ?? 50;
@@ -441,11 +504,19 @@ export function RiskDetailModal({
     const preC = applies === "time" ? timeDaysToConsequenceScale(preTimeML) : applies === "cost" ? costToConsequenceScale(preCostML) : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
     const inherentRating = buildRating(preP, preC);
     const postPct = applyMitigation ? (parseNum(postMitigationProbabilityPct) ?? 50) : prePct;
-    const postCostML = applyMitigation ? (parseNum(postMitigationCostML) ?? preCostML) : preCostML;
-    const postTimeML = applyMitigation ? (parseIntNum(postMitigationTimeML) ?? preTimeML) : preTimeML;
+    const postCostML = applyMitigation ? (parseNum(postMitigationCostML) ?? currentRisk.costImpact ?? preCostML) : preCostML;
+    const postTimeML = applyMitigation ? (parseIntNum(postMitigationTimeML) ?? currentRisk.scheduleImpactDays ?? preTimeML) : preTimeML;
     const postP = probabilityPctToScale(postPct);
     const postC = applies === "time" ? timeDaysToConsequenceScale(postTimeML) : applies === "cost" ? costToConsequenceScale(postCostML) : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
     const residualRating = buildRating(postP, postC);
+    const preCostMin = parseNum(preMitigationCostMin) ?? 0;
+    const preCostMax = parseNum(preMitigationCostMax) ?? Math.max(preCostML, preCostMin);
+    const preTimeMin = parseIntNum(preMitigationTimeMin) ?? 0;
+    const preTimeMax = parseIntNum(preMitigationTimeMax) ?? Math.max(preTimeML, preTimeMin);
+    const postCostMin = applyMitigation ? (parseNum(postMitigationCostMin) ?? 0) : undefined;
+    const postCostMax = applyMitigation ? (parseNum(postMitigationCostMax) ?? Math.max(postCostML, postCostMin ?? 0)) : undefined;
+    const postTimeMin = applyMitigation ? (parseIntNum(postMitigationTimeMin) ?? 0) : undefined;
+    const postTimeMax = applyMitigation ? (parseIntNum(postMitigationTimeMax) ?? Math.max(postTimeML, postTimeMin ?? 0)) : undefined;
     return {
       ...currentRisk,
       riskNumber: currentRisk.riskNumber,
@@ -456,21 +527,21 @@ export function RiskDetailModal({
       owner: (owner === "Other" ? (ownerCustom ?? "").trim() : owner) || undefined,
       appliesTo: applies,
       preMitigationProbabilityPct: prePct,
-      preMitigationCostMin: parseNum(preMitigationCostMin),
+      preMitigationCostMin: preCostMin,
       preMitigationCostML: preCostML ?? undefined,
-      preMitigationCostMax: parseNum(preMitigationCostMax) ?? undefined,
-      preMitigationTimeMin: parseIntNum(preMitigationTimeMin),
+      preMitigationCostMax: preCostMax,
+      preMitigationTimeMin: preTimeMin,
       preMitigationTimeML: preTimeML ?? undefined,
-      preMitigationTimeMax: parseIntNum(preMitigationTimeMax) ?? undefined,
+      preMitigationTimeMax: preTimeMax,
       mitigation: applyMitigation ? ((mitigation ?? "").trim() || undefined) : undefined,
       mitigationCost: applyMitigation ? (parseNum(mitigationCost) ?? undefined) : undefined,
       postMitigationProbabilityPct: applyMitigation ? postPct : undefined,
-      postMitigationCostMin: applyMitigation ? parseNum(postMitigationCostMin) : undefined,
+      postMitigationCostMin: postCostMin,
       postMitigationCostML: applyMitigation ? (postCostML ?? undefined) : undefined,
-      postMitigationCostMax: applyMitigation ? (parseNum(postMitigationCostMax) ?? undefined) : undefined,
-      postMitigationTimeMin: applyMitigation ? parseIntNum(postMitigationTimeMin) : undefined,
+      postMitigationCostMax: postCostMax,
+      postMitigationTimeMin: postTimeMin,
       postMitigationTimeML: applyMitigation ? (postTimeML ?? undefined) : undefined,
-      postMitigationTimeMax: applyMitigation ? (parseNum(postMitigationTimeMax) ?? undefined) : undefined,
+      postMitigationTimeMax: postTimeMax,
       inherentRating,
       residualRating,
       baseCostImpact: preCostML ?? undefined,

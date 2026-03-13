@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { requireUser } from "@/lib/auth/requireUser";
 import { IntelligentExtractDraftSchema } from "@/domain/risk/risk.schema";
+import { checkAiRateLimit, buildRateLimit429Payload } from "@/server/ai/rate-limit";
 
 const EXTRACT_SYSTEM = `You are an expert risk analyst for a decision intelligence platform. Your job is to turn free-text risk descriptions into a fully populated, structured risk record. You must EXTRACT explicit values and INFER missing values from context. Never leave fields blank when reasonable inference can be made.
 
@@ -133,6 +134,40 @@ Example with partial mitigation (residual reduced): postProbability = 30, postCo
 export async function POST(req: Request) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
+
+  let rate: Awaited<ReturnType<typeof checkAiRateLimit>>;
+  try {
+    rate = await checkAiRateLimit({
+      userId: auth.id,
+      routeName: "extract-risk",
+    });
+  } catch (err: unknown) {
+    return NextResponse.json(
+      {
+        error: "Rate limit check temporarily unavailable",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      { status: 503 }
+    );
+  }
+
+  if (!rate.success) {
+    const resetSeconds = Math.ceil(rate.reset / 1000);
+    const retryAfter = Math.max(0, resetSeconds - Math.ceil(Date.now() / 1000));
+
+    return NextResponse.json(
+      buildRateLimit429Payload(rate),
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": String(resetSeconds),
+          "Retry-After": String(retryAfter),
+        },
+      }
+    );
+  }
 
   try {
     const body = await req.json().catch(() => ({}));

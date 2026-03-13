@@ -7,6 +7,7 @@ import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { RiskSchema } from "@/domain/risk/risk.schema";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
+import { checkAiRateLimit, buildRateLimit429Payload } from "@/server/ai/rate-limit";
 
 const MIN_MERGE_CONFIDENCE = 0.65;
 
@@ -196,6 +197,40 @@ function buildUserPayload(risks: Risk[]): string {
 export async function POST(req: Request) {
   const auth = await requireUser();
   if (auth instanceof NextResponse) return auth;
+
+  let rate: Awaited<ReturnType<typeof checkAiRateLimit>>;
+  try {
+    rate = await checkAiRateLimit({
+      userId: auth.id,
+      routeName: "risk-merge-review",
+    });
+  } catch (err: unknown) {
+    return NextResponse.json(
+      {
+        error: "Rate limit check temporarily unavailable",
+        message: err instanceof Error ? err.message : String(err),
+      },
+      { status: 503 }
+    );
+  }
+
+  if (!rate.success) {
+    const resetSeconds = Math.ceil(rate.reset / 1000);
+    const retryAfter = Math.max(0, resetSeconds - Math.ceil(Date.now() / 1000));
+
+    return NextResponse.json(
+      buildRateLimit429Payload(rate),
+      {
+        status: 429,
+        headers: {
+          "X-RateLimit-Limit": String(rate.limit),
+          "X-RateLimit-Remaining": String(rate.remaining),
+          "X-RateLimit-Reset": String(resetSeconds),
+          "Retry-After": String(retryAfter),
+        },
+      }
+    );
+  }
 
   const start = Date.now();
   try {

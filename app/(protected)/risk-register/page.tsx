@@ -144,13 +144,54 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     prevRisksLengthRef.current = risks.length;
   }, [risks]);
 
+  /** Merge server-returned risks with current local risks: prefer server values so DB-populated data is not overwritten; only use local when server value is missing (e.g. legacy DB without extended columns). When matchByIndex is true (e.g. right after replaceRisks), pairs by array index so newly saved risks with temp IDs that got real UUIDs still get local fallbacks. Otherwise matches by id only. */
+  const mergeServerRisksWithLocal = useCallback(
+    (serverRisks: Risk[], localRisks: Risk[], matchByIndex?: boolean): Risk[] => {
+      const preferServer = <T>(serverVal: T, localVal: T): T =>
+        serverVal !== undefined && serverVal !== null ? serverVal : localVal;
+      const applyLocalOverrides = (server: Risk, local: Risk): Risk => ({
+        ...server,
+        riskNumber: preferServer(server.riskNumber, local.riskNumber),
+        appliesTo: preferServer(server.appliesTo, local.appliesTo),
+        preMitigationProbabilityPct: preferServer(server.preMitigationProbabilityPct, local.preMitigationProbabilityPct),
+        preMitigationCostMin: preferServer(server.preMitigationCostMin, local.preMitigationCostMin),
+        preMitigationCostML: preferServer(server.preMitigationCostML, local.preMitigationCostML),
+        preMitigationCostMax: preferServer(server.preMitigationCostMax, local.preMitigationCostMax),
+        preMitigationTimeMin: preferServer(server.preMitigationTimeMin, local.preMitigationTimeMin),
+        preMitigationTimeML: preferServer(server.preMitigationTimeML, local.preMitigationTimeML),
+        preMitigationTimeMax: preferServer(server.preMitigationTimeMax, local.preMitigationTimeMax),
+        postMitigationProbabilityPct: preferServer(server.postMitigationProbabilityPct, local.postMitigationProbabilityPct),
+        postMitigationCostMin: preferServer(server.postMitigationCostMin, local.postMitigationCostMin),
+        postMitigationCostML: preferServer(server.postMitigationCostML, local.postMitigationCostML),
+        postMitigationCostMax: preferServer(server.postMitigationCostMax, local.postMitigationCostMax),
+        postMitigationTimeMin: preferServer(server.postMitigationTimeMin, local.postMitigationTimeMin),
+        postMitigationTimeML: preferServer(server.postMitigationTimeML, local.postMitigationTimeML),
+        postMitigationTimeMax: preferServer(server.postMitigationTimeMax, local.postMitigationTimeMax),
+        baseCostImpact: preferServer(server.baseCostImpact, local.baseCostImpact),
+        costImpact: preferServer(server.costImpact, local.costImpact),
+        scheduleImpactDays: preferServer(server.scheduleImpactDays, local.scheduleImpactDays),
+        probability: preferServer(server.probability, local.probability),
+      });
+      if (matchByIndex && serverRisks.length === localRisks.length) {
+        return serverRisks.map((serverRisk, i) =>
+          applyLocalOverrides(serverRisk, localRisks[i]!)
+        );
+      }
+      return serverRisks.map((serverRisk) => {
+        const localById = localRisks.find((r) => r.id === serverRisk.id);
+        if (localById) return applyLocalOverrides(serverRisk, localById);
+        return serverRisk;
+      });
+    },
+    []
+  );
+
   const handleSaveToServer = useCallback(async () => {
     setSaveToServerLoading(true);
     setSaveToServerError(null);
     try {
-      await replaceRisks(risks, projectIdForDb);
-      const next = await listRisks(projectIdForDb);
-      setRisks(next);
+      const saved = await replaceRisks(risks, projectIdForDb);
+      setRisks(mergeServerRisksWithLocal(saved, risks, true));
     } catch (err) {
       const msg =
         err instanceof Error
@@ -163,7 +204,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     } finally {
       setSaveToServerLoading(false);
     }
-  }, [risks, setRisks, projectIdForDb]);
+  }, [risks, setRisks, projectIdForDb, mergeServerRisksWithLocal]);
 
   const state = useMemo(() => ({ simulation }), [simulation]);
   const decisionById = useMemo(() => selectDecisionByRiskId(state), [state]);

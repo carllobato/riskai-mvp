@@ -2,12 +2,25 @@
  * Validator for "RunnableRisk": a risk that has all required fields to be included in simulation.
  * Pre-mitigation fields are always required; post-mitigation required only when mitigation is enabled/present.
  * Does not change simulation math or outputs; used only for UI validation and disabling Run Simulation.
+ * Draft risks are not runnable; we skip validation for them so they don't show runnable errors until saved.
  */
 
 import type { Risk } from "./risk.schema";
 
-function isFiniteNum(n: unknown): n is number {
-  return typeof n === "number" && Number.isFinite(n);
+/** Coerce to number for validation (handles string numbers from JSON/form). */
+function toNum(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
+/** Coerce to integer for time (days). */
+function toInt(v: unknown): number {
+  const n = toNum(v);
+  return Number.isFinite(n) ? Math.floor(n) : NaN;
 }
 
 function inRangePct(n: number): boolean {
@@ -18,26 +31,29 @@ function inRangePct(n: number): boolean {
  * Returns a list of validation error messages for the risk.
  * Pre-mitigation: title, probability% (0–100), cost min/ml/max (≥0, min≤ml≤max), time min/ml/max (same).
  * Post-mitigation: required only when risk.mitigation is present (non-empty string); same rules.
+ * Draft risks are not validated (return no errors).
  */
 export function getRiskValidationErrors(risk: Risk): string[] {
+  if (risk.status === "draft") return [];
+
   const errors: string[] = [];
 
   if (!risk.title?.trim()) {
     errors.push("Title is required");
   }
 
-  const prePct = risk.preMitigationProbabilityPct;
-  if (!isFiniteNum(prePct) || !inRangePct(prePct)) {
+  const prePct = toNum(risk.preMitigationProbabilityPct);
+  if (!Number.isFinite(prePct) || !inRangePct(prePct)) {
     errors.push("Pre-mitigation probability % must be 0–100");
   }
 
-  const preCostMin = risk.preMitigationCostMin;
-  const preCostML = risk.preMitigationCostML;
-  const preCostMax = risk.preMitigationCostMax;
+  const preCostMin = toNum(risk.preMitigationCostMin);
+  const preCostML = toNum(risk.preMitigationCostML);
+  const preCostMax = toNum(risk.preMitigationCostMax);
   if (
-    !isFiniteNum(preCostMin) ||
-    !isFiniteNum(preCostML) ||
-    !isFiniteNum(preCostMax) ||
+    !Number.isFinite(preCostMin) ||
+    !Number.isFinite(preCostML) ||
+    !Number.isFinite(preCostMax) ||
     preCostMin < 0 ||
     preCostML < 0 ||
     preCostMax < 0 ||
@@ -47,36 +63,36 @@ export function getRiskValidationErrors(risk: Risk): string[] {
     errors.push("Pre-mitigation cost: min, most likely, and max required (≥0, min ≤ ML ≤ max)");
   }
 
-  const preTimeMin = risk.preMitigationTimeMin;
-  const preTimeML = risk.preMitigationTimeML;
-  const preTimeMax = risk.preMitigationTimeMax;
+  const preTimeMin = toInt(risk.preMitigationTimeMin);
+  const preTimeML = toInt(risk.preMitigationTimeML);
+  const preTimeMax = toInt(risk.preMitigationTimeMax);
   if (
-    !isFiniteNum(preTimeMin) ||
-    !isFiniteNum(preTimeML) ||
-    !isFiniteNum(preTimeMax) ||
+    !Number.isFinite(preTimeMin) ||
+    !Number.isFinite(preTimeML) ||
+    !Number.isFinite(preTimeMax) ||
     preTimeMin < 0 ||
     preTimeML < 0 ||
     preTimeMax < 0 ||
-    Math.floor(preTimeMin) > Math.floor(preTimeML) ||
-    Math.floor(preTimeML) > Math.floor(preTimeMax)
+    preTimeMin > preTimeML ||
+    preTimeML > preTimeMax
   ) {
     errors.push("Pre-mitigation time (days): min, most likely, and max required (≥0, min ≤ ML ≤ max)");
   }
 
   const hasMitigation = Boolean(risk.mitigation?.trim());
   if (hasMitigation) {
-    const postPct = risk.postMitigationProbabilityPct;
-    if (!isFiniteNum(postPct) || !inRangePct(postPct)) {
+    const postPct = toNum(risk.postMitigationProbabilityPct);
+    if (!Number.isFinite(postPct) || !inRangePct(postPct)) {
       errors.push("Post-mitigation probability % must be 0–100 (mitigation is set)");
     }
 
-    const postCostMin = risk.postMitigationCostMin;
-    const postCostML = risk.postMitigationCostML;
-    const postCostMax = risk.postMitigationCostMax;
+    const postCostMin = toNum(risk.postMitigationCostMin);
+    const postCostML = toNum(risk.postMitigationCostML);
+    const postCostMax = toNum(risk.postMitigationCostMax);
     if (
-      !isFiniteNum(postCostMin) ||
-      !isFiniteNum(postCostML) ||
-      !isFiniteNum(postCostMax) ||
+      !Number.isFinite(postCostMin) ||
+      !Number.isFinite(postCostML) ||
+      !Number.isFinite(postCostMax) ||
       postCostMin < 0 ||
       postCostML < 0 ||
       postCostMax < 0 ||
@@ -86,18 +102,18 @@ export function getRiskValidationErrors(risk: Risk): string[] {
       errors.push("Post-mitigation cost: min, most likely, and max required (≥0, min ≤ ML ≤ max)");
     }
 
-    const postTimeMin = risk.postMitigationTimeMin;
-    const postTimeML = risk.postMitigationTimeML;
-    const postTimeMax = risk.postMitigationTimeMax;
+    const postTimeMin = toInt(risk.postMitigationTimeMin);
+    const postTimeML = toInt(risk.postMitigationTimeML);
+    const postTimeMax = toInt(risk.postMitigationTimeMax);
     if (
-      !isFiniteNum(postTimeMin) ||
-      !isFiniteNum(postTimeML) ||
-      !isFiniteNum(postTimeMax) ||
+      !Number.isFinite(postTimeMin) ||
+      !Number.isFinite(postTimeML) ||
+      !Number.isFinite(postTimeMax) ||
       postTimeMin < 0 ||
       postTimeML < 0 ||
       postTimeMax < 0 ||
-      Math.floor(postTimeMin) > Math.floor(postTimeML) ||
-      Math.floor(postTimeML) > Math.floor(postTimeMax)
+      postTimeMin > postTimeML ||
+      postTimeML > postTimeMax
     ) {
       errors.push("Post-mitigation time (days): min, most likely, and max required (≥0, min ≤ ML ≤ max)");
     }
