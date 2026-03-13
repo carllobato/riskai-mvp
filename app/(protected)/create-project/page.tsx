@@ -46,6 +46,7 @@ export default function CreateProjectPage() {
         // ignore
       }
       router.replace(`/projects/${projectId}/risks`);
+      router.refresh();
       return;
     }
     setMessage({ type: "error", text: "Project created but could not redirect." });

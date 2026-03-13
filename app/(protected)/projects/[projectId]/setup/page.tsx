@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import ProjectInformationPage from "../../../project/page";
+import ProjectInformationPage from "../../../project/ProjectInformationPage";
 
 export default function ProjectSetupPage() {
   const params = useParams();

@@ -13,7 +13,7 @@ export default async function ProtectedLayout({
   } = await supabase.auth.getUser();
 
   if (!user) {
-    const pathname = (await headers()).get("x-pathname") ?? "/risk-register";
+    const pathname = (await headers()).get("x-pathname") ?? "/";
     const loginUrl = `/login${pathname ? `?next=${encodeURIComponent(pathname)}` : ""}`;
     redirect(loginUrl);
   }

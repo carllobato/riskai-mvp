@@ -62,6 +62,11 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
   useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  // Refetch projects when URL project id changes (e.g. after creating a project or switching) so switcher stays in sync.
+  useEffect(() => {
+    if (routeInfo?.projectId) loadProjects();
+  }, [routeInfo?.projectId, loadProjects]);
   useEffect(() => {
     try {
       setActiveFromStorage(typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_PROJECT_KEY) : null);

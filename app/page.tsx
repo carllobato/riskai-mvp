@@ -1,5 +1,5 @@
-import { HomeRedirectClient } from "./HomeRedirectClient";
+import { HomePageClient } from "./HomePageClient";
 
 export default function HomePage() {
-  return <HomeRedirectClient />;
+  return <HomePageClient />;
 }

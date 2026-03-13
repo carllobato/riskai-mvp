@@ -92,7 +92,7 @@ export default function RiskMatrixPage() {
 
   // Risk Matrix is hidden in MVP mode; redirect to Outputs
   useEffect(() => {
-    if (uiMode === "MVP") router.replace("/outputs");
+    if (uiMode === "MVP") router.replace("/");
   }, [uiMode, router]);
 
   const { plottableCount, unplottableCount, risksByCell } = useMemo(() => {

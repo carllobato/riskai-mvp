@@ -2,7 +2,7 @@
 
 import { useParams } from "next/navigation";
 import { Suspense } from "react";
-import { RiskRegisterContent } from "../../../risk-register/page";
+import { RiskRegisterContent } from "../../../risk-register/RiskRegisterContent";
 
 export default function ProjectRisksPage() {
   const params = useParams();

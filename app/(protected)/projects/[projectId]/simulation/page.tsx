@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import SimulationPage from "../../../simulation/page";
+import SimulationPage from "../../../simulation/SimulationPageContent";
 
 export default function ProjectSimulationPage() {
   const params = useParams();

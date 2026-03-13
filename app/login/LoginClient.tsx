@@ -8,7 +8,7 @@ type Tab = "signin" | "signup";
 
 export function LoginClient() {
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/risk-register";
+  const next = searchParams.get("next") ?? "/";
 
   const [tab, setTab] = useState<Tab>("signin");
   const [email, setEmail] = useState("");
@@ -21,7 +21,7 @@ export function LoginClient() {
   };
 
   const redirectAfterAuth = () => {
-    const path = next.startsWith("/") ? next : `/risk-register`;
+    const path = next.startsWith("/") ? next : "/";
     window.location.href = path;
   };
 

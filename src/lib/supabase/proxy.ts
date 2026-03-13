@@ -60,7 +60,7 @@ export async function updateSession(request: NextRequest) {
 
     if (isPublicPath(pathname)) {
       if (user && pathname === "/login") {
-        return NextResponse.redirect(new URL("/risk-register", request.url));
+        return NextResponse.redirect(new URL("/", request.url));
       }
       return response;
     }

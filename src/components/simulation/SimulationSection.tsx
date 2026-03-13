@@ -171,6 +171,8 @@ export type SimulationSectionProps = {
   formatCostValue?: (dollars: number) => string;
   /** For cost mode: contingency value in dollars. When provided, first tile = P at contingency; third tile = (cost at target P) − contingency. */
   contingencyValueDollars?: number | null;
+  /** Optional href for "Target P-Value" / settings link (debug only). When provided, used instead of /project. */
+  settingsHref?: string | null;
 };
 
 const RAG_RED = "#ef4444";
@@ -968,7 +970,7 @@ function TimeChart({
 }
 
 export function SimulationSection(props: SimulationSectionProps) {
-  const { title, mode, baseline, results, isDebug, costCdf, timeCdf, tableSubtitle, formatCostValue, contingencyValueDollars } = props;
+  const { title, mode, baseline, results, isDebug, costCdf, timeCdf, tableSubtitle, formatCostValue, contingencyValueDollars, settingsHref } = props;
   const { targetPNumeric, targetPLabel, approvedValue } = baseline;
   const formatCostDisplay = formatCostValue ?? formatCost;
 
@@ -1096,7 +1098,7 @@ export function SimulationSection(props: SimulationSectionProps) {
                 ) : contingencyValueDollars != null && isDebug ? (
                   <>
                     Contingency adjustment to achieve{" "}
-                    <Link href="/project" className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
+                    <Link href={settingsHref ?? "/"} className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
                       Target P-Value ({targetPLabel})
                     </Link>
                   </>

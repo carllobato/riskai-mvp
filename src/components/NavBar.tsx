@@ -55,6 +55,8 @@ const ALL_NAV_ITEMS: {
 
 function navHref(item: (typeof ALL_NAV_ITEMS)[number], projectId: string | null): string {
   if (item.projectSlug && projectId) return `/projects/${projectId}/${item.projectSlug}`;
+  // When no project, point to home so user is sent to create-project or project list (coherent MVP routes).
+  if (item.projectSlug) return "/";
   return item.href;
 }
 
@@ -74,7 +76,9 @@ export function NavBar() {
   // On project-not-found, do not use storage so nav links go to legacy routes or home, not the invalid project.
   const projectIdForNav =
     pathname === "/project-not-found" ? currentProjectId : (currentProjectId ?? activeProjectIdFromStorage);
-  const homeHref = projectIdForNav ? `/projects/${projectIdForNav}/risks` : "/";
+  // On home, create-project, or project-not-found, "RiskAI" links to real home; elsewhere to active project risks.
+  const isNonProjectPage = pathname === "/" || pathname === "/create-project" || pathname === "/project-not-found";
+  const homeHref = isNonProjectPage ? "/" : (projectIdForNav ? `/projects/${projectIdForNav}/risks` : "/");
 
   return (
     <nav className="sticky top-0 z-50 flex items-center gap-6 px-6 py-3 border-b border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-sm">
