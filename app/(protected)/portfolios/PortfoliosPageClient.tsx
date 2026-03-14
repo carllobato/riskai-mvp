@@ -73,7 +73,7 @@ export function PortfoliosPageClient() {
         Portfolios
       </h1>
       <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-8">
-        Portfolios you can access. Open one to view its projects.
+        Portfolios you can access. Open one to view its overview.
       </p>
 
       {portfolios.length === 0 ? (
@@ -87,12 +87,12 @@ export function PortfoliosPageClient() {
           {portfolios.map((p) => (
             <li key={p.id}>
               <Link
-                href={`/portfolios/${p.id}/projects`}
+                href={`/portfolios/${p.id}`}
                 className="block px-4 py-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
                 <span className="font-medium">{p.name || p.id}</span>
                 <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">
-                  View projects →
+                  Open portfolio →
                 </span>
               </Link>
             </li>

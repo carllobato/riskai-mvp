@@ -47,21 +47,13 @@ export default async function PortfolioSettingsPage({
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
-      {/* 1. Portfolio header */}
-      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
-        {portfolio.name}
-      </h1>
-      {portfolio.description ? (
+      {(portfolio.description || true) && (
         <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-8">
-          {portfolio.description}
-        </p>
-      ) : (
-        <p className="text-sm text-neutral-500 dark:text-neutral-500 mb-8">
-          Portfolio settings and members.
+          {portfolio.description ?? "Portfolio settings and members."}
         </p>
       )}
 
-      {/* 2. Portfolio settings summary */}
+      {/* Portfolio settings summary */}
       <section className="mb-10">
         <h2 className="text-lg font-medium text-[var(--foreground)] mb-3">
           Settings

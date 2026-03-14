@@ -5,7 +5,7 @@ import "./globals.css";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { ProjectionScenarioProvider } from "@/context/ProjectionScenarioContext";
 import { RiskRegisterProvider } from "@/store/risk-register.store";
-import { NavBar } from "@/components/NavBar";
+import { AppSidebar } from "@/components/AppSidebar";
 
 const geist = Geist({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-geist-mono" });
@@ -41,8 +41,12 @@ export default function RootLayout({
         <ThemeProvider>
           <ProjectionScenarioProvider>
             <RiskRegisterProvider>
-              <NavBar />
-              {children}
+              <div className="flex min-h-screen">
+                <AppSidebar />
+                <main className="flex-1 min-w-0">
+                  {children}
+                </main>
+              </div>
             </RiskRegisterProvider>
           </ProjectionScenarioProvider>
         </ThemeProvider>

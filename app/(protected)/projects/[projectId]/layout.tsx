@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
+import { PageHeader } from "@/components/PageHeader";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
+import { supabaseServerClient } from "@/lib/supabase/server";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
@@ -24,9 +26,27 @@ export default async function ProjectLayout({
     redirect("/project-not-found");
   }
 
+  const { project } = access;
+  let portfolioName: string | null = null;
+  const supabase = await supabaseServerClient();
+  const { data: projectRow } = await supabase
+    .from("projects")
+    .select("portfolio_id")
+    .eq("id", projectId)
+    .single();
+  if (projectRow?.portfolio_id) {
+    const { data: portfolio } = await supabase
+      .from("portfolios")
+      .select("name")
+      .eq("id", projectRow.portfolio_id)
+      .single();
+    portfolioName = portfolio?.name ?? null;
+  }
+
   return (
     <>
       <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
+      <PageHeader projectName={project.name} portfolioName={portfolioName} />
       {children}
     </>
   );

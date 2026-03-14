@@ -33,9 +33,6 @@ export default async function PortfolioProjectsPage({
 
   return (
     <main className="max-w-2xl mx-auto px-4 py-10">
-      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
-        {portfolio.name}
-      </h1>
       <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-8">
         Projects in this portfolio.
       </p>
@@ -69,27 +66,6 @@ export default async function PortfolioProjectsPage({
           ))}
         </ul>
       )}
-
-      <div className="flex flex-wrap gap-3">
-        <Link
-          href={`/portfolios/${portfolioId}/settings`}
-          className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-        >
-          Settings
-        </Link>
-        <Link
-          href="/projects"
-          className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-        >
-          View all projects
-        </Link>
-        <Link
-          href="/portfolios"
-          className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-        >
-          ← Back to portfolios
-        </Link>
-      </div>
     </main>
   );
 }
