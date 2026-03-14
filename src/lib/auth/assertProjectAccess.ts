@@ -1,5 +1,5 @@
+import { getProjectIfAccessible, type ProjectRow } from "@/lib/db/projectAccess";
 import { supabaseServerClient } from "@/lib/supabase/server";
-import { getProjectIfOwned, type ProjectRow } from "@/lib/db/projectAccess";
 
 export type AssertProjectAccessOk = { project: ProjectRow };
 export type AssertProjectAccessDenied =
@@ -10,7 +10,7 @@ export type AssertProjectAccessResult =
   | AssertProjectAccessDenied;
 
 /**
- * Server-only. Verifies the current user owns the project.
+ * Server-only. Verifies the current user can access the project (owner or portfolio member).
  * Use in page loaders (redirect if denied) and API routes (return 401/404).
  */
 export async function assertProjectAccess(
@@ -25,7 +25,7 @@ export async function assertProjectAccess(
     return { error: "unauthorized" };
   }
 
-  const project = await getProjectIfOwned(projectId, user.id);
+  const project = await getProjectIfAccessible(projectId);
   if (!project) {
     return { error: "forbidden" };
   }

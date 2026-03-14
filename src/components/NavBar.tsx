@@ -24,6 +24,7 @@ function isKnownAppRoute(pathname: string | null): boolean {
   if (pathname === "/") return true;
   if (pathname.startsWith("/login")) return true;
   if (pathname.startsWith("/projects")) return true;
+  if (pathname.startsWith("/portfolios")) return true;
   if (pathname.startsWith("/create-project")) return true;
   if (pathname.startsWith("/project-not-found")) return true;
   if (pathname.startsWith("/dev")) return true;
@@ -47,6 +48,7 @@ const ALL_NAV_ITEMS: {
   icon?: "cog";
   hideInMvp?: boolean;
 }[] = [
+  { href: "/portfolios", label: "Portfolios" },
   { href: "/project", projectSlug: "setup", label: "Settings", icon: "cog" },
   { href: "/risk-register", projectSlug: "risks", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
