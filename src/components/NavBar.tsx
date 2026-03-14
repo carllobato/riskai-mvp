@@ -27,6 +27,7 @@ function isKnownAppRoute(pathname: string | null): boolean {
   if (pathname.startsWith("/project-not-found")) return true;
   if (pathname === "/404") return true;
   if (pathname === "/settings") return true;
+  if (pathname === "/run-data") return true;
   if (pathname.startsWith("/dev")) return true;
   return false;
 }
@@ -77,7 +78,7 @@ const HomeIcon = () => (
 /** When projectSlug is set, href is /projects/[id]/[projectSlug]; else use legacy href. */
 const ALL_NAV_ITEMS: {
   href: string;
-  projectSlug?: "project-home" | "risks" | "outputs" | "simulation";
+  projectSlug?: "project-home" | "risks" | "run-data" | "simulation";
   label: string;
   icon?: "cog" | "home";
   hideInMvp?: boolean;
@@ -87,7 +88,8 @@ const ALL_NAV_ITEMS: {
   { href: "/project", projectSlug: "project-home", label: "Project Home", icon: "home" },
   { href: "/risk-register", projectSlug: "risks", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
-  { href: "/outputs", projectSlug: "outputs", label: "Outputs", hideInMvp: true },
+  // TEMP: Run Data nav item for development audit – remove before production
+  { href: "/run-data", projectSlug: "run-data", label: "Run Data" },
   { href: "/simulation", projectSlug: "simulation", label: "Simulation" },
   { href: "/analysis", label: "Analysis", hideInMvp: true },
   { href: "/day0", label: "Day 0", hideInMvp: true },

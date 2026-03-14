@@ -6,7 +6,7 @@ import { fetchProjectsClient, type ProjectRow } from "@/lib/projects";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
-const SUBPAGES = ["project-home", "risks", "outputs", "simulation"] as const;
+const SUBPAGES = ["project-home", "risks", "run-data", "simulation"] as const;
 type Subpage = (typeof SUBPAGES)[number];
 
 function parseProjectRoute(pathname: string): { projectId: string; subpage: Subpage } | null {

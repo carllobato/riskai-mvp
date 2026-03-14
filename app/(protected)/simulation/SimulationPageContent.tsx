@@ -383,10 +383,10 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
             </button>
             {effectiveProjectId && (
               <Link
-                href={`/projects/${effectiveProjectId}/outputs`}
+                href={`/projects/${effectiveProjectId}/run-data`}
                 className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors no-underline text-[var(--foreground)]"
               >
-                Go to Outputs
+                Go to Run Data
               </Link>
             )}
           </div>

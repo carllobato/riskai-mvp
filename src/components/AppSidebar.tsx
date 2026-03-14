@@ -147,6 +147,7 @@ const PROJECT_NAV = (projectId: string) => [
   { href: `/projects/${projectId}`, label: "Project Overview", icon: "dashboard" as const },
   { href: `/projects/${projectId}/risks`, label: "Risks", icon: "risk" as const },
   { href: `/projects/${projectId}/simulation`, label: "Simulation", icon: "simulation" as const },
+  { href: `/projects/${projectId}/run-data`, label: "Run Data", icon: "file" as const },
   { href: `/projects/${projectId}/settings`, label: "Project Settings", icon: "cog" as const },
 ];
 
@@ -303,6 +304,7 @@ export function AppSidebar() {
                   item.icon === "dashboard" ? <DashboardIcon /> :
                   item.icon === "risk" ? <RiskIcon /> :
                   item.icon === "simulation" ? <SimulationIcon /> :
+                  item.icon === "file" ? <FileIcon /> :
                   <CogIcon />;
                 return (
                   <li key={item.href}>

@@ -170,7 +170,7 @@ type State = {
     current?: SimulationSnapshot;
     history: SimulationSnapshot[];
     delta?: SimulationDelta | null;
-    /** Per-scenario snapshots (same engine, profile changes spread); used for Outputs tiles. */
+    /** Per-scenario snapshots (same engine, profile changes spread); used for Run Data tiles. */
     scenarioSnapshots?: ScenarioSnapshotsMap;
     /** Neutral snapshot from Monte Carlo (100 iterations): cost/time samples + summary + report. */
     neutral?: MonteCarloNeutralSnapshot;

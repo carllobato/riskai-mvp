@@ -90,7 +90,7 @@ export default function RiskMatrixPage() {
   const [mode, setMode] = useState<MatrixMode>("Inherent");
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
 
-  // Risk Matrix is hidden in MVP mode; redirect to Outputs
+  // Risk Matrix is hidden in MVP mode; redirect to Run Data when shown
   useEffect(() => {
     if (uiMode === "MVP") router.replace("/");
   }, [uiMode, router]);
