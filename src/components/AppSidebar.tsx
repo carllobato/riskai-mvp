@@ -179,13 +179,15 @@ export function AppSidebar() {
       .select("portfolio_id")
       .eq("id", projectId)
       .single()
-      .then(({ data }) => {
-        if (!cancelled && data?.portfolio_id) setPortfolioIdForProject(data.portfolio_id);
-        else if (!cancelled) setPortfolioIdForProject(null);
-      })
-      .catch(() => {
-        if (!cancelled) setPortfolioIdForProject(null);
-      });
+      .then(
+        ({ data }) => {
+          if (!cancelled && data?.portfolio_id) setPortfolioIdForProject(data.portfolio_id);
+          else if (!cancelled) setPortfolioIdForProject(null);
+        },
+        () => {
+          if (!cancelled) setPortfolioIdForProject(null);
+        }
+      );
     return () => {
       cancelled = true;
     };
