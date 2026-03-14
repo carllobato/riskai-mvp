@@ -24,7 +24,7 @@ export default async function PortfolioLayout({
 
   return (
     <>
-      <PortfolioPageHeader portfolioName={portfolio.name} />
+      <PortfolioPageHeader portfolioId={portfolioId} portfolioName={portfolio.name} />
       {children}
     </>
   );

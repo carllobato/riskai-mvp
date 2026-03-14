@@ -58,11 +58,11 @@ function MetricTile({
   helper?: string;
 }) {
   return (
-    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600">
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-3 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600">
       <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
         {label}
       </div>
-      <div className="mt-1 text-lg font-semibold text-[var(--foreground)]">{value}</div>
+      <div className="mt-0.5 text-base font-semibold text-[var(--foreground)]">{value}</div>
       {helper && (
         <div className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{helper}</div>
       )}
@@ -395,13 +395,10 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
 
       {showResults && (
         <>
-          {/* Group 1 — Baseline */}
-          <section className="mt-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
-            <h2 className="text-base font-semibold text-[var(--foreground)] px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Baseline
-            </h2>
-            <div className="p-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* Baseline — compact row with header */}
+          <section className="mt-0 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
+            <div className="py-3 bg-white dark:bg-neutral-900">
+              <div className="w-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                 <MetricTile
                   label="Base value"
                   value={formatDash(displayContext?.projectValue_m, (m) => formatMoneyMillions(m))}

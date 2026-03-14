@@ -8,6 +8,7 @@
 
 import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   type ProjectContext,
   type RiskAppetite,
@@ -131,6 +132,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showArchivedReviewModal, setShowArchivedReviewModal] = useState(false);
   const [validation, setValidation] = useState<Record<string, string>>({});
+  const router = useRouter();
   const { risks, updateRisk } = useRiskRegister();
   const archivedRisks = useMemo(
     () =>
@@ -258,10 +260,12 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ name: toSave.projectName }),
           credentials: "include",
-        }).catch(() => {});
+        })
+          .then((res) => { if (res.ok) router.refresh(); })
+          .catch(() => {});
       }
     }
-  }, [form, rawNumericFields, projectId]);
+  }, [form, rawNumericFields, projectId, router]);
 
   const onClear = useCallback(() => {
     setShowClearConfirm(false);

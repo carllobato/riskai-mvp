@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth/requireUser";
 import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import { supabaseServerClient } from "@/lib/supabase/server";
@@ -70,6 +71,9 @@ export async function PATCH(
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  revalidatePath(`/projects/${projectId}`);
+  revalidatePath(`/projects/${projectId}/settings`);
 
   return NextResponse.json({ id: projectId, name });
 }

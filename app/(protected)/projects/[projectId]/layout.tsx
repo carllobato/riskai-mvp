@@ -4,6 +4,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
 import { supabaseServerClient } from "@/lib/supabase/server";
 
+export const dynamic = "force-dynamic";
+
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
 export default async function ProjectLayout({
@@ -27,6 +29,7 @@ export default async function ProjectLayout({
   }
 
   const { project } = access;
+  let portfolioId: string | null = null;
   let portfolioName: string | null = null;
   const supabase = await supabaseServerClient();
   const { data: projectRow } = await supabase
@@ -35,6 +38,7 @@ export default async function ProjectLayout({
     .eq("id", projectId)
     .single();
   if (projectRow?.portfolio_id) {
+    portfolioId = projectRow.portfolio_id;
     const { data: portfolio } = await supabase
       .from("portfolios")
       .select("name")
@@ -46,7 +50,12 @@ export default async function ProjectLayout({
   return (
     <>
       <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
-      <PageHeader projectName={project.name} portfolioName={portfolioName} />
+      <PageHeader
+        projectId={projectId}
+        projectName={project.name}
+        portfolioId={portfolioId}
+        portfolioName={portfolioName}
+      />
       {children}
     </>
   );
