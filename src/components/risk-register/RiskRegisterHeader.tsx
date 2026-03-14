@@ -22,14 +22,9 @@ export function RiskRegisterHeader({
   const { clearRisks } = useRiskRegister();
 
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-      <div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <h1 style={{ fontSize: 24, fontWeight: 600, margin: 0 }}>Risk Register</h1>
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <h2 className="text-lg font-semibold text-[var(--foreground)] m-0">Risk Register</h2>
+      <div className="flex flex-wrap items-center gap-3">
         {onSaveToServer && (
           <button
             type="button"

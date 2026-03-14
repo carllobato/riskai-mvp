@@ -376,7 +376,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
 
   if (blockContent) {
     return (
-      <main style={{ padding: 24 }}>
+      <main className="p-6">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
       </main>
     );
@@ -384,8 +384,8 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
 
   if (risksLoading) {
     return (
-      <main style={{ padding: 24 }}>
-        <div className="mb-8">
+      <main className="p-6">
+        <div className="mb-6">
           <RiskRegisterHeader
             projectContext={projectContext}
             onAiReviewClick={handleAiReviewClick}
@@ -402,8 +402,8 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
 
   if (risksLoadError) {
     return (
-      <main style={{ padding: 24 }}>
-        <div className="mb-8">
+      <main className="p-6">
+        <div className="mb-6">
           <RiskRegisterHeader
             projectContext={projectContext}
             onAiReviewClick={handleAiReviewClick}
@@ -434,8 +434,8 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   }
 
   return (
-    <main style={{ padding: 24 }}>
-      <div className="mb-8">
+    <main className="p-6">
+      <div className="mb-6">
         <RiskRegisterHeader
           projectContext={projectContext}
           onAiReviewClick={handleAiReviewClick}

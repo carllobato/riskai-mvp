@@ -79,6 +79,13 @@ const HomeIcon = () => (
   </svg>
 );
 
+const PortfolioIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <rect width="20" height="14" x="2" y="7" rx="2" ry="2" />
+    <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+  </svg>
+);
+
 const FolderIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
     <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
@@ -89,6 +96,17 @@ const FileIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
     <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
     <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+  </svg>
+);
+
+const ProjectsListIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="M8 6h13" />
+    <path d="M8 12h13" />
+    <path d="M8 18h13" />
+    <path d="M3 6h.01" />
+    <path d="M3 12h.01" />
+    <path d="M3 18h.01" />
   </svg>
 );
 
@@ -106,18 +124,27 @@ const SimulationIcon = () => (
   </svg>
 );
 
+const DashboardIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <rect width="7" height="9" x="3" y="3" rx="1" />
+    <rect width="7" height="5" x="14" y="3" rx="1" />
+    <rect width="7" height="9" x="14" y="12" rx="1" />
+    <rect width="7" height="5" x="3" y="16" rx="1" />
+  </svg>
+);
+
 const GLOBAL_NAV: { href: string; label: string; icon: "home" }[] = [
   { href: "/", label: "Home", icon: "home" },
 ];
 
 const PORTFOLIO_NAV = (portfolioId: string) => [
-  { href: `/portfolios/${portfolioId}`, label: "Portfolio Overview", icon: "home" as const },
-  { href: `/portfolios/${portfolioId}/projects`, label: "Projects", icon: "file" as const },
+  { href: `/portfolios/${portfolioId}`, label: "Portfolio Overview", icon: "portfolio" as const },
+  { href: `/portfolios/${portfolioId}/projects`, label: "Projects", icon: "projects" as const },
   { href: `/portfolios/${portfolioId}/settings`, label: "Portfolio Settings", icon: "cog" as const },
 ];
 
 const PROJECT_NAV = (projectId: string) => [
-  { href: `/projects/${projectId}`, label: "Project Overview", icon: "home" as const },
+  { href: `/projects/${projectId}`, label: "Project Overview", icon: "dashboard" as const },
   { href: `/projects/${projectId}/risks`, label: "Risks", icon: "risk" as const },
   { href: `/projects/${projectId}/simulation`, label: "Simulation", icon: "simulation" as const },
   { href: `/projects/${projectId}/settings`, label: "Project Settings", icon: "cog" as const },
@@ -211,9 +238,9 @@ export function AppSidebar() {
   }, []);
 
   return (
-    <aside className="sticky top-0 self-start flex h-screen flex-col w-56 overflow-hidden border-r border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shrink-0">
-      {/* Logo */}
-      <div className="p-4 border-b border-neutral-200 dark:border-neutral-700">
+    <aside className="sticky top-0 self-start flex h-screen flex-col w-56 overflow-hidden border-r border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-[var(--background)] shrink-0">
+      {/* Logo - height and background match page header (61px), grey bar */}
+      <div className="h-[61px] flex items-center px-4 border-b border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 shrink-0">
         {useFullPageLinks ? (
           <a href={homeHref} className="text-lg font-semibold text-[var(--foreground)] no-underline hover:opacity-80 transition-opacity">
             RiskAI
@@ -232,7 +259,7 @@ export function AppSidebar() {
           {GLOBAL_NAV.map((item) => {
             const href = item.href === "/" ? homeHref : item.href;
             const isActive = pathname === item.href;
-            const icon = <HomeIcon />;
+            const icon = <PortfolioIcon />;
             return (
               <li key={item.href}>
                 <NavLink href={href} isActive={isActive} useFullPageLink={useFullPageLinks}>
@@ -251,7 +278,7 @@ export function AppSidebar() {
             <ul className="space-y-0.5">
               {PORTFOLIO_NAV(portfolioId).map((item) => {
                 const isActive = pathname === item.href;
-                const icon = item.icon === "home" ? <HomeIcon /> : item.icon === "cog" ? <CogIcon /> : <FileIcon />;
+                const icon = item.icon === "portfolio" ? <PortfolioIcon /> : item.icon === "projects" ? <ProjectsListIcon /> : item.icon === "cog" ? <CogIcon /> : <FileIcon />;
                 return (
                   <li key={item.href}>
                     <NavLink href={item.href} isActive={isActive} useFullPageLink={useFullPageLinks}>
@@ -273,7 +300,7 @@ export function AppSidebar() {
               {PROJECT_NAV(projectId).map((item) => {
                 const isActive = pathname === item.href;
                 const icon =
-                  item.icon === "home" ? <HomeIcon /> :
+                  item.icon === "dashboard" ? <DashboardIcon /> :
                   item.icon === "risk" ? <RiskIcon /> :
                   item.icon === "simulation" ? <SimulationIcon /> :
                   <CogIcon />;
@@ -291,8 +318,8 @@ export function AppSidebar() {
         )}
       </nav>
 
-      {/* Bottom: theme + user */}
-      <div className="p-2 border-t border-neutral-200 dark:border-neutral-700 flex flex-col gap-1">
+      {/* Bottom: theme + user - grey to match top bar */}
+      <div className="p-2 border-t border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 flex flex-col gap-1">
         {mounted ? (
           <button
             type="button"
@@ -318,7 +345,7 @@ export function AppSidebar() {
               href="/settings"
               className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-[var(--foreground)] no-underline"
             >
-              <UserIcon />
+              <CogIcon />
               <span>Account Settings</span>
             </Link>
             <button

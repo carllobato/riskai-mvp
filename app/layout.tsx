@@ -43,7 +43,7 @@ export default function RootLayout({
             <RiskRegisterProvider>
               <div className="flex min-h-screen">
                 <AppSidebar />
-                <main className="flex-1 min-w-0">
+                <main className="flex-1 min-w-0 bg-[var(--background)] dark:bg-neutral-900">
                   {children}
                 </main>
               </div>

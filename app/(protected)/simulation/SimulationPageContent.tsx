@@ -287,9 +287,10 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
 
   return (
     <main className="p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-semibold m-0 text-[var(--foreground)]">Simulation</h1>
-        <div className="flex flex-wrap items-center gap-3">
+      <div className="mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold m-0 text-[var(--foreground)]">Simulation</h2>
+          <div className="flex flex-wrap items-center gap-3">
         <button
           type="button"
           onClick={async () => {
@@ -325,11 +326,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         </button>
         </div>
       </div>
-      {currentProjectHasSnapshot && lastRun && (
-        <div className="text-sm text-neutral-500 dark:text-neutral-400 mt-2">
-          Last simulation run: {new Date(lastRun).toLocaleString()}
-        </div>
-      )}
+      </div>
       {hasDraftRisks && (
         <p className="text-sm text-amber-600 dark:text-amber-400 mt-2 text-right" role="status">
           Review and save all draft risks in the Risk Register before running simulation.
@@ -347,13 +344,13 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
       )}
 
       {loadingSnapshot && (
-        <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
+        <div className="mt-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
           <p className="text-[var(--foreground)] font-medium m-0">Loading simulation data…</p>
         </div>
       )}
 
       {showRunOnly && (
-        <div className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
+        <div className="mt-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
           <p className="text-[var(--foreground)] font-medium m-0">
             No simulation run for this project yet. Run a simulation to see results.
           </p>
@@ -399,7 +396,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
       {showResults && (
         <>
           {/* Group 1 — Baseline */}
-          <section className="mt-8 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
+          <section className="mt-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
             <h2 className="text-base font-semibold text-[var(--foreground)] px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
               Baseline
             </h2>
@@ -460,6 +457,14 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
             )}
           </section>
         </>
+      )}
+
+      {currentProjectHasSnapshot && lastRun && (
+        <footer className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-700">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
+            Last simulation run: {new Date(lastRun).toLocaleString()}
+          </p>
+        </footer>
       )}
     </main>
   );

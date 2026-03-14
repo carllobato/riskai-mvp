@@ -43,7 +43,36 @@ const DISTRIBUTION_BIN_COUNT = 28;
 /** Offset (px) to shift label left/right from the line so two labels on same row don't clash. */
 const REF_LINE_LABEL_OFFSET_X = 8;
 
-/** Renders reference line label at the bottom of the chart (below x-axis). Use offsetX to shift left (negative) or right (positive). */
+/** Max characters per line for reference line labels (approx 24px per line at 12px font). */
+const REF_LINE_LABEL_MAX_CHARS = 24;
+
+/** Splits a label into lines that fit within roughly REF_LINE_LABEL_MAX_CHARS, breaking at spaces when possible. */
+function wrapRefLineLabel(text: string, maxChars: number = REF_LINE_LABEL_MAX_CHARS): string[] {
+  if (!text.trim()) return [""];
+  const words = text.split(/\s+/);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    const next = current ? `${current} ${word}` : word;
+    if (next.length <= maxChars) {
+      current = next;
+    } else {
+      if (current) lines.push(current);
+      if (word.length > maxChars) {
+        for (let i = 0; i < word.length; i += maxChars) {
+          lines.push(word.slice(i, i + maxChars));
+        }
+        current = "";
+      } else {
+        current = word;
+      }
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
+/** Renders reference line label at the bottom of the chart (below x-axis). Use offsetX to shift left (negative) or right (positive). Wraps long text into multiple lines. */
 function RefLineLabelBottom({
   value,
   fontWeight = 500,
@@ -63,16 +92,23 @@ function RefLineLabelBottom({
   const lineX = lineXProp ?? viewBox.x + viewBox.width / 2;
   const x = lineX + offsetX;
   const y = viewBox.y + viewBox.height + 14;
+  const textAnchor = offsetX < 0 ? "end" : offsetX > 0 ? "start" : "middle";
+  const lines = wrapRefLineLabel(value);
+  const lineHeight = 14;
   return (
     <text
       x={x}
       y={y}
-      textAnchor={offsetX < 0 ? "end" : offsetX > 0 ? "start" : "middle"}
+      textAnchor={textAnchor}
       fontSize={12}
       fontWeight={fontWeight}
       fill="var(--foreground)"
     >
-      {value}
+      {lines.map((line, i) => (
+        <tspan key={i} x={x} dy={i === 0 ? 0 : lineHeight}>
+          {line}
+        </tspan>
+      ))}
     </text>
   );
 }
@@ -1037,8 +1073,8 @@ export function SimulationSection(props: SimulationSectionProps) {
         {title}
       </h2>
       <div className="p-4 space-y-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-stretch">
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600 min-h-[8.5rem] flex flex-col">
             <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
               {mode === "cost" ? "Current Funding Confidence" : "Current P-Value (Time)"}
             </div>
@@ -1050,13 +1086,13 @@ export function SimulationSection(props: SimulationSectionProps) {
                 {contingencyValueDollars != null ? "Likelihood of delivery within current funding" : "Confidence at approved budget"}
               </div>
             )}
-            {isDebug && mode === "time" && (
+            {mode === "time" && (
               <div className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
                 Confidence at planned duration
               </div>
             )}
           </div>
-          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600">
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 transition-colors hover:border-neutral-300 dark:hover:border-neutral-600 min-h-[8.5rem] flex flex-col">
             <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
               Funding Position vs Target{mode === "cost" ? "" : " (Time)"}
             </div>
@@ -1107,9 +1143,9 @@ export function SimulationSection(props: SimulationSectionProps) {
                 )}
               </div>
             ) : null}
-            {isDebug && mode === "time" && (
+            {mode === "time" && (
               <div className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">
-                Time at target P percentile
+                {valueAtTargetP != null ? "Duration at target P percentile" : "Time at target confidence level"}
               </div>
             )}
           </div>

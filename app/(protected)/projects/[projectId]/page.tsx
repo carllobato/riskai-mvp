@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import { supabaseServerClient } from "@/lib/supabase/server";
@@ -53,13 +52,12 @@ export default async function ProjectDashboardPage({
     s ? new Date(s).toLocaleDateString(undefined, { dateStyle: "medium" }) : "—";
 
   return (
-    <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-      {/* Project Header */}
-      <header className="mb-8">
-        <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
+    <main className="p-6">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold text-[var(--foreground)] m-0 mb-2">
           {project.name}
-        </h1>
-        <dl className="text-sm text-neutral-600 dark:text-neutral-400 space-y-1">
+        </h2>
+        <dl className="text-sm text-neutral-600 dark:text-neutral-400 space-y-1 m-0">
           {portfolioName && (
             <div>
               <dt className="inline font-medium text-neutral-700 dark:text-neutral-300">
@@ -81,14 +79,15 @@ export default async function ProjectDashboardPage({
             <dd className="inline">{formatDate(created_at)}</dd>
           </div>
         </dl>
-      </header>
+      </div>
 
       {/* Quick Stats */}
-      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-4 mb-8">
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3">
+      <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden mt-0">
+        <h2 className="text-base font-semibold text-[var(--foreground)] px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
           Quick Stats
         </h2>
-        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+        <div className="p-4">
+        <ul className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm m-0 list-none p-0">
           <li className="flex justify-between gap-2">
             <span className="text-neutral-600 dark:text-neutral-400">
               Risks
@@ -106,33 +105,7 @@ export default async function ProjectDashboardPage({
             </span>
           </li>
         </ul>
-      </section>
-
-      {/* Quick Navigation */}
-      <section>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3">
-          Quick Navigation
-        </h2>
-        <nav className="flex flex-wrap gap-3">
-          <Link
-            href={`/projects/${projectId}/risks`}
-            className="inline-flex items-center px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors no-underline"
-          >
-            Risk Register
-          </Link>
-          <Link
-            href={`/projects/${projectId}/simulation`}
-            className="inline-flex items-center px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors no-underline"
-          >
-            Simulation
-          </Link>
-          <Link
-            href={`/projects/${projectId}/settings`}
-            className="inline-flex items-center px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors no-underline"
-          >
-            Project Settings
-          </Link>
-        </nav>
+        </div>
       </section>
     </main>
   );
