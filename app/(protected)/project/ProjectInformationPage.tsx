@@ -177,7 +177,8 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { name?: string } | null) => {
         if (data && typeof data.name === "string") {
-          setForm((prev) => ({ ...prev, projectName: data.name }));
+          const name = data.name;
+          setForm((prev) => ({ ...prev, projectName: name }));
         }
       })
       .catch(() => {});
