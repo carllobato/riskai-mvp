@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
-type ProjectSlug = "setup" | "risks" | "simulation";
+type ProjectSlug = "project-home" | "risks" | "simulation";
 
 /**
  * Redirects legacy routes to project-scoped URLs or home.
@@ -20,7 +20,8 @@ export function RedirectToProjectRoute({ slug }: { slug: ProjectSlug }) {
     const activeId =
       typeof raw === "string" && raw !== "undefined" && raw.trim().length > 0 ? raw : null;
     if (activeId) {
-      router.replace("/projects/" + activeId + "/" + slug);
+      const path = slug === "project-home" ? "/projects/" + activeId : "/projects/" + activeId + "/" + slug;
+      router.replace(path);
     } else {
       router.replace("/");
     }

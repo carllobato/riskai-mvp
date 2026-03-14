@@ -97,7 +97,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const hasHydratedFromDbRef = useRef(false);
   const projectIdForHydrateRef = useRef<string | null>(null);
 
-  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}/setup` : "/";
+  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}` : "/";
   /** UUID for DB/API: URL project when in project routes, else default (legacy). projectContext.projectName is a display name, not a UUID. */
   const projectIdForDb = urlProjectId ?? DEFAULT_PROJECT_ID;
 

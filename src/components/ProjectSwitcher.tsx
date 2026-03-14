@@ -6,7 +6,7 @@ import { fetchProjectsClient, type ProjectRow } from "@/lib/projects";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
-const SUBPAGES = ["setup", "risks", "outputs", "simulation"] as const;
+const SUBPAGES = ["project-home", "risks", "outputs", "simulation"] as const;
 type Subpage = (typeof SUBPAGES)[number];
 
 function parseProjectRoute(pathname: string): { projectId: string; subpage: Subpage } | null {
@@ -15,7 +15,7 @@ function parseProjectRoute(pathname: string): { projectId: string; subpage: Subp
   if (segments[0] !== "projects" || !segments[1]) return null;
   const projectId = segments[1];
   const third = segments[2];
-  const subpage: Subpage = third && SUBPAGES.includes(third as Subpage) ? (third as Subpage) : "risks";
+  const subpage: Subpage = third && SUBPAGES.includes(third as Subpage) ? (third as Subpage) : "project-home";
   return { projectId, subpage };
 }
 
@@ -47,7 +47,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const routeInfo = parseProjectRoute(pathname ?? "");
-  const subpage = routeInfo?.subpage ?? "risks";
+  const subpage = routeInfo?.subpage ?? "project-home";
   const currentProjectId =
     currentProjectIdFromUrl ?? activeFromStorage ?? (projects?.length ? projects[0].id : null);
 
@@ -95,7 +95,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
   const displayName = currentProject?.name ?? "Project";
   const showDropdown = (projects?.length ?? 0) >= 1;
   const isOnProjectPage = !!routeInfo;
-  const targetSubpage = currentProjectIdFromUrl && routeInfo ? routeInfo.subpage : "risks";
+  const targetSubpage = currentProjectIdFromUrl && routeInfo ? routeInfo.subpage : "project-home";
   const buttonLabel = isOnProjectPage ? `Project: ${displayName}` : "Select project";
   const selectedProjectIdForList = isOnProjectPage ? currentProjectId : null;
 
@@ -110,7 +110,8 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
       }
       setActiveFromStorage(id);
       setDropdownOpen(false);
-      router.replace("/projects/" + id + "/" + targetSubpage);
+      const path = targetSubpage === "project-home" ? "/projects/" + id : "/projects/" + id + "/" + targetSubpage;
+      router.replace(path);
     },
     [targetSubpage, router]
   );
@@ -161,7 +162,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
       setNewProjectName("");
       setNewProjectLoading(false);
       await loadProjects();
-      router.replace(`/projects/${newId}/risks`);
+      router.replace(`/projects/${newId}`);
     },
     [newProjectName, loadProjects, router]
   );

@@ -91,7 +91,7 @@ export function ProjectListPageClient() {
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
-                  href={`/projects/${p.id}/risks`}
+                  href={`/projects/${p.id}`}
                   className="block px-4 py-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
                   <span className="font-medium">{p.name || p.id}</span>

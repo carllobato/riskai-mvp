@@ -7,8 +7,6 @@ import { useTheme } from "@/context/ThemeContext";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
-import { ProjectSwitcher } from "@/components/ProjectSwitcher";
-
 const LOGIN_URL = "/login?next=" + encodeURIComponent("/");
 
 function projectIdFromPathname(pathname: string | null): string | null {
@@ -27,6 +25,8 @@ function isKnownAppRoute(pathname: string | null): boolean {
   if (pathname.startsWith("/portfolios")) return true;
   if (pathname.startsWith("/create-project")) return true;
   if (pathname.startsWith("/project-not-found")) return true;
+  if (pathname === "/404") return true;
+  if (pathname === "/settings") return true;
   if (pathname.startsWith("/dev")) return true;
   return false;
 }
@@ -40,16 +40,51 @@ const CogIcon = () => (
   </svg>
 );
 
+const UserIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </svg>
+);
+
+const SunIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <circle cx="12" cy="12" r="4" />
+    <path d="M12 2v2" />
+    <path d="M12 20v2" />
+    <path d="m4.93 4.93 1.41 1.41" />
+    <path d="m17.66 17.66 1.41 1.41" />
+    <path d="M2 12h2" />
+    <path d="M20 12h2" />
+    <path d="m6.34 17.66-1.41 1.41" />
+    <path d="m19.07 4.93-1.41 1.41" />
+  </svg>
+);
+
+const MoonIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+  </svg>
+);
+
+const HomeIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <polyline points="9 22 9 12 15 12 15 22" />
+  </svg>
+);
+
 /** When projectSlug is set, href is /projects/[id]/[projectSlug]; else use legacy href. */
 const ALL_NAV_ITEMS: {
   href: string;
-  projectSlug?: "setup" | "risks" | "outputs" | "simulation";
+  projectSlug?: "project-home" | "risks" | "outputs" | "simulation";
   label: string;
-  icon?: "cog";
+  icon?: "cog" | "home";
   hideInMvp?: boolean;
 }[] = [
   { href: "/portfolios", label: "Portfolios" },
-  { href: "/project", projectSlug: "setup", label: "Settings", icon: "cog" },
+  { href: "/projects", label: "Projects" },
+  { href: "/project", projectSlug: "project-home", label: "Project Home", icon: "home" },
   { href: "/risk-register", projectSlug: "risks", label: "Risk Register" },
   { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
   { href: "/outputs", projectSlug: "outputs", label: "Outputs", hideInMvp: true },
@@ -66,10 +101,14 @@ function isValidProjectId(id: string | null | undefined): id is string {
 function navHref(
   item: (typeof ALL_NAV_ITEMS)[number],
   projectId: string | null,
+  _pathname: string | null,
   isLoggedIn: boolean
 ): string {
   if (!isLoggedIn) return LOGIN_URL;
-  if (item.projectSlug && isValidProjectId(projectId)) return "/projects/" + projectId + "/" + item.projectSlug;
+  if (item.projectSlug && isValidProjectId(projectId)) {
+    if (item.projectSlug === "project-home") return "/projects/" + projectId;
+    return "/projects/" + projectId + "/" + item.projectSlug;
+  }
   if (item.projectSlug) return "/projects";
   return item.href;
 }
@@ -78,12 +117,14 @@ export function NavBar() {
   const pathname = usePathname();
   const currentProjectId = projectIdFromPathname(pathname);
   const [user, setUser] = useState<User | null | "loading">("loading");
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
   const { uiMode } = useProjectionScenario();
   const [mounted, setMounted] = useState(false);
   const isLoggedIn = user !== null && user !== "loading";
 
   useEffect(() => setMounted(true), []);
+
   useEffect(() => {
     const supabase = supabaseBrowserClient();
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -128,7 +169,7 @@ export function NavBar() {
 
       <div className="flex items-center gap-1">
         {ALL_NAV_ITEMS.filter((item) => !(item.hideInMvp && uiMode === "MVP")).map((item) => {
-          const href = navHref(item, projectIdForNav, isLoggedIn);
+          const href = navHref(item, projectIdForNav, pathname, isLoggedIn);
           const isActive = !!currentProjectId && pathname === href;
           const itemKey = item.projectSlug ? item.projectSlug + "-" + item.href : item.href;
           if (useFullPageLinks) {
@@ -139,6 +180,7 @@ export function NavBar() {
                 className={navLinkClassName(isActive)}
               >
                 {item.icon === "cog" && <CogIcon />}
+                {item.icon === "home" && <HomeIcon />}
                 {item.label}
               </a>
             );
@@ -150,6 +192,7 @@ export function NavBar() {
               className={navLinkClassName(isActive)}
             >
               {item.icon === "cog" && <CogIcon />}
+                {item.icon === "home" && <HomeIcon />}
               {item.label}
             </Link>
           );
@@ -157,37 +200,6 @@ export function NavBar() {
       </div>
 
       <div className="ml-auto flex items-center gap-3 shrink-0">
-        {isLoggedIn && !useFullPageLinks && (
-          <ProjectSwitcher
-            currentProjectId={isValidProjectId(currentProjectId) ? currentProjectId : undefined}
-          />
-        )}
-        {isLoggedIn ? (
-          <button
-            type="button"
-            onClick={async () => {
-              await supabaseBrowserClient().auth.signOut();
-              window.location.href = "/login";
-            }}
-            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300"
-          >
-            Logout
-          </button>
-        ) : useFullPageLinks ? (
-          <a
-            href={LOGIN_URL}
-            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 no-underline"
-          >
-            Log in
-          </a>
-        ) : (
-          <Link
-            href={LOGIN_URL}
-            className="px-3 py-2 rounded-md text-sm font-medium border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 no-underline"
-          >
-            Log in
-          </Link>
-        )}
         {mounted ? (
           <button
             type="button"
@@ -195,12 +207,21 @@ export function NavBar() {
             aria-checked={theme === "dark"}
             aria-label="Toggle theme"
             title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
-            onClick={toggleTheme}
-            className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
+            onClick={(e) => {
+              toggleTheme();
+              (e.currentTarget as HTMLButtonElement).blur();
+            }}
+            className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 dark:focus-visible:ring-neutral-500 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
           >
+            <span className="pointer-events-none absolute left-0.5 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400">
+              <SunIcon />
+            </span>
+            <span className="pointer-events-none absolute right-0.5 top-1/2 -translate-y-1/2 text-neutral-500 dark:text-neutral-400">
+              <MoonIcon />
+            </span>
             <span
               className={
-                "pointer-events-none inline-block h-4 w-4 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out " +
+                "pointer-events-none absolute left-0.5 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-neutral-300 dark:bg-neutral-500 shadow-sm transition-transform duration-200 ease-out " +
                 (theme === "dark" ? "translate-x-4" : "translate-x-0")
               }
             />
@@ -208,6 +229,70 @@ export function NavBar() {
         ) : (
           <span className="inline-block h-5 w-9 shrink-0 rounded-full border border-neutral-300 bg-neutral-200" aria-hidden />
         )}
+        <div
+          className="relative shrink-0"
+          onMouseEnter={() => setUserMenuOpen(true)}
+          onMouseLeave={() => setUserMenuOpen(false)}
+        >
+          <button
+            type="button"
+            aria-expanded={userMenuOpen}
+            aria-haspopup="true"
+            aria-label="User menu"
+            title={isLoggedIn ? "Account" : "Log in"}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 hover:text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)]"
+          >
+            <UserIcon />
+          </button>
+          {userMenuOpen && (
+            <div
+              className="absolute right-0 top-full z-50 min-w-[10rem] rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] pt-2 pb-1 shadow-lg"
+              role="menu"
+            >
+              {isLoggedIn ? (
+                <>
+                  <Link
+                    href="/settings"
+                    role="menuitem"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="block px-4 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 no-underline"
+                  >
+                    Account settings
+                  </Link>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={async () => {
+                      setUserMenuOpen(false);
+                      await supabaseBrowserClient().auth.signOut();
+                      window.location.href = "/login";
+                    }}
+                    className="block w-full px-4 py-2 text-left text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                  >
+                    Log out
+                  </button>
+                </>
+              ) : useFullPageLinks ? (
+                <a
+                  href={LOGIN_URL}
+                  role="menuitem"
+                  className="block px-4 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 no-underline"
+                >
+                  Log in
+                </a>
+              ) : (
+                <Link
+                  href={LOGIN_URL}
+                  role="menuitem"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="block px-4 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 no-underline"
+                >
+                  Log in
+                </Link>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </nav>
   );

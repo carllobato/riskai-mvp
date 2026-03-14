@@ -45,7 +45,7 @@ export default function CreateProjectPage() {
       } catch {
         // ignore
       }
-      router.replace(`/projects/${projectId}/risks`);
+      router.replace(`/projects/${projectId}`);
       router.refresh();
       return;
     }

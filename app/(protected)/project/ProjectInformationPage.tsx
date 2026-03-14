@@ -25,13 +25,6 @@ import { ProjectExcelUploadSection } from "@/components/project/ProjectExcelUplo
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
 
-const CogIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
-    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
-    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-  </svg>
-);
-
 const RISK_APPETITE_OPTIONS: { value: RiskAppetite; label: string }[] = [
   { value: "P10", label: "P10" },
   { value: "P20", label: "P20" },
@@ -177,6 +170,19 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
     setMounted(true);
   }, [projectId]);
 
+  // When we have a projectId, load project name from API so the field shows the DB name.
+  useEffect(() => {
+    if (!projectId) return;
+    fetch(`/api/projects/${projectId}`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { name?: string } | null) => {
+        if (data && typeof data.name === "string") {
+          setForm((prev) => ({ ...prev, projectName: data.name }));
+        }
+      })
+      .catch(() => {});
+  }, [projectId]);
+
   useEffect(() => {
     return () => {
       if (savedHideTimeoutRef.current) clearTimeout(savedHideTimeoutRef.current);
@@ -245,6 +251,14 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(toSave),
       }).catch(() => {});
+      if (projectId) {
+        fetch(`/api/projects/${projectId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: toSave.projectName }),
+          credentials: "include",
+        }).catch(() => {});
+      }
     }
   }, [form, rawNumericFields, projectId]);
 
@@ -272,9 +286,8 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
 
   return (
     <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
-      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1 flex items-center gap-2">
-        <CogIcon />
-        Project Settings
+      <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
+        Project Home
       </h1>
 
       {/* 1) Details */}

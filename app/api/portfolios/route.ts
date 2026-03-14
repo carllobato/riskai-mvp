@@ -1,24 +1,31 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/requireUser";
+import { getAccessiblePortfolios } from "@/lib/portfolios-server";
 import { supabaseServerClient } from "@/lib/supabase/server";
+
+export const dynamic = "force-dynamic";
+
+const CACHE_HEADERS = {
+  "Cache-Control": "private, no-store, no-cache",
+  Pragma: "no-cache",
+};
 
 /**
  * GET /api/portfolios — Returns portfolios the current user can access (owner or member).
- * RLS on portfolios restricts to owner_id = auth.uid() OR membership in portfolio_members.
+ * Uses shared getAccessiblePortfolios() so behaviour matches the "/" home route.
  */
 export async function GET() {
   const user = await requireUser();
   if (user instanceof NextResponse) return user;
 
   const supabase = await supabaseServerClient();
-  const { data: portfolios, error } = await supabase
-    .from("portfolios")
-    .select("id, name, created_at")
-    .order("created_at", { ascending: true });
+  const result = await getAccessiblePortfolios(supabase, user.id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error }, { status: 500 });
   }
 
-  return NextResponse.json({ portfolios: portfolios ?? [] });
+  return NextResponse.json({ portfolios: result.portfolios }, {
+    headers: CACHE_HEADERS,
+  });
 }

@@ -18,7 +18,10 @@ export type FetchPortfoliosResult =
  */
 export async function fetchPortfoliosClient(): Promise<FetchPortfoliosResult> {
   try {
-    const res = await fetch("/api/portfolios");
+    const res = await fetch("/api/portfolios", {
+      cache: "no-store",
+      credentials: "include",
+    });
     const data = (await res.json()) as { portfolios?: PortfolioRow[]; error?: string };
     if (!res.ok) {
       return {

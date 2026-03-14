@@ -102,7 +102,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   useEffect(() => {
     if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
   }, [invalidRunnableCount]);
-  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}/setup` : "/";
+  const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}` : "/";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -445,7 +445,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                 costCdf={costCdf}
                 formatCostValue={displayContext ? (dollars) => formatMoneyMillions(dollars / 1e6) : undefined}
                 contingencyValueDollars={displayContext ? displayContext.contingencyValue_m * 1e6 : undefined}
-                settingsHref={effectiveProjectId ? `/projects/${effectiveProjectId}/setup` : undefined}
+                settingsHref={effectiveProjectId ? `/projects/${effectiveProjectId}/settings` : undefined}
               />
             )}
             {timeBaseline && (
@@ -455,7 +455,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                 baseline={timeBaseline}
                 results={timeResults}
                 timeCdf={timeCdf}
-                settingsHref={effectiveProjectId ? `/projects/${effectiveProjectId}/setup` : undefined}
+                settingsHref={effectiveProjectId ? `/projects/${effectiveProjectId}/settings` : undefined}
               />
             )}
           </section>

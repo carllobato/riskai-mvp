@@ -18,7 +18,10 @@ export type FetchProjectsResult =
  */
 export async function fetchProjectsClient(): Promise<FetchProjectsResult> {
   try {
-    const res = await fetch("/api/projects");
+    const res = await fetch("/api/projects", {
+      cache: "no-store",
+      credentials: "include",
+    });
     const data = (await res.json()) as { projects?: ProjectRow[]; error?: string };
     if (!res.ok) {
       return { ok: false, error: typeof data?.error === "string" ? data.error : "Failed to load projects" };

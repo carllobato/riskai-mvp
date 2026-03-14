@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
 import { supabaseServerClient } from "@/lib/supabase/server";
+import { NotFoundContent } from "../../../../not-found-content";
 
 type ProjectRow = { id: string; name: string; created_at: string | null };
 
@@ -20,7 +20,7 @@ export default async function PortfolioProjectsPage({
     .single();
 
   if (portfolioError || !portfolio) {
-    notFound();
+    return <NotFoundContent />;
   }
 
   const { data: projects, error: projectsError } = await supabase
@@ -57,7 +57,7 @@ export default async function PortfolioProjectsPage({
           {list.map((p) => (
             <li key={p.id}>
               <Link
-                href={`/projects/${p.id}/risks`}
+                href={`/projects/${p.id}`}
                 className="block px-4 py-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
               >
                 <span className="font-medium">{p.name || p.id}</span>
@@ -71,6 +71,12 @@ export default async function PortfolioProjectsPage({
       )}
 
       <div className="flex flex-wrap gap-3">
+        <Link
+          href={`/portfolios/${portfolioId}/settings`}
+          className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
+        >
+          Settings
+        </Link>
         <Link
           href="/projects"
           className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"

@@ -9,17 +9,21 @@
 | `/` | App home; redirects to `/projects/[id]/risks` or `/create-project` | **Keep** |
 | `/create-project` | Create first/new project | **Keep** |
 | `/project-not-found` | Shown when project missing or access denied | **Keep** |
+| `/projects/[projectId]` | Project Home Dashboard | **Keep** |
 | `/projects/[projectId]/risks` | Risk register (main project view) | **Keep** |
-| `/projects/[projectId]/setup` | Project settings (context, budget, schedule) | **Keep** |
+| `/projects/[projectId]/settings` | Project settings (context, budget, schedule) | **Keep** |
 | `/projects/[projectId]/simulation` | Simulation (run/view results) | **Keep** |
 | `/projects/[projectId]/outputs` | Outputs (mitigation, exposure); not in MVP nav | **Keep** (retired from nav) |
-| `/projects/[projectId]/admin` | Not implemented; use `setup` for project admin/settings | **Placeholder** (use `setup`) |
+| `/portfolios/[portfolioId]/settings` | Portfolio settings and members | **Keep** |
+| `/settings` | User account settings (email, id, sign out) | **Keep** |
 
 ### Legacy routes (redirect only)
 
 | Path | Redirect target | Notes |
 |------|-----------------|--------|
-| `/project` | `/projects/[activeId]/setup` or `/` | Redirect only; content at `setup` |
+| `/portfolios/[portfolioId]/admin` | `/portfolios/[portfolioId]/settings` | Permanent redirect |
+| `/projects/[projectId]/setup` | `/projects/[projectId]/settings` | Permanent redirect |
+| `/project` | `/projects/[activeId]` (dashboard) or `/` | Redirect only |
 | `/risk-register` | `/projects/[activeId]/risks` or `/` | Redirect only; content at `risks` |
 | `/simulation` | `/projects/[activeId]/simulation` or `/` | Redirect only; content at `simulation` |
 
@@ -36,20 +40,18 @@
 - `/login` – login; post-auth redirect uses `?next=` (default `/`)
 - Protected layout: unauthenticated users redirect to `/login?next=<pathname>` (default pathname `/`)
 
-## Portfolio routes (future)
-
-Target shape for later:
+## Portfolio routes
 
 - `/portfolios` – portfolio list
-- `/portfolios/[portfolioId]` – portfolio detail
-- `/portfolios/[portfolioId]/admin` – portfolio admin
-
-Not implemented in this cleanup; app remains project-centric.
+- `/portfolios/[portfolioId]` – portfolio detail (redirects to projects)
+- `/portfolios/[portfolioId]/settings` – portfolio settings and members (owner or portfolio admin)
+- `/portfolios/[portfolioId]/admin` – redirects to `/portfolios/[portfolioId]/settings`
 
 ## Navigation (MVP)
 
 - **RiskAI (logo)** → `/` or `/projects/[id]/risks`
-- **Settings** → `/projects/[id]/setup` (or `/` when no project)
+- **Settings** (project) → `/projects/[id]/settings` (or `/` when no project)
+- **Settings** (user) → `/settings` (account; add to nav if desired)
 - **Risk Register** → `/projects/[id]/risks` (or `/` when no project)
 - **Simulation** → `/projects/[id]/simulation` (or `/` when no project)
 - Outputs, Analysis, Matrix, Day 0, Engine Health → hidden when `uiMode === "MVP"`
@@ -57,7 +59,7 @@ Not implemented in this cleanup; app remains project-centric.
 ## Internal links updated (Day 11)
 
 - Project settings “Continue to Risk Register” → project-scoped `/projects/[id]/risks` or `/`
-- SimulationSection “Target P-Value” (debug) → `settingsHref` (e.g. `/projects/[id]/setup`) or `/`
+- SimulationSection “Target P-Value” (debug) → `settingsHref` (e.g. `/projects/[id]/settings`) or `/`
 - Login default `next` → `/`
 - Protected layout default pathname → `/`
 - Supabase proxy post-login redirect → `/`
