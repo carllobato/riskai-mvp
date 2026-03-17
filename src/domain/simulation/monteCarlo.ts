@@ -23,6 +23,9 @@ export type EffectiveRiskInputs = {
   timeML: number;
 };
 
+/** Simulation engine version; surface in Run Data / diagnostics. */
+export const SIMULATION_ENGINE_VERSION = "v1.01 (17 Mar 2026)";
+
 function isPresentNum(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n >= 0;
 }
@@ -280,6 +283,7 @@ export function buildSimulationSnapshotFromResult(
       id: risk.id,
       title: risk.title,
       category: risk.category,
+      status: risk.status,
       expectedCost,
       expectedDays,
       simMeanCost: expectedCost,

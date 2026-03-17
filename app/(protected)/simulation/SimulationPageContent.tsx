@@ -1,11 +1,13 @@
 "use client";
 
 import React, { useMemo, useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
-import { getLatestSnapshot } from "@/lib/db/snapshots";
+import { getLatestSnapshot, setSnapshotAsReportingVersion, type SimulationSnapshotRow } from "@/lib/db/snapshots";
 import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
+import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   getNeutralSummary,
   getNeutralSamples,
@@ -72,6 +74,32 @@ function MetricTile({
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
+/** Build YYYY-MM for a given date. */
+function toMonthYearKey(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+/** Format YYYY-MM as "March 2025". */
+function formatReportingMonthYear(ym: string | null | undefined): string {
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
+  const [y, m] = ym.split("-").map(Number);
+  const date = new Date(y, m - 1, 1);
+  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+/** Options for reporting month/year: current month and next 11 months. */
+function getReportingMonthYearOptions(): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  const start = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+    options.push({ value: toMonthYearKey(d), label: formatReportingMonthYear(toMonthYearKey(d)) });
+  }
+  return options;
+}
+
 export type SimulationPageProps = { projectId?: string | null };
 
 /** After load: we know whether this project has a snapshot. Only show results when hasSnapshot is true. */
@@ -99,9 +127,48 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   const effectiveProjectId = urlProjectId ?? activeProjectIdFromStorage ?? (projectContext ? DEFAULT_PROJECT_ID : undefined);
   effectiveProjectIdRef.current = effectiveProjectId;
 
+  const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
+  const [setReportingModalOpen, setSetReportingModalOpen] = useState(false);
+  const [reportingNote, setReportingNote] = useState("");
+  const [reportingMonthYear, setReportingMonthYear] = useState(() => toMonthYearKey(new Date()));
+  const [setReportingSaving, setSetReportingSaving] = useState(false);
+  const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
+
+  const reportingMonthYearOptions = useMemo(() => getReportingMonthYearOptions(), []);
+
   useEffect(() => {
     if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
   }, [invalidRunnableCount]);
+
+  useEffect(() => {
+    supabaseBrowserClient()
+      .auth.getSession()
+      .then(({ data: { session } }) => {
+        const user = session?.user;
+        if (!user) {
+          setTriggeredBy(null);
+          return;
+        }
+        const meta = user.user_metadata as Record<string, unknown> | undefined;
+        const first = (meta?.first_name as string | undefined)?.trim();
+        const last = (meta?.last_name as string | undefined)?.trim();
+        const company = (meta?.company as string | undefined)?.trim();
+        const fullName = (meta?.full_name as string | undefined)?.trim() || (meta?.name as string | undefined)?.trim();
+        let display: string;
+        if (first || last) {
+          const namePart = [first, last].filter(Boolean).join(", ");
+          display = company ? `${namePart} - ${company}` : namePart;
+        } else if (fullName) {
+          const parts = fullName.split(/\s+/).filter(Boolean);
+          const namePart = parts.length > 1 ? `${parts[0]}, ${parts.slice(1).join(" ")}` : parts[0] ?? "";
+          display = namePart && company ? `${namePart} - ${company}` : namePart || (user.email ?? user.id);
+        } else {
+          display = user.email ?? user.id;
+        }
+        setTriggeredBy(display || null);
+      })
+      .catch(() => setTriggeredBy(null));
+  }, []);
   const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}` : "/";
 
   useEffect(() => {
@@ -159,6 +226,17 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         console.error("[simulation] load snapshot", err);
       });
   }, [gateChecked, projectContext, urlProjectId, effectiveProjectId]);
+
+  const isCurrentRunPersisted = simulation.current?.id && !simulation.current.id.startsWith("sim_");
+  useEffect(() => {
+    if (!effectiveProjectId || !isCurrentRunPersisted || !simulation.current?.id) return;
+    getLatestSnapshot(effectiveProjectId)
+      .then((row) => {
+        if (row?.id === simulation.current?.id) setReportingSnapshotRow(row);
+        else setReportingSnapshotRow(null);
+      })
+      .catch(() => setReportingSnapshotRow(null));
+  }, [effectiveProjectId, simulation.current?.id, isCurrentRunPersisted]);
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),
@@ -324,6 +402,15 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         >
           Clear History
         </button>
+        {showResults && isCurrentRunPersisted && effectiveProjectId && !reportingSnapshotRow?.reporting_version && (
+          <button
+            type="button"
+            onClick={() => setSetReportingModalOpen(true)}
+            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+          >
+            Set as reporting version
+          </button>
+        )}
         </div>
       </div>
       </div>
@@ -462,6 +549,129 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
             Last simulation run: {new Date(lastRun).toLocaleString()}
           </p>
         </footer>
+      )}
+
+      {setReportingModalOpen && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-neutral-900/75 dark:bg-black/80 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="set-reporting-version-dialog-title"
+          onClick={(e) => e.target === e.currentTarget && (setSetReportingModalOpen(false), setReportingNote(""), setReportingMonthYear(toMonthYearKey(new Date())))}
+        >
+          <div
+            style={{ width: "90vw", maxWidth: 400 }}
+            className="shrink-0 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] shadow-xl flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-4 shrink-0 border-b border-neutral-200 dark:border-neutral-700 px-4 sm:px-6 py-3">
+              <h2 id="set-reporting-version-dialog-title" className="text-lg font-semibold text-[var(--foreground)]">
+                Set as reporting version
+              </h2>
+              <button
+                type="button"
+                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); }}
+                className="p-2 rounded-md border border-transparent text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+                aria-label="Close"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden><path d="M18 6 6 18M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="px-4 sm:px-6 py-4 space-y-4">
+              <div>
+                <label htmlFor="reporting-month-year-select" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Reporting month / year
+                </label>
+                <select
+                  id="reporting-month-year-select"
+                  value={reportingMonthYear}
+                  onChange={(e) => setReportingMonthYear(e.target.value)}
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+                >
+                  {reportingMonthYearOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">Locked once confirmed</p>
+              </div>
+              <div className="rounded-md border border-neutral-200 dark:border-neutral-600 bg-neutral-100 dark:bg-neutral-800/50 px-3 py-2.5 space-y-1.5 text-sm">
+                <div className="flex justify-between gap-2">
+                  <span className="text-neutral-500 dark:text-neutral-400">Reporting version</span>
+                  <span className="text-neutral-500 dark:text-neutral-400 font-medium">Yes</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-neutral-500 dark:text-neutral-400">Reporting month / year</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">{formatReportingMonthYear(reportingMonthYear)}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-neutral-500 dark:text-neutral-400">Locked by</span>
+                  <span className="text-neutral-500 dark:text-neutral-400 truncate">{triggeredBy ?? "Not available"}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-neutral-500 dark:text-neutral-400">Locked on</span>
+                  <span className="text-neutral-500 dark:text-neutral-400">{new Date().toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between gap-2 items-start">
+                  <span className="text-neutral-500 dark:text-neutral-400 shrink-0">Reporting note</span>
+                  <span className="text-neutral-500 dark:text-neutral-400 text-right min-w-0">
+                    {reportingNote.trim() || "—"}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label htmlFor="reporting-note-input-sim" className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Reporting note
+                </label>
+                <textarea
+                  id="reporting-note-input-sim"
+                  placeholder="Why is this the reporting version?"
+                  value={reportingNote}
+                  onChange={(e) => setReportingNote(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 shrink-0 px-4 sm:px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
+              <button
+                type="button"
+                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); }}
+                className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={setReportingSaving}
+                onClick={async () => {
+                  const currentId = simulation.current?.id;
+                  if (!currentId || !effectiveProjectId) return;
+                  setSetReportingSaving(true);
+                  try {
+                    await setSnapshotAsReportingVersion(currentId, {
+                      note: reportingNote,
+                      lockedBy: triggeredBy ?? "Unknown",
+                      reportingMonthYear,
+                    });
+                    const row = await getLatestSnapshot(effectiveProjectId);
+                    if (row?.id === currentId) setReportingSnapshotRow(row);
+                    setSetReportingModalOpen(false);
+                    setReportingNote("");
+                    setReportingMonthYear(toMonthYearKey(new Date()));
+                  } catch {
+                    // Error already logged in setSnapshotAsReportingVersion
+                  } finally {
+                    setSetReportingSaving(false);
+                  }
+                }}
+                className="px-4 py-2 rounded-md bg-neutral-800 dark:bg-neutral-200 text-neutral-100 dark:text-neutral-900 text-sm font-medium hover:bg-neutral-700 dark:hover:bg-neutral-300 focus:outline-none focus:ring-2 focus:ring-neutral-500 disabled:opacity-60"
+              >
+                {setReportingSaving ? "Saving…" : "Confirm"}
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </main>
   );

@@ -2,6 +2,8 @@ export type SimulationRiskSnapshot = {
   id: string;
   title: string;
   category?: string;
+  /** Risk status at run time (for Run Data snapshot display when live risks not available). */
+  status?: "draft" | "open" | "monitoring" | "mitigating" | "closed" | "archived";
   expectedCost: number;
   expectedDays: number;
   simMeanCost: number;
@@ -25,6 +27,8 @@ export type SimulationSnapshot = {
   totalExpectedCost: number;
   totalExpectedDays: number;
   risks: SimulationRiskSnapshot[];
+  /** Wall-clock duration of the simulation run in milliseconds (for Run Data display). */
+  runDurationMs?: number;
   /** Day 5 intelligence (backend-only) */
   simStdDev?: number;
   triggerRate?: number;

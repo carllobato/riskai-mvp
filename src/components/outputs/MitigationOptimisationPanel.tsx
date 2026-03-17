@@ -118,14 +118,17 @@ export function MitigationOptimisationPanel() {
       </h2>
       <div className="p-4">
         <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-          Baseline (Neutral) P80 and ranked mitigation leverage by benefit per dollar.
+          Baseline = Monte Carlo neutral P80 cost (same run as Cost Distribution). Benefit is projected from a parametric model, not from a second simulation. Ranking by leverage score (benefit per $ × materiality weight).
         </p>
         <div className="mb-4">
-          <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Baseline (Neutral) P80</span>
+          <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">Baseline (Neutral) P80 cost</span>
           <div className="mt-0.5 text-lg font-semibold text-neutral-800 dark:text-neutral-200">
             {formatCost(data.baseline.neutralP80)}
           </div>
         </div>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+          Benefit per $ = first spend band’s marginal benefit ÷ incremental spend. Best ROI band may be a different band (max benefit per $).
+        </p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm border-collapse">
             <thead>

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabaseServerClient } from "@/lib/supabase/server";
 import { SignOutButton } from "./SignOutButton";
+import { AccountProfileForm } from "./AccountProfileForm";
 
 /** User settings: authenticated users only (enforced by (protected) layout). */
 export default async function UserSettingsPage() {
@@ -27,7 +28,14 @@ export default async function UserSettingsPage() {
         <h2 className="text-lg font-medium text-[var(--foreground)] mb-3">
           Profile
         </h2>
-        <dl className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-4 space-y-2 text-sm">
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-4 space-y-4">
+          <AccountProfileForm
+            initialFirstName={(user.user_metadata as Record<string, unknown> | undefined)?.first_name as string | undefined}
+            initialLastName={(user.user_metadata as Record<string, unknown> | undefined)?.last_name as string | undefined}
+            initialCompany={(user.user_metadata as Record<string, unknown> | undefined)?.company as string | undefined}
+          />
+        </div>
+        <dl className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-4 space-y-2 text-sm mt-4">
           <div>
             <dt className="text-neutral-500 dark:text-neutral-400">Email</dt>
             <dd className="font-medium text-[var(--foreground)]">

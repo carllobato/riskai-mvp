@@ -17,7 +17,6 @@ import {
   buildSimulationReport,
   buildSimulationSnapshotFromResult,
 } from "@/domain/simulation/monteCarlo";
-import { makeId } from "@/lib/id";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
 import { loadState, saveState } from "@/store/persist";
@@ -199,6 +198,7 @@ type Action =
     }
   | { type: "simulation/clearHistory" }
   | { type: "simulation/setDelta"; delta: SimulationDelta | null }
+  | { type: "simulation/setCanonicalId"; payload: { id: string } }
   | {
       type: "simulation/hydrate";
       payload: {
@@ -362,6 +362,27 @@ function reducer(state: State, action: Action): State {
         ...state,
         simulation: { ...state.simulation, delta: action.delta },
       };
+
+    case "simulation/setCanonicalId": {
+      const { id } = action.payload;
+      const current = state.simulation.current
+        ? { ...state.simulation.current, id }
+        : undefined;
+      const scenarioSnapshots = state.simulation.scenarioSnapshots?.neutral
+        ? {
+            ...state.simulation.scenarioSnapshots,
+            neutral: { ...state.simulation.scenarioSnapshots.neutral, id },
+          }
+        : state.simulation.scenarioSnapshots;
+      return {
+        ...state,
+        simulation: {
+          ...state.simulation,
+          current,
+          ...(scenarioSnapshots != null && { scenarioSnapshots }),
+        },
+      };
+    }
 
     case "simulation/hydrate": {
       const { current, history, scenarioSnapshots, neutral, seed } = action.payload;
@@ -636,6 +657,8 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
             ? state.simulation.seed
             : Math.random() * 0xffffffff;
 
+        const runStartMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+
         const neutralRisks = state.risks.map((r) =>
           applyScenarioToRiskInputs(r, "neutral")
         );
@@ -651,7 +674,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         );
         const neutralSnapshot: SimulationSnapshot = {
           ...snapshotFields,
-          id: makeId("sim"),
+          id: "", // Pending; replaced by simulation_snapshots.id after successful persist
           timestampIso: new Date().toISOString(),
         };
         const summaryReport = buildSimulationReport(mcResult, iterCount);
@@ -689,7 +712,6 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           },
           snapshotProjectId
         );
-        snapshotPromise.catch((e) => console.error("[snapshots]", e));
 
         const effectiveRisks = state.risks.filter(
           (r) => r.status !== "closed" && r.status !== "archived"
@@ -713,18 +735,32 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
             { profile: "aggressive" }
           ),
         };
+        const runDurationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - runStartMs;
+        const snapshotWithDuration: SimulationSnapshot = {
+          ...neutralSnapshot,
+          runDurationMs: Math.round(runDurationMs * 100) / 100,
+        };
+        scenarioSnapshots.neutral = snapshotWithDuration;
         dispatch({
           type: "simulation/run",
-          payload: { snapshot: neutralSnapshot, scenarioSnapshots, neutral },
+          payload: { snapshot: snapshotWithDuration, scenarioSnapshots, neutral },
         });
         const previous = state.simulation.current;
         if (previous) {
           dispatch({
             type: "simulation/setDelta",
-            delta: calculateDelta(previous, neutralSnapshot),
+            delta: calculateDelta(previous, snapshotWithDuration),
           });
         }
-        return snapshotPromise.then(() => ({ ran: true } as const));
+        return snapshotPromise
+          .then((row) => {
+            if (row?.id) dispatch({ type: "simulation/setCanonicalId", payload: { id: row.id } });
+            return { ran: true } as const;
+          })
+          .catch((e) => {
+            console.error("[snapshots]", e);
+            return { ran: true } as const; // Simulation ran; persistence failed; id stays pending
+          });
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
       hydrateSimulationFromDbSnapshot: (row) => {

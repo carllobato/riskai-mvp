@@ -17,16 +17,18 @@ const DEFAULT_PROJECT_ID = "a8995152-7065-4f79-ab8a-015b6ab0a3ec";
 
 /**
  * Insert a Monte Carlo simulation result summary into simulation_snapshots.
+ * Returns the inserted row including the canonical UUID primary key (id).
  * @param projectId - Optional project UUID; when omitted uses default (legacy single-project).
  */
 export async function createSnapshot(
   snapshot: SimulationSnapshotInput,
   projectId?: string
-): Promise<void> {
+): Promise<SimulationSnapshotRow | null> {
   const pid = projectId ?? DEFAULT_PROJECT_ID;
-  try {
-    const supabase = supabaseBrowserClient();
-    const { error } = await supabase.from("simulation_snapshots").insert({
+  const supabase = supabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("simulation_snapshots")
+    .insert({
       project_id: pid,
       scenario: snapshot.scenario,
       iterations: Number(snapshot.iterations),
@@ -38,16 +40,16 @@ export async function createSnapshot(
       p90_time: Number(snapshot.p90_time),
       mean_cost: snapshot.mean_cost ? Number(snapshot.mean_cost) : null,
       mean_time: snapshot.mean_time ? Number(snapshot.mean_time) : null,
-    });
+    })
+    .select("id, project_id, scenario, iterations, created_at")
+    .single();
 
-    if (error) {
-      console.error("[snapshot insert error]", error);
-      throw error;
-    }
-  } catch (error) {
+  if (error) {
     console.error("[snapshot insert error]", error);
     throw error;
   }
+
+  return data as SimulationSnapshotRow | null;
 }
 
 /**
@@ -88,4 +90,35 @@ export type SimulationSnapshotRow = {
   mean_cost?: number | null;
   mean_time?: number | null;
   created_at?: string;
+  reporting_version?: boolean;
+  reporting_locked_at?: string | null;
+  reporting_locked_by?: string | null;
+  reporting_note?: string | null;
+  reporting_month_year?: string | null;
 } | null;
+
+/**
+ * Set a snapshot as the reporting version (one-way lock). Persists reporting_version, locked_at, locked_by, note, reporting_month_year.
+ * reporting_month_year should be "YYYY-MM" (e.g. "2025-03").
+ */
+export async function setSnapshotAsReportingVersion(
+  snapshotId: string,
+  params: { note: string; lockedBy: string; reportingMonthYear: string }
+): Promise<void> {
+  const supabase = supabaseBrowserClient();
+  const { error } = await supabase
+    .from("simulation_snapshots")
+    .update({
+      reporting_version: true,
+      reporting_locked_at: new Date().toISOString(),
+      reporting_locked_by: params.lockedBy || null,
+      reporting_note: params.note?.trim() || null,
+      reporting_month_year: params.reportingMonthYear?.trim() || null,
+    })
+    .eq("id", snapshotId);
+
+  if (error) {
+    console.error("[setSnapshotAsReportingVersion]", error);
+    throw error;
+  }
+}

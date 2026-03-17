@@ -1,10 +1,17 @@
-"use client";
-
-import { useParams } from "next/navigation";
+import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import RunDataPage from "../../../run-data/page";
 
-export default function ProjectRunDataPage() {
-  const params = useParams();
-  const projectId = typeof params?.projectId === "string" ? params.projectId : null;
-  return <RunDataPage projectId={projectId} />;
+export default async function ProjectRunDataPage({
+  params,
+}: {
+  params: Promise<{ projectId: string }>;
+}) {
+  const { projectId } = await params;
+  const project = await getProjectIfAccessible(projectId);
+  return (
+    <RunDataPage
+      projectId={project?.id ?? projectId}
+      projectName={project?.name ?? null}
+    />
+  );
 }

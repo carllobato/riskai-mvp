@@ -466,57 +466,63 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         </div>
       ) : (
         <>
-      <RiskRegisterTable
-          risks={filteredRisks}
-          risksForFilterOptions={risksForFilterOptions}
-          decisionById={decisionById}
-          scoreDeltaByRiskId={scoreDeltaByRiskId}
-          onRiskClick={(risk) => {
-            setDetailInitialRiskId(risk.id);
-            setShowDetailModal(true);
-          }}
-          onAddNewClick={() => setShowAddNewRiskChoiceModal(true)}
-          sortState={tableSortState}
-          onSortByColumn={(column: SortColumn) => {
-            setTableSortState((prev) => {
-              if (prev?.column === column) {
-                return prev.direction === "asc"
-                  ? { column, direction: "desc" as const }
-                  : null;
-              }
-              return { column, direction: "asc" as const };
-            });
-          }}
-          columnFilters={columnFilters}
-          onColumnFilterChange={(column, values) => {
-            setColumnFilters((prev) => ({
-              ...prev,
-              [column]: values.length > 0 ? values : undefined,
-            }));
-          }}
-        />
-      <RiskDetailModal
-        open={showDetailModal}
-        risks={risksForDetailModal}
-        initialRiskId={detailInitialRiskId}
-        onClose={() => setShowDetailModal(false)}
-        onSave={(risk) => updateRisk(risk.id, risk)}
-        onAddNew={() => {
-          setShowDetailModal(false);
-          setShowAddRiskModal(true);
-        }}
-        onAddNewWithFile={() => {
-          setShowDetailModal(false);
-          setShowCreateRiskFileModal(true);
-        }}
-        onAddNewWithAI={() => {
-          setShowDetailModal(false);
-          setShowAddNewRiskChoiceModal(true);
-        }}
-      />
+          <RiskRegisterTable
+            risks={filteredRisks}
+            risksForFilterOptions={risksForFilterOptions}
+            decisionById={decisionById}
+            scoreDeltaByRiskId={scoreDeltaByRiskId}
+            onRiskClick={(risk) => {
+              setDetailInitialRiskId(risk.id);
+              setShowDetailModal(true);
+            }}
+            onAddNewClick={() => setShowAddNewRiskChoiceModal(true)}
+            sortState={tableSortState}
+            onSortByColumn={(column: SortColumn) => {
+              setTableSortState((prev) => {
+                if (prev?.column === column) {
+                  return prev.direction === "asc"
+                    ? { column, direction: "desc" as const }
+                    : null;
+                }
+                return { column, direction: "asc" as const };
+              });
+            }}
+            columnFilters={columnFilters}
+            onColumnFilterChange={(column, values) => {
+              setColumnFilters((prev) => ({
+                ...prev,
+                [column]: values.length > 0 ? values : undefined,
+              }));
+            }}
+          />
+          <RiskDetailModal
+            open={showDetailModal}
+            risks={risksForDetailModal}
+            initialRiskId={detailInitialRiskId}
+            onClose={() => setShowDetailModal(false)}
+            onSave={(risk) => updateRisk(risk.id, risk)}
+            onAddNew={() => {
+              setShowDetailModal(false);
+              setShowAddRiskModal(true);
+            }}
+            onAddNewWithFile={() => {
+              setShowDetailModal(false);
+              setShowCreateRiskFileModal(true);
+            }}
+            onAddNewWithAI={() => {
+              setShowDetailModal(false);
+              setShowAddNewRiskChoiceModal(true);
+            }}
+          />
+        </>
+      )}
       <AddNewRiskChoiceModal
         open={showAddNewRiskChoiceModal}
         onClose={() => setShowAddNewRiskChoiceModal(false)}
+        onAddManualRisk={() => {
+          setShowAddNewRiskChoiceModal(false);
+          setShowAddRiskModal(true);
+        }}
         onRisksAdded={(riskIds) => {
           setColumnFilters({});
           setShowAddNewRiskChoiceModal(false);
@@ -552,8 +558,6 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         onAcceptMerge={handleAcceptMerge}
         onSkipCluster={handleSkipCluster}
       />
-        </>
-      )}
     </main>
   );
 }

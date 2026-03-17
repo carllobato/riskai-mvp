@@ -79,11 +79,14 @@ export function AddNewRiskChoiceModal({
   open,
   onClose,
   onRisksAdded,
+  onAddManualRisk,
 }: {
   open: boolean;
   onClose: () => void;
   /** Called after risks are successfully extracted/imported; use to e.g. open detail for first risk */
   onRisksAdded?: (riskIds: string[]) => void;
+  /** Called when user chooses to add a risk manually (form); parent should close this modal and open AddRiskModal */
+  onAddManualRisk?: () => void;
 }) {
   const { appendRisks } = useRiskRegister();
   const [documentText, setDocumentText] = useState("");
@@ -289,6 +292,23 @@ export function AddNewRiskChoiceModal({
           <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-4">
             Choose how you want to add a risk:
           </p>
+          {onAddManualRisk && (
+            <div className="mb-4">
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onAddManualRisk();
+                }}
+                className="w-full sm:w-auto px-4 py-2.5 rounded-md border-2 border-dashed border-neutral-300 dark:border-neutral-600 bg-neutral-50/80 dark:bg-neutral-800/50 text-neutral-700 dark:text-neutral-300 text-sm font-medium hover:border-neutral-400 dark:hover:border-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
+              >
+                Add risk manually
+              </button>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1.5">
+                Fill in the risk form (title, category, ratings, mitigation, etc.)
+              </p>
+            </div>
+          )}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className={containerClass}>
               <h3 className={boxTitleClass}>Generate Risk with Text Entry</h3>

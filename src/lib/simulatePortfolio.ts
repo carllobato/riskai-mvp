@@ -197,6 +197,7 @@ export function simulatePortfolio(
       id: risk.id,
       title: risk.title,
       category: risk.category,
+      status: risk.status,
       expectedCost,
       expectedDays,
       simMeanCost: acc.costSum / iterations,

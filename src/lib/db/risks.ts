@@ -39,6 +39,7 @@ function rowToRisk(row: RiskRow): Risk {
     title: row.title,
     description: row.description ?? undefined,
     category: row.category as Risk["category"],
+    /** Maps Supabase table column "status" to domain status (draft, open, monitoring, mitigating, closed, archived). */
     status: row.status as Risk["status"],
     owner: row.owner ?? undefined,
     mitigation: row.mitigation_description ?? undefined,
