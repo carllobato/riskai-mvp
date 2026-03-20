@@ -51,7 +51,7 @@ function formatReportingMonthYear(ym: string | null | undefined): string {
   return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
-/** Format ISO timestamp for Run Metadata: "15 Mar 2026 — 09:08". */
+/** Format ISO timestamp for Run Metadata: "15 Mar 2026 — 09:08:37". */
 function formatRunTimestamp(iso: string): string {
   try {
     const d = new Date(iso);
@@ -64,6 +64,7 @@ function formatRunTimestamp(iso: string): string {
     const timePart = d.toLocaleTimeString("en-GB", {
       hour: "2-digit",
       minute: "2-digit",
+      second: "2-digit",
       hour12: false,
     });
     return `${datePart} — ${timePart}`;
