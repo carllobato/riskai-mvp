@@ -4,11 +4,9 @@ import { useMemo, useEffect, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { listRisks } from "@/lib/db/risks";
 import { computePortfolioExposure } from "@/engine/forwardExposure";
+import { PositionBar } from "@/components/dashboard/PositionBar";
 import { SummaryTile } from "@/components/dashboard/SummaryTile";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
-import { ForecastSummaryCard } from "@/components/dashboard/ForecastSummaryCard";
-import { RankedRiskList } from "@/components/dashboard/RankedRiskList";
-import { EmptyState } from "@/components/dashboard/EmptyState";
 import { formatCurrency, formatRatio } from "@/lib/formatCurrency";
 import { formatDurationDays } from "@/lib/formatDuration";
 import { loadProjectContext } from "@/lib/projectContext";
@@ -26,23 +24,8 @@ type ProjectOverviewContentProps = {
   initialData: ProjectOverviewInitialData;
 };
 
-function formatSnapshotDate(iso: string | undefined): string {
-  if (!iso) return "Not available";
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
-  } catch {
-    return "Not available";
-  }
-}
-
-/** Derive P80 from P50 and P90 when not stored (e.g. DB only has P10, P50, P90). */
-function p80FromP50P90(p50: number, p90: number): number {
-  return (p50 + p90) / 2;
-}
-
 export function ProjectOverviewContent({ initialData }: ProjectOverviewContentProps) {
-  const { projectId, projectName, riskCount, latestSnapshot } = initialData ?? {
+  const { projectId, riskCount, latestSnapshot } = initialData ?? {
     projectId: "",
     projectName: "",
     riskCount: 0,
@@ -65,7 +48,6 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
       })
       .catch((err) => console.error("[ProjectOverview] load risks", err))
       .finally(() => setLoading(false));
-    // Intentionally depend only on projectId; setRisks identity changes when store updates and would cause a re-fetch loop / crash.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
@@ -80,81 +62,23 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
     ).length;
   }, [risks]);
 
-  const costPercentiles = useMemo(() => {
+  const costPosition = useMemo(() => {
     const row = latestSnapshot;
-    if (!row || typeof row !== "object") return [];
+    if (!row || typeof row !== "object") return null;
     const p10 = Number(row.p10_cost) ?? 0;
     const p50 = Number(row.p50_cost) ?? 0;
     const p90 = Number(row.p90_cost) ?? 0;
-    const p80 = p80FromP50P90(p50, p90);
-    return [
-      { label: "P10", value: formatCurrency(p10) },
-      { label: "P50", value: formatCurrency(p50) },
-      { label: "P80", value: formatCurrency(p80) },
-      { label: "P90", value: formatCurrency(p90) },
-    ];
+    return { p10, p50, p90 };
   }, [latestSnapshot]);
 
-  const schedulePercentiles = useMemo(() => {
+  const schedulePosition = useMemo(() => {
     const row = latestSnapshot;
-    if (!row || typeof row !== "object") return [];
+    if (!row || typeof row !== "object") return null;
     const p10 = Number(row.p10_time) ?? 0;
     const p50 = Number(row.p50_time) ?? 0;
     const p90 = Number(row.p90_time) ?? 0;
-    const p80 = p80FromP50P90(p50, p90);
-    return [
-      { label: "P10", value: formatDurationDays(p10) },
-      { label: "P50", value: formatDurationDays(p50) },
-      { label: "P80", value: formatDurationDays(p80) },
-      { label: "P90", value: formatDurationDays(p90) },
-    ];
+    return { p10, p50, p90 };
   }, [latestSnapshot]);
-
-  const topCostRisks = useMemo(() => {
-    if (!exposure?.topDrivers?.length) return [];
-    return exposure.topDrivers.slice(0, 5).map((d) => {
-      const risk = risks.find((r) => r.id === d.riskId);
-      return {
-        id: d.riskId,
-        title: risk?.title ?? d.riskId,
-        ownerOrCategory: risk?.owner ?? risk?.category ?? d.category,
-        value: d.total,
-        status: risk?.status,
-      };
-    });
-  }, [exposure, risks]);
-
-  const topScheduleRisks = useMemo(() => {
-    const withDays = risks
-      .map((r) => {
-        const days =
-          r.scheduleImpactDays ??
-          r.postMitigationTimeML ??
-          r.preMitigationTimeML ??
-          0;
-        return { risk: r, days };
-      })
-      .filter((x) => x.days > 0)
-      .sort((a, b) => b.days - a.days)
-      .slice(0, 5);
-    return withDays.map(({ risk, days }) => ({
-      id: risk.id,
-      title: risk.title,
-      ownerOrCategory: risk.owner ?? risk.category ?? "—",
-      days,
-      status: risk.status,
-    }));
-  }, [risks]);
-
-  const registerCounts = useMemo(() => {
-    const open = risks.filter((r) => r.status === "open").length;
-    const high = risks.filter(
-      (r) => r.residualRating?.level === "high" || r.residualRating?.level === "extreme"
-    ).length;
-    const mitigated = risks.filter((r) => (r.mitigation?.trim()?.length ?? 0) > 0).length;
-    const closed = risks.filter((r) => r.status === "closed" || r.status === "archived").length;
-    return { open, high, mitigated, closed };
-  }, [risks]);
 
   const residualExposure = exposure?.total ?? 0;
   const totalScheduleExposureDays = useMemo(() => {
@@ -167,6 +91,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
       return sum + (Number.isFinite(days) ? days : 0);
     }, 0);
   }, [risks]);
+
   const projectContext = useMemo(
     () => (projectId ? loadProjectContext(projectId) : null),
     [projectId]
@@ -179,194 +104,159 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   const coverageRatio =
     contingencyHeld != null && residualExposure > 0 ? contingencyHeld / residualExposure : null;
 
-  const lastRunDate = latestSnapshot?.created_at;
-  const lastRunIterations = latestSnapshot?.iterations;
+  const targetLabel = projectContext?.riskAppetite ?? "P80";
+  const targetMet = coverageRatio != null && coverageRatio >= 1;
+  const targetStatus = coverageRatio == null ? null : targetMet ? "Met" : "Below recommended";
+
+  const verdict = useMemo(() => {
+    if (highSeverityCount > 0 && (coverageRatio == null || coverageRatio < 1))
+      return { label: "Review recommended", support: "Exposure exceeds contingency or high-severity risks present.", tone: "amber" as const };
+    if (riskCount === 0)
+      return { label: "No risks yet", support: "Add risks and run simulation to see verdict.", tone: "neutral" as const };
+    return {
+      label: "Controlled",
+      support: `Project is operating within recommended confidence (${projectContext?.riskAppetite ?? "P80"}).`,
+      tone: "emerald" as const,
+    };
+  }, [highSeverityCount, coverageRatio, riskCount, projectContext?.riskAppetite]);
+
+  const scheduleBufferDays =
+    projectContext?.scheduleContingency_weeks != null && Number.isFinite(projectContext.scheduleContingency_weeks)
+      ? projectContext.scheduleContingency_weeks * 7
+      : null;
 
   if (loading) {
     return (
-      <main className="p-6">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading overview…</p>
+      <main className="p-6 max-w-6xl mx-auto w-full">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main className="p-6 max-w-6xl mx-auto">
-      {/* Section A — Project Health Summary: 6 tiles */}
-      <section className="mb-8" aria-labelledby="project-health-heading">
-        <h2 id="project-health-heading" className="sr-only">
-          Project health summary
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          <SummaryTile
-            title="Risks"
-            primaryValue={String(riskCount)}
-            subtext={highSeverityCount > 0 ? `${highSeverityCount} high severity` : undefined}
-          />
-          <SummaryTile
-            title="Residual Risk Exposure"
-            primaryValue={exposure ? formatCurrency(residualExposure) : "Not available"}
-            subtext="Aggregated current project exposure"
-          />
-          <SummaryTile
-            title="Residual Time Exposure"
-            primaryValue={
-              risks.length > 0 && totalScheduleExposureDays > 0
-                ? formatDurationDays(totalScheduleExposureDays)
-                : "Not available"
-            }
-            subtext="Aggregated current schedule exposure"
-          />
-          <SummaryTile
-            title="Contingency Held"
-            primaryValue={
-              contingencyHeld != null ? formatCurrency(contingencyHeld) : "Not available"
-            }
-            subtext="Available contingency allowance"
-          />
-          <SummaryTile
-            title="Coverage Ratio"
-            primaryValue={
-              coverageRatio != null ? formatRatio(coverageRatio) : "Not available"
-            }
-            subtext="Protection level"
-          />
-          <SummaryTile
-            title="Last Simulation Run"
-            primaryValue={formatSnapshotDate(lastRunDate)}
-            subtext={
-              lastRunIterations != null && Number.isFinite(lastRunIterations)
-                ? `${lastRunIterations.toLocaleString()} iterations`
-                : undefined
-            }
-          />
+    <main className="p-6 max-w-6xl mx-auto w-full">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold m-0 text-[var(--foreground)]">Project Overview</h2>
+      </div>
+
+      {/* Verdict strip — simulation-style baseline panel */}
+      <section
+        className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden"
+        aria-labelledby="verdict-heading"
+      >
+        <div className="py-3 px-4 bg-[var(--background)]">
+          <h2 id="verdict-heading" className="sr-only">
+            Project verdict
+          </h2>
+          <p
+            className={`text-xl font-semibold tracking-tight m-0 ${
+              verdict.tone === "emerald"
+                ? "text-emerald-700 dark:text-emerald-400"
+                : verdict.tone === "amber"
+                  ? "text-amber-700 dark:text-amber-400"
+                  : "text-[var(--foreground)]"
+            }`}
+          >
+            {verdict.label}
+          </p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0 mt-0.5">
+            {verdict.support}
+          </p>
         </div>
       </section>
 
-      {/* Section B — Forecast Summary: Cost and Schedule */}
-      <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6" aria-labelledby="forecast-heading">
-        <h2 id="forecast-heading" className="sr-only">
-          Forecast summary
-        </h2>
-        <ForecastSummaryCard
-          title="Cost Forecast"
-          percentiles={costPercentiles}
-          emptyMessage="No simulation run yet. Run simulation on the Run Data page."
-        />
-        <ForecastSummaryCard
-          title="Schedule Forecast"
-          percentiles={schedulePercentiles}
-          emptyMessage="No simulation run yet. Run simulation on the Run Data page."
-        />
+      {/* Metric tiles row — same layout as Simulation baseline */}
+      <section
+        className="mt-0 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden"
+        aria-labelledby="metrics-heading"
+      >
+        <div className="py-3 px-4 bg-[var(--background)]">
+          <h2 id="metrics-heading" className="sr-only">
+            Core metrics
+          </h2>
+          <div className="w-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <SummaryTile
+              title="Residual Cost"
+              primaryValue={exposure ? formatCurrency(residualExposure) : "—"}
+            />
+            <SummaryTile
+              title="Residual Schedule"
+              primaryValue={
+                risks.length > 0 && totalScheduleExposureDays > 0
+                  ? formatDurationDays(totalScheduleExposureDays)
+                  : "—"
+              }
+            />
+            <SummaryTile
+              title="Contingency"
+              primaryValue={contingencyHeld != null ? formatCurrency(contingencyHeld) : "—"}
+            />
+            <SummaryTile
+              title="Coverage"
+              primaryValue={coverageRatio != null ? formatRatio(coverageRatio) : "—"}
+            />
+            <SummaryTile
+              title="Target"
+              primaryValue={
+                projectContext
+                  ? `${targetLabel}${targetStatus != null ? ` (${targetStatus})` : ""}`
+                  : "—"
+              }
+            />
+          </div>
+        </div>
       </section>
 
-      {/* Section C — Key Risk Drivers */}
-      <section className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-6" aria-labelledby="drivers-heading">
-        <h2 id="drivers-heading" className="sr-only">
-          Key risk drivers
+      {/* Position bars in cards — same two-column layout as Simulation */}
+      <section
+        className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6"
+        aria-labelledby="position-heading"
+      >
+        <h2 id="position-heading" className="sr-only">
+          Cost and schedule position
         </h2>
-        <DashboardCard title="Top 5 Cost Risks">
-          {topCostRisks.length === 0 ? (
-            <EmptyState message="No cost drivers. Add risks and run simulation or use Run Data for exposure." />
-          ) : (
-            <RankedRiskList
-              items={topCostRisks}
-              renderRow={(item) => (
-                <div className="flex-1 min-w-0 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--foreground)] truncate m-0">
-                      {item.title}
-                    </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0">
-                      {item.ownerOrCategory}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-medium text-[var(--foreground)]">
-                      {formatCurrency(item.value)}
-                    </span>
-                    {item.status != null && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-300">
-                        {item.status}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
+        <DashboardCard title="Cost">
+          {costPosition ? (
+            <PositionBar
+              label="Cost"
+              p10={costPosition.p10}
+              p50={costPosition.p50}
+              p90={costPosition.p90}
+              formatValue={formatCurrency}
+              valueLabel="P50"
+              currentPosition={contingencyHeld}
             />
+          ) : (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
+              No simulation run yet. Run simulation on Run Data.
+            </p>
           )}
         </DashboardCard>
-        <DashboardCard title="Top 5 Schedule Risks">
-          {topScheduleRisks.length === 0 ? (
-            <EmptyState message="No schedule impact data. Add schedule impact (days) to risks." />
-          ) : (
-            <RankedRiskList
-              items={topScheduleRisks}
-              renderRow={(item) => (
-                <div className="flex-1 min-w-0 flex items-center justify-between gap-2 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-[var(--foreground)] truncate m-0">
-                      {item.title}
-                    </p>
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0">
-                      {item.ownerOrCategory}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-medium text-[var(--foreground)]">
-                      {item.days} days
-                    </span>
-                    {item.status != null && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-200 dark:bg-neutral-600 text-neutral-700 dark:text-neutral-300">
-                        {item.status}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              )}
+        <DashboardCard title="Schedule">
+          {schedulePosition ? (
+            <PositionBar
+              label="Schedule"
+              p10={schedulePosition.p10}
+              p50={schedulePosition.p50}
+              p90={schedulePosition.p90}
+              formatValue={formatDurationDays}
+              valueLabel="P50"
+              currentPosition={scheduleBufferDays}
             />
+          ) : (
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
+              No simulation run yet. Run simulation on Run Data.
+            </p>
           )}
         </DashboardCard>
       </section>
 
-      {/* Section D — Risk Register Snapshot */}
-      <section className="grid grid-cols-2 lg:grid-cols-4 gap-4" aria-labelledby="register-heading">
-        <h2 id="register-heading" className="sr-only">
-          Risk register snapshot
-        </h2>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 m-0 mb-1">
-            Open Risks
-          </p>
-          <p className="text-2xl font-semibold text-[var(--foreground)] m-0">
-            {registerCounts.open}
-          </p>
-        </div>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 m-0 mb-1">
-            High Risks
-          </p>
-          <p className="text-2xl font-semibold text-[var(--foreground)] m-0">
-            {registerCounts.high}
-          </p>
-        </div>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 m-0 mb-1">
-            Mitigated Risks
-          </p>
-          <p className="text-2xl font-semibold text-[var(--foreground)] m-0">
-            {registerCounts.mitigated}
-          </p>
-        </div>
-        <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4">
-          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400 m-0 mb-1">
-            Closed Risks
-          </p>
-          <p className="text-2xl font-semibold text-[var(--foreground)] m-0">
-            {registerCounts.closed}
-          </p>
-        </div>
-      </section>
+      {/* Footer */}
+      <footer className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-700">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
+          Based on latest reporting run · Synced with Run Data
+        </p>
+      </footer>
     </main>
   );
 }
