@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { getLatestSnapshot, setSnapshotAsReportingVersion, type SimulationSnapshotRow } from "@/lib/db/snapshots";
 import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
+import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import {
   getNeutralSummary,
@@ -74,6 +75,13 @@ function MetricTile({
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 
+/**
+ * `app/(protected)/template.tsx` remounts pages on client navigation while the risk-register
+ * store persists. Without this, every simulation mount clears the store and refetches even for
+ * the same project — visible as a wipe → “Loading…” → charts popping back in.
+ */
+let lastSimulationBootstrapProjectId: string | undefined;
+
 /** Build YYYY-MM for a given date. */
 function toMonthYearKey(d: Date): string {
   const y = d.getFullYear();
@@ -121,6 +129,8 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   clearRef.current = clearSimulationHistory;
   const setRisksRef = useRef(setRisks);
   setRisksRef.current = setRisks;
+  const simulationRef = useRef(simulation);
+  simulationRef.current = simulation;
 
   const [activeProjectIdFromStorage, setActiveProjectIdFromStorage] = useState<string | null>(null);
   /** UUID for DB/API: URL or storage when in project routes; in legacy mode use DEFAULT_PROJECT_ID (projectContext.projectName is a display name, not a UUID). */
@@ -141,31 +151,17 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   }, [invalidRunnableCount]);
 
   useEffect(() => {
-    supabaseBrowserClient()
-      .auth.getSession()
-      .then(({ data: { session } }) => {
+    const supabase = supabaseBrowserClient();
+    supabase.auth
+      .getSession()
+      .then(async ({ data: { session } }) => {
         const user = session?.user;
         if (!user) {
           setTriggeredBy(null);
           return;
         }
-        const meta = user.user_metadata as Record<string, unknown> | undefined;
-        const first = (meta?.first_name as string | undefined)?.trim();
-        const last = (meta?.last_name as string | undefined)?.trim();
-        const company = (meta?.company as string | undefined)?.trim();
-        const fullName = (meta?.full_name as string | undefined)?.trim() || (meta?.name as string | undefined)?.trim();
-        let display: string;
-        if (first || last) {
-          const namePart = [first, last].filter(Boolean).join(", ");
-          display = company ? `${namePart} - ${company}` : namePart;
-        } else if (fullName) {
-          const parts = fullName.split(/\s+/).filter(Boolean);
-          const namePart = parts.length > 1 ? `${parts[0]}, ${parts.slice(1).join(" ")}` : parts[0] ?? "";
-          display = namePart && company ? `${namePart} - ${company}` : namePart || (user.email ?? user.id);
-        } else {
-          display = user.email ?? user.id;
-        }
-        setTriggeredBy(display || null);
+        const profile = await fetchPublicProfile(supabase, user.id);
+        setTriggeredBy(formatTriggeredByLabel(user, profile));
       })
       .catch(() => setTriggeredBy(null));
   }, []);
@@ -200,10 +196,25 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
     if (!gateChecked) return;
     if (!isProjectContextComplete(projectContext) && !urlProjectId) return;
     if (!effectiveProjectId) return;
-    setLastRun(null);
-    setSnapshotForProject(null);
-    clearRef.current();
     const projectIdWeAreLoading = effectiveProjectId;
+    const projectSwitched = lastSimulationBootstrapProjectId !== projectIdWeAreLoading;
+    if (projectSwitched) {
+      lastSimulationBootstrapProjectId = projectIdWeAreLoading;
+      setLastRun(null);
+      setSnapshotForProject(null);
+      clearRef.current();
+    } else {
+      const sim = simulationRef.current;
+      const cur = sim.current;
+      const hasPersistedDbRun = !!(cur?.id && !cur.id.startsWith("sim_"));
+      const hasNeutralRun = (sim.neutral?.iterationCount ?? 0) > 0;
+      if (hasPersistedDbRun || hasNeutralRun) {
+        setSnapshotForProject({ projectId: projectIdWeAreLoading, hasSnapshot: true });
+        if (cur?.timestampIso) setLastRun(cur.timestampIso);
+      } else {
+        setSnapshotForProject({ projectId: projectIdWeAreLoading, hasSnapshot: false });
+      }
+    }
     listRisks(projectIdWeAreLoading)
       .then((loaded) => {
         if (effectiveProjectIdRef.current !== projectIdWeAreLoading) return;
@@ -228,15 +239,16 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   }, [gateChecked, projectContext, urlProjectId, effectiveProjectId]);
 
   const isCurrentRunPersisted = simulation.current?.id && !simulation.current.id.startsWith("sim_");
+  const persistedRunId = simulation.current?.id;
   useEffect(() => {
-    if (!effectiveProjectId || !isCurrentRunPersisted || !simulation.current?.id) return;
+    if (!effectiveProjectId || !persistedRunId || persistedRunId.startsWith("sim_")) return;
     getLatestSnapshot(effectiveProjectId)
       .then((row) => {
-        if (row?.id === simulation.current?.id) setReportingSnapshotRow(row);
+        if (row?.id === persistedRunId) setReportingSnapshotRow(row);
         else setReportingSnapshotRow(null);
       })
       .catch(() => setReportingSnapshotRow(null));
-  }, [effectiveProjectId, simulation.current?.id, isCurrentRunPersisted]);
+  }, [effectiveProjectId, persistedRunId]);
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),

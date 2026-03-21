@@ -7,8 +7,10 @@ The app saves risks to **Supabase** when you click the header **Save** button. T
 1. Create `.env.local` in the project root with:
    - `NEXT_PUBLIC_SUPABASE_URL` = your Supabase project URL
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY` = your Supabase anon/public key
+   - **`SUPABASE_SERVICE_ROLE_KEY`** (optional but required for **Settings → Delete account**): copy the **service_role** secret from Supabase → **Project Settings** → **API** → **Project API keys**. Never expose this in client code or `NEXT_PUBLIC_*` vars.
 2. Restart the dev server after adding or changing env vars.
 3. If Save fails, check the browser console and the red error message under the Save button (e.g. RLS policy, missing table, or invalid key).
+4. **Account profile**: **first name, surname, company** go to **`public.users`**; **role** (job title) goes to **`user_metadata.role`**. Run `supabase/migrations/20250321_user_profiles.sql` in the Supabase **SQL Editor** first—see **[supabase-users-table.md](./supabase-users-table.md)** if PostgREST cannot find the table. Until that works, the client fallback may write name fields to **`user_metadata`**.
 
 ## Vercel (production)
 
@@ -27,6 +29,7 @@ The app saves risks to **Supabase** when you click the header **Save** button. T
    |------|--------|---------------|
    | `NEXT_PUBLIC_SUPABASE_URL` | same as `.env.local` | Production (and Preview if desired) |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | same as `.env.local` | Production (and Preview if desired) |
+   | `SUPABASE_SERVICE_ROLE_KEY` | service_role secret from Supabase API settings | Production (and Preview if you use delete account there) |
    | `UPSTASH_REDIS_REST_URL` | same as `.env.local` | Production (and Preview if desired) |
    | `UPSTASH_REDIS_REST_TOKEN` | same as `.env.local` | Production (and Preview if desired) |
 

@@ -182,13 +182,18 @@ export function TopNav({ onMenuClick, onAccountMenuOpen, variant = "default" }: 
                 >
                   Account Settings
                 </Link>
+                <div
+                  className="my-1 border-t border-neutral-200 dark:border-neutral-700"
+                  role="separator"
+                  aria-hidden
+                />
                 <button
                   type="button"
                   role="menuitem"
                   className="w-full cursor-pointer px-4 py-2.5 text-left text-sm text-neutral-800 hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
                   onClick={handleSignOut}
                 >
-                  Sign Out
+                  Sign out
                 </button>
               </div>
             ) : null}

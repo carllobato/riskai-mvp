@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { PageHeader } from "@/components/PageHeader";
+import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
 import { supabaseServerClient } from "@/lib/supabase/server";
 
@@ -18,6 +19,9 @@ export default async function ProjectLayout({
   const { projectId } = await params;
   const access = await assertProjectAccess(projectId);
   if ("error" in access && access.error === "unauthorized") {
+    if (isDevAuthBypassEnabled()) {
+      redirect("/");
+    }
     redirect("/login");
   }
   if ("error" in access && access.error === "forbidden") {

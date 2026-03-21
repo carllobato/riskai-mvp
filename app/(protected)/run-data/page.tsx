@@ -26,6 +26,7 @@ import {
 } from "@/engine/statistics";
 import { computeSimulationAssumptionCounts } from "@/lib/simulationAssumptions";
 import { SIMULATION_ENGINE_VERSION } from "@/domain/simulation/monteCarlo";
+import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
 /** Forward exposure payload keyed by engine scenario IDs (conservative, neutral, aggressive). */
@@ -112,31 +113,17 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
   }, [projectId]);
 
   useEffect(() => {
-    supabaseBrowserClient()
-      .auth.getSession()
-      .then(({ data: { session } }) => {
+    const supabase = supabaseBrowserClient();
+    supabase.auth
+      .getSession()
+      .then(async ({ data: { session } }) => {
         const user = session?.user;
         if (!user) {
           setTriggeredBy(null);
           return;
         }
-        const meta = user.user_metadata as Record<string, unknown> | undefined;
-        const first = (meta?.first_name as string | undefined)?.trim();
-        const last = (meta?.last_name as string | undefined)?.trim();
-        const company = (meta?.company as string | undefined)?.trim();
-        const fullName = (meta?.full_name as string | undefined)?.trim() || (meta?.name as string | undefined)?.trim();
-        let display: string;
-        if (first || last) {
-          const namePart = [first, last].filter(Boolean).join(", ");
-          display = company ? `${namePart} - ${company}` : namePart;
-        } else if (fullName) {
-          const parts = fullName.split(/\s+/).filter(Boolean);
-          const namePart = parts.length > 1 ? `${parts[0]}, ${parts.slice(1).join(" ")}` : parts[0] ?? "";
-          display = namePart && company ? `${namePart} - ${company}` : namePart || (user.email ?? user.id);
-        } else {
-          display = user.email ?? user.id;
-        }
-        setTriggeredBy(display || null);
+        const profile = await fetchPublicProfile(supabase, user.id);
+        setTriggeredBy(formatTriggeredByLabel(user, profile));
       })
       .catch(() => setTriggeredBy(null));
   }, []);

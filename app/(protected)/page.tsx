@@ -1,11 +1,19 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { GreetingHeader } from "@/components/GreetingHeader";
+import { NewProjectTile, ProjectTile } from "@/components/dashboard/ProjectTile";
+import {
+  getProjectTilePayloads,
+  sortProjectTilesByRag,
+  type ProjectTilePayload,
+} from "@/lib/dashboard/projectTileServerData";
+import type { AccessiblePortfolio, AccessibleProject } from "@/lib/portfolios-server";
+import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { getAccessiblePortfolios, getAccessibleProjects } from "@/lib/portfolios-server";
+import { fetchPublicProfile } from "@/lib/profiles/profileDb";
 import { supabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
-
-type ProjectRow = { id: string; name: string; created_at: string | null };
 
 export default async function HomePage() {
   const supabase = await supabaseServerClient();
@@ -13,33 +21,59 @@ export default async function HomePage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) {
+  const devBypass = isDevAuthBypassEnabled();
+  if (!user && !devBypass) {
     redirect("/login?next=" + encodeURIComponent("/"));
   }
 
-  const portfoliosResult = await getAccessiblePortfolios(supabase, user.id);
-  const portfolios = portfoliosResult.ok ? portfoliosResult.portfolios : [];
-  const portfolioIds = portfolios.map((p) => p.id);
+  let portfolios: AccessiblePortfolio[] = [];
+  let projects: AccessibleProject[] = [];
+  let projectTiles: ProjectTilePayload[] = [];
 
-  const projectsResult = await getAccessibleProjects(supabase, user.id, portfolioIds);
-  const projects: ProjectRow[] = projectsResult.ok
-    ? projectsResult.projects
-    : [];
+  if (user) {
+    const portfoliosResult = await getAccessiblePortfolios(supabase, user.id);
+    portfolios = portfoliosResult.ok ? portfoliosResult.portfolios : [];
+    const portfolioIds = portfolios.map((p) => p.id);
+    const projectsResult = await getAccessibleProjects(supabase, user.id, portfolioIds);
+    projects = projectsResult.ok ? projectsResult.projects : [];
+    projectTiles = projectsResult.ok
+      ? sortProjectTilesByRag(await getProjectTilePayloads(supabase, projects))
+      : [];
+  }
+
+  const meta = user?.user_metadata as Record<string, unknown> | undefined;
+  const profileRow = user ? await fetchPublicProfile(supabase, user.id) : null;
+  const rawFirst = profileRow?.first_name ?? meta?.first_name;
+  const dashboardFirstName =
+    typeof rawFirst === "string" && rawFirst.trim() ? rawFirst.trim() : null;
 
   return (
-    <div className="mx-auto max-w-2xl px-4 py-10 sm:px-6">
-      <h1 className="mb-2 text-2xl font-semibold text-[var(--foreground)]">Dashboard</h1>
-      <p className="mb-8 text-sm text-neutral-600 dark:text-neutral-400">
-        Portfolios and projects you have access to.
-      </p>
+    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+      {devBypass && !user ? (
+        <p className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+          <span className="font-medium">Dev preview:</span> no Supabase session. Remove{" "}
+          <code className="rounded bg-amber-100/80 px-1 font-mono text-xs dark:bg-amber-900/50">
+            DEV_SKIP_AUTH_GUARD=1
+          </code>{" "}
+          from <code className="font-mono text-xs">.env.local</code> to test real sign-in. Project URLs still need a
+          logged-in user (RLS).
+        </p>
+      ) : null}
+      <GreetingHeader firstName={dashboardFirstName} />
 
       <section className="mb-10">
         <h2 className="mb-3 text-lg font-medium text-[var(--foreground)]">Portfolios</h2>
         {portfolios.length === 0 ? (
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-6 text-center dark:border-neutral-700 dark:bg-neutral-800/30">
-            <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              You don&apos;t have access to any portfolios yet.
+            <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+              Create a portfolio to organise your projects. If you&apos;re seeing this by mistake, refresh the page.
             </p>
+            <Link
+              href="/onboarding/portfolio"
+              className="inline-flex rounded-md border border-neutral-300 bg-[var(--background)] px-4 py-2 text-sm font-medium text-neutral-800 no-underline hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-100 dark:hover:bg-neutral-800"
+            >
+              Create portfolio
+            </Link>
           </div>
         ) : (
           <ul className="space-y-2">
@@ -60,38 +94,33 @@ export default async function HomePage() {
 
       <section>
         <h2 className="mb-3 text-lg font-medium text-[var(--foreground)]">Projects</h2>
-        {projects.length === 0 ? (
+        {portfolios.length === 0 ? (
+          <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-6 text-center dark:border-neutral-700 dark:bg-neutral-800/30">
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">
+              Add a portfolio above before you can create projects. Every project belongs to a portfolio.
+            </p>
+          </div>
+        ) : projects.length === 0 ? (
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-6 text-center dark:border-neutral-700 dark:bg-neutral-800/30">
             <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">You don&apos;t have any projects yet.</p>
             <Link
-              href="/create-project"
+              href={
+                portfolios[0]?.id
+                  ? `/create-project?portfolioId=${encodeURIComponent(portfolios[0].id)}`
+                  : "/create-project"
+              }
               className="inline-flex rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 no-underline hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
             >
               Create your first project
             </Link>
           </div>
         ) : (
-          <>
-            <ul className="mb-4 space-y-2">
-              {projects.map((p) => (
-                <li key={p.id}>
-                  <Link
-                    href={`/projects/${p.id}`}
-                    className="block rounded-md border border-neutral-200 bg-[var(--background)] px-4 py-3 text-[var(--foreground)] transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
-                  >
-                    <span className="font-medium">{p.name || p.id}</span>
-                    <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">Open project →</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            <Link
-              href="/create-project"
-              className="inline-flex rounded-md border border-neutral-300 bg-[var(--background)] px-4 py-2 text-sm font-medium text-neutral-700 no-underline hover:bg-neutral-100 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            >
-              + New project
-            </Link>
-          </>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {projectTiles.map((payload) => (
+              <ProjectTile key={payload.id} payload={payload} />
+            ))}
+            <NewProjectTile portfolioId={portfolios[0]?.id ?? null} />
+          </div>
         )}
       </section>
     </div>

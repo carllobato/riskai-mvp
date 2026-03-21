@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { useRouter } from "next/navigation";
+import { ACCOUNT_PROFILE_UPDATED_EVENT } from "@/lib/onboarding/types";
+import { saveUserProfileThroughApi } from "@/lib/profiles/profileDb";
 
 const SAVED_RESET_DELAY_MS = 2500;
 
@@ -9,16 +11,20 @@ type Props = {
   initialFirstName?: string | null;
   initialLastName?: string | null;
   initialCompany?: string | null;
+  initialRole?: string | null;
 };
 
 export function AccountProfileForm({
   initialFirstName = "",
   initialLastName = "",
   initialCompany = "",
+  initialRole = "",
 }: Props) {
+  const router = useRouter();
   const [firstName, setFirstName] = useState(initialFirstName ?? "");
   const [lastName, setLastName] = useState(initialLastName ?? "");
   const [company, setCompany] = useState(initialCompany ?? "");
+  const [role, setRole] = useState(initialRole ?? "");
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [message, setMessage] = useState<string | null>(null);
 
@@ -26,21 +32,29 @@ export function AccountProfileForm({
     e.preventDefault();
     setStatus("saving");
     setMessage(null);
-    const supabase = supabaseBrowserClient();
-    const { error } = await supabase.auth.updateUser({
-      data: {
-        first_name: firstName.trim() || null,
-        last_name: lastName.trim() || null,
-        company: company.trim() || null,
-      },
-    });
-    if (error) {
+    const fn = firstName.trim();
+    const ln = lastName.trim();
+    const co = company.trim();
+    if (!fn || !ln || !co) {
       setStatus("error");
-      setMessage(error.message);
+      setMessage("First name, surname, and company are required.");
+      return;
+    }
+    const { error: errMsg } = await saveUserProfileThroughApi({
+      first_name: fn,
+      last_name: ln,
+      company: co,
+      role: role.trim() || null,
+    });
+    if (errMsg) {
+      setStatus("error");
+      setMessage(errMsg);
       return;
     }
     setStatus("saved");
     setMessage("Profile updated. This will appear as “Triggered by” on Run Data.");
+    window.dispatchEvent(new CustomEvent(ACCOUNT_PROFILE_UPDATED_EVENT));
+    router.refresh();
   }
 
   useEffect(() => {
@@ -60,7 +74,7 @@ export function AccountProfileForm({
     <form onSubmit={handleSubmit} className="space-y-4">
       <div>
         <label htmlFor="profile-first-name" className={labelClass}>
-          First name
+          First name <span className="text-red-600 dark:text-red-400">*</span>
         </label>
         <input
           id="profile-first-name"
@@ -70,11 +84,12 @@ export function AccountProfileForm({
           className={inputClass}
           placeholder="First name"
           autoComplete="given-name"
+          required
         />
       </div>
       <div>
         <label htmlFor="profile-last-name" className={labelClass}>
-          Surname
+          Surname <span className="text-red-600 dark:text-red-400">*</span>
         </label>
         <input
           id="profile-last-name"
@@ -84,11 +99,12 @@ export function AccountProfileForm({
           className={inputClass}
           placeholder="Surname"
           autoComplete="family-name"
+          required
         />
       </div>
       <div>
         <label htmlFor="profile-company" className={labelClass}>
-          Company
+          Company <span className="text-red-600 dark:text-red-400">*</span>
         </label>
         <input
           id="profile-company"
@@ -98,6 +114,21 @@ export function AccountProfileForm({
           className={inputClass}
           placeholder="Company"
           autoComplete="organization"
+          required
+        />
+      </div>
+      <div>
+        <label htmlFor="profile-role" className={labelClass}>
+          Role
+        </label>
+        <input
+          id="profile-role"
+          type="text"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          className={inputClass}
+          placeholder="e.g. Risk manager"
+          autoComplete="organization-title"
         />
       </div>
       {message && (
