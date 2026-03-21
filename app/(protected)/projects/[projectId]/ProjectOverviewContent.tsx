@@ -139,10 +139,11 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
         <h2 className="text-lg font-semibold m-0 text-[var(--foreground)]">Project Overview</h2>
       </div>
 
-      {/* Verdict strip — simulation-style baseline panel */}
+      <div className="flex flex-col gap-3">
+      {/* Verdict + core metrics — single panel */}
       <section
         className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden"
-        aria-labelledby="verdict-heading"
+        aria-labelledby="verdict-heading metrics-heading"
       >
         <div className="py-3 px-4 bg-[var(--background)]">
           <h2 id="verdict-heading" className="sr-only">
@@ -163,53 +164,44 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
             {verdict.support}
           </p>
         </div>
-      </section>
-
-      {/* Metric tiles row — same layout as Simulation baseline */}
-      <section
-        className="mt-0 rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden"
-        aria-labelledby="metrics-heading"
-      >
-        <div className="py-3 px-4 bg-[var(--background)]">
-          <h2 id="metrics-heading" className="sr-only">
+        <div className="bg-[var(--background)] py-3 px-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <h2 id="metrics-heading" className="sr-only col-span-full">
             Core metrics
           </h2>
-          <div className="w-full grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-            <SummaryTile
-              title="Residual Cost"
-              primaryValue={exposure ? formatCurrency(residualExposure) : "—"}
-            />
-            <SummaryTile
-              title="Residual Schedule"
-              primaryValue={
-                risks.length > 0 && totalScheduleExposureDays > 0
-                  ? formatDurationDays(totalScheduleExposureDays)
-                  : "—"
-              }
-            />
-            <SummaryTile
-              title="Contingency"
-              primaryValue={contingencyHeld != null ? formatCurrency(contingencyHeld) : "—"}
-            />
-            <SummaryTile
-              title="Coverage"
-              primaryValue={coverageRatio != null ? formatRatio(coverageRatio) : "—"}
-            />
-            <SummaryTile
-              title="Target"
-              primaryValue={
-                projectContext
-                  ? `${targetLabel}${targetStatus != null ? ` (${targetStatus})` : ""}`
-                  : "—"
-              }
-            />
-          </div>
+          <SummaryTile
+            title="Residual Cost"
+            primaryValue={exposure ? formatCurrency(residualExposure) : "—"}
+          />
+          <SummaryTile
+            title="Residual Schedule"
+            primaryValue={
+              risks.length > 0 && totalScheduleExposureDays > 0
+                ? formatDurationDays(totalScheduleExposureDays)
+                : "—"
+            }
+          />
+          <SummaryTile
+            title="Contingency"
+            primaryValue={contingencyHeld != null ? formatCurrency(contingencyHeld) : "—"}
+          />
+          <SummaryTile
+            title="Coverage"
+            primaryValue={coverageRatio != null ? formatRatio(coverageRatio) : "—"}
+          />
+          <SummaryTile
+            title="Target"
+            primaryValue={
+              projectContext
+                ? `${targetLabel}${targetStatus != null ? ` (${targetStatus})` : ""}`
+                : "—"
+            }
+          />
         </div>
       </section>
 
       {/* Position bars in cards — same two-column layout as Simulation */}
       <section
-        className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6"
+        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
         aria-labelledby="position-heading"
       >
         <h2 id="position-heading" className="sr-only">
@@ -250,6 +242,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
           )}
         </DashboardCard>
       </section>
+      </div>
 
       {/* Footer */}
       <footer className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-700">

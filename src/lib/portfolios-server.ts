@@ -131,3 +131,85 @@ export async function getAccessiblePortfolios(
 
   return { ok: true, portfolios: list };
 }
+
+export type AccessibleProject = {
+  id: string;
+  name: string;
+  created_at: string | null;
+};
+
+export type GetAccessibleProjectsResult =
+  | { ok: true; projects: AccessibleProject[] }
+  | { ok: false; error: string };
+
+/**
+ * Server-only: projects the user may see — owned by them or belonging to a portfolio they can access
+ * (owner or member). Uses explicit queries instead of listing all projects so behaviour matches
+ * getAccessiblePortfolios and does not depend on RLS alone.
+ */
+export async function getAccessibleProjects(
+  supabase: SupabaseClient,
+  userId: string,
+  accessiblePortfolioIds: string[]
+): Promise<GetAccessibleProjectsResult> {
+  const { data: ownedProjects, error: ownedError } = await supabase
+    .from("projects")
+    .select("id, name, created_at")
+    .eq("owner_id", userId)
+    .order("created_at", { ascending: true });
+
+  if (ownedError) {
+    return { ok: false, error: ownedError.message };
+  }
+
+  let sharedProjects: { id: string; name: string | null; created_at: string | null }[] = [];
+  if (accessiblePortfolioIds.length > 0) {
+    const { data, error: sharedError } = await supabase
+      .from("projects")
+      .select("id, name, created_at")
+      .in("portfolio_id", accessiblePortfolioIds)
+      .order("created_at", { ascending: true });
+
+    if (sharedError) {
+      return { ok: false, error: sharedError.message };
+    }
+    sharedProjects = data ?? [];
+  }
+
+  const rowToAccessible = (p: { id: string; name: string | null; created_at: string | null }): AccessibleProject => ({
+    id: p.id,
+    name: p.name ?? "",
+    created_at: p.created_at ?? null,
+  });
+
+  /** First non-empty (after trim) display name; safe for null/undefined/non-string DB values. */
+  const preferredName = (raw: unknown): string | null => {
+    if (raw == null) return null;
+    const str = typeof raw === "string" ? raw : String(raw);
+    return str.trim() ? str : null;
+  };
+
+  const mergeRows = (a: AccessibleProject, b: AccessibleProject): AccessibleProject => ({
+    id: a.id,
+    name: preferredName(a.name) ?? preferredName(b.name) ?? "",
+    created_at: a.created_at ?? b.created_at,
+  });
+
+  const byId = new Map<string, AccessibleProject>();
+  for (const p of ownedProjects ?? []) {
+    byId.set(p.id, rowToAccessible(p));
+  }
+  for (const p of sharedProjects) {
+    const next = rowToAccessible(p);
+    const prev = byId.get(p.id);
+    byId.set(p.id, prev ? mergeRows(prev, next) : next);
+  }
+
+  const merged = Array.from(byId.values()).sort((a, b) => {
+    const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+    return ta - tb;
+  });
+
+  return { ok: true, projects: merged };
+}

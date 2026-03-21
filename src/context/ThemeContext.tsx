@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useState } from "react";
 
 const STORAGE_KEY = "riskai-theme";
 
@@ -34,7 +34,8 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<Theme>(() => getInitialTheme());
 
-  useEffect(() => {
+  // Keep <html> class in lockstep with React state before paint (useEffect runs too late and causes dark: styles to flash).
+  useLayoutEffect(() => {
     applyTheme(theme);
   }, [theme]);
 
