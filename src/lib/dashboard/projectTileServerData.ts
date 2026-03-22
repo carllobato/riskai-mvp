@@ -60,7 +60,7 @@ export async function getProjectTilePayloads(
       .from("risks")
       .select("project_id, status, post_probability, post_cost_ml, post_time_ml, mitigation_description")
       .in("project_id", ids),
-    supabase.from("simulation_snapshots").select("project_id, created_at").in("project_id", ids),
+    supabase.from("riskai_simulation_snapshots").select("project_id, created_at").in("project_id", ids),
   ]);
 
   if (risksRes.error || snapshotsRes.error) {
