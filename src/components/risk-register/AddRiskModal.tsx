@@ -2,29 +2,31 @@
 
 import { useState, useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import type { Risk, RiskCategory, RiskStatus, AppliesTo } from "@/domain/risk/risk.schema";
+import type { Risk, RiskStatus, AppliesTo } from "@/domain/risk/risk.schema";
 import { createRisk } from "@/domain/risk/risk.factory";
 import {
   buildRating,
   probabilityPctToScale,
-  costToConsequenceScale,
-  timeDaysToConsequenceScale,
+  consequenceScaleFromAppliesTo,
 } from "@/domain/risk/risk.logic";
-import { OWNER_OPTIONS, APPLIES_TO_OPTIONS } from "./riskFormConstants";
-
-const CATEGORIES: RiskCategory[] = [
-  "commercial",
-  "programme",
-  "design",
-  "construction",
-  "procurement",
-  "hse",
-  "authority",
-  "operations",
-  "other",
-];
-
-const STATUSES: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed"];
+import {
+  appliesToAffectsCost,
+  appliesToAffectsTime,
+  getDefaultNewRiskStatusName,
+  isRiskStatusDraft,
+} from "@/domain/risk/riskFieldSemantics";
+import { dlog } from "@/lib/debug";
+import { useRiskAppliesToOptions } from "./RiskAppliesToOptionsContext";
+import { useRiskProjectOwners } from "./RiskProjectOwnersContext";
+import { useRiskStatusOptions } from "./RiskStatusOptionsContext";
+import { RiskAppliesToSelect } from "./RiskAppliesToSelect";
+import { RiskCategorySelect } from "./RiskCategorySelect";
+import {
+  RiskOwnerPicker,
+  getResolvedOwnerPickerValue,
+  shouldPersistNewOwnerOnSubmit,
+} from "./RiskOwnerPicker";
+import { RiskStatusSelect } from "./RiskStatusSelect";
 
 const inputClass =
   "w-full px-3 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:border-transparent";
@@ -40,8 +42,8 @@ function validateAddRiskNonDraft(form: {
   status: RiskStatus;
   title: string;
   description: string;
-  owner: string;
-  ownerCustom: string;
+  ownerSelect: string;
+  ownerNewDraft: string;
   appliesTo: AppliesTo;
   preMitigationProbabilityPct: string;
   preMitigationCostMin: string;
@@ -50,6 +52,7 @@ function validateAddRiskNonDraft(form: {
   preMitigationTimeMin: string;
   preMitigationTimeML: string;
   preMitigationTimeMax: string;
+  category: string;
   mitigation: string;
   postMitigationProbabilityPct: string;
   postMitigationCostMin: string;
@@ -59,15 +62,19 @@ function validateAddRiskNonDraft(form: {
   postMitigationTimeML: string;
   postMitigationTimeMax: string;
 }): string[] {
-  if (form.status === "draft") return [];
-  const applyMitigation = !!form.mitigation.trim();
   const errors: string[] = [];
+  if (!form.status.trim()) errors.push("Status");
+  if (!form.appliesTo.trim()) errors.push("Applies to");
+  if (isRiskStatusDraft(form.status)) return errors;
+  const applyMitigation = !!form.mitigation.trim();
   if (!form.title.trim()) errors.push("Title");
   if (!form.description.trim()) errors.push("Description");
-  if (!form.owner.trim() || (form.owner === "Other" && !form.ownerCustom.trim())) errors.push("Owner");
+  if (!form.category.trim()) errors.push("Category");
+  const ownerResolved = getResolvedOwnerPickerValue(form.ownerSelect, form.ownerNewDraft);
+  if (!ownerResolved) errors.push("Owner");
   const prePct = parseFloat(form.preMitigationProbabilityPct);
   if (!Number.isFinite(prePct) || prePct < 0 || prePct > 100) errors.push("Pre-Mitigation Probability %");
-  if (form.appliesTo === "cost" || form.appliesTo === "both") {
+  if (appliesToAffectsCost(form.appliesTo)) {
     const preCostMin = parseFloat(form.preMitigationCostMin);
     if (form.preMitigationCostMin.trim() === "" || !Number.isFinite(preCostMin) || preCostMin < 0) errors.push("Pre-Mitigation Cost Min");
     const v = parseFloat(form.preMitigationCostML);
@@ -75,7 +82,7 @@ function validateAddRiskNonDraft(form: {
     const preCostMax = parseFloat(form.preMitigationCostMax);
     if (form.preMitigationCostMax.trim() === "" || !Number.isFinite(preCostMax) || preCostMax < 0) errors.push("Pre-Mitigation Cost Max");
   }
-  if (form.appliesTo === "time" || form.appliesTo === "both") {
+  if (appliesToAffectsTime(form.appliesTo)) {
     const preTimeMin = parseInt(form.preMitigationTimeMin, 10);
     if (form.preMitigationTimeMin.trim() === "" || !Number.isFinite(preTimeMin) || preTimeMin < 0) errors.push("Pre-Mitigation Time Min");
     const v = parseInt(form.preMitigationTimeML, 10);
@@ -87,7 +94,7 @@ function validateAddRiskNonDraft(form: {
     if (!form.mitigation.trim()) errors.push("Mitigation description");
     const postPct = parseFloat(form.postMitigationProbabilityPct);
     if (!Number.isFinite(postPct) || postPct < 0 || postPct > 100) errors.push("Post-Mitigation Probability %");
-    if (form.appliesTo === "cost" || form.appliesTo === "both") {
+    if (appliesToAffectsCost(form.appliesTo)) {
       const postCostMin = parseFloat(form.postMitigationCostMin);
       if (form.postMitigationCostMin.trim() === "" || !Number.isFinite(postCostMin) || postCostMin < 0) errors.push("Post-Mitigation Cost Min");
       const v = parseFloat(form.postMitigationCostML);
@@ -95,7 +102,7 @@ function validateAddRiskNonDraft(form: {
       const postCostMax = parseFloat(form.postMitigationCostMax);
       if (form.postMitigationCostMax.trim() === "" || !Number.isFinite(postCostMax) || postCostMax < 0) errors.push("Post-Mitigation Cost Max");
     }
-    if (form.appliesTo === "time" || form.appliesTo === "both") {
+    if (appliesToAffectsTime(form.appliesTo)) {
       const postTimeMin = parseInt(form.postMitigationTimeMin, 10);
       if (form.postMitigationTimeMin.trim() === "" || !Number.isFinite(postTimeMin) || postTimeMin < 0) errors.push("Post-Mitigation Time Min");
       const v = parseInt(form.postMitigationTimeML, 10);
@@ -118,11 +125,15 @@ export function AddRiskModal({
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState<RiskCategory>("commercial");
-  const [owner, setOwner] = useState<string>("");
-  const [ownerCustom, setOwnerCustom] = useState("");
-  const [status, setStatus] = useState<RiskStatus>("open");
-  const [appliesTo, setAppliesTo] = useState<AppliesTo>("both");
+  const [category, setCategory] = useState("");
+  const { statuses, loading: statusesLoading } = useRiskStatusOptions();
+  const { appliesToOptions, loading: appliesToOptionsLoading } = useRiskAppliesToOptions();
+  const defaultAppliesToName = appliesToOptions[0]?.name ?? "both";
+  const { createProjectOwner } = useRiskProjectOwners();
+  const [ownerSelect, setOwnerSelect] = useState("");
+  const [ownerNewDraft, setOwnerNewDraft] = useState("");
+  const [status, setStatus] = useState<RiskStatus>("");
+  const [appliesTo, setAppliesTo] = useState<AppliesTo>("");
   const [preMitigationProbabilityPct, setPreMitigationProbabilityPct] = useState("50");
   const [preMitigationCostMin, setPreMitigationCostMin] = useState("");
   const [preMitigationCostML, setPreMitigationCostML] = useState("");
@@ -184,33 +195,56 @@ export function AddRiskModal({
   }, [open]);
 
   useEffect(() => {
-    if (open) {
-      setTitle("");
-      setDescription("");
-      setCategory("commercial");
-      setOwner("");
-      setOwnerCustom("");
-      setStatus("open");
-      setAppliesTo("both");
-      setPreMitigationProbabilityPct("50");
-      setPreMitigationCostMin("");
-      setPreMitigationCostML("");
-      setPreMitigationCostMax("");
-      setPreMitigationTimeMin("");
-      setPreMitigationTimeML("");
-      setPreMitigationTimeMax("");
-      setMitigation("");
-      setMitigationCost("");
-      setPostMitigationProbabilityPct("50");
-      setPostMitigationCostMin("");
-      setPostMitigationCostML("");
-      setPostMitigationCostMax("");
-      setPostMitigationTimeMin("");
-      setPostMitigationTimeML("");
-      setPostMitigationTimeMax("");
-      setValidationErrors([]);
-    }
+    if (!open) return;
+    setTitle("");
+    setDescription("");
+    setCategory("");
+    setOwnerSelect("");
+    setOwnerNewDraft("");
+    setStatus("");
+    setAppliesTo("");
+    setPreMitigationProbabilityPct("50");
+    setPreMitigationCostMin("");
+    setPreMitigationCostML("");
+    setPreMitigationCostMax("");
+    setPreMitigationTimeMin("");
+    setPreMitigationTimeML("");
+    setPreMitigationTimeMax("");
+    setMitigation("");
+    setMitigationCost("");
+    setPostMitigationProbabilityPct("50");
+    setPostMitigationCostMin("");
+    setPostMitigationCostML("");
+    setPostMitigationCostMax("");
+    setPostMitigationTimeMin("");
+    setPostMitigationTimeML("");
+    setPostMitigationTimeMax("");
+    setValidationErrors([]);
   }, [open]);
+
+  useEffect(() => {
+    if (!open || statusesLoading) return;
+    setStatus((prev) => {
+      if (prev !== "") return prev;
+      const draftName = getDefaultNewRiskStatusName(statuses);
+      dlog("[add risk] default status after options load", draftName || "(none)");
+      return (draftName || "draft") as RiskStatus;
+    });
+  }, [open, statusesLoading, statuses]);
+
+  useEffect(() => {
+    if (!open || appliesToOptionsLoading) return;
+    setAppliesTo((prev) => (prev === "" ? defaultAppliesToName : prev));
+  }, [open, appliesToOptionsLoading, defaultAppliesToName]);
+
+  useEffect(() => {
+    if (!open) return;
+    dlog("[add risk] form defaults snapshot", {
+      category: "(blank until user selects)",
+      statusAfterOptions: getDefaultNewRiskStatusName(statuses) || "(pending)",
+      ownerSelect: "",
+    });
+  }, [open, statuses]);
 
   const parseNum = (s: string): number | undefined => {
     const v = parseFloat(s);
@@ -222,14 +256,15 @@ export function AddRiskModal({
   };
 
   const handleSubmit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
       const errors = validateAddRiskNonDraft({
         status,
         title,
         description,
-        owner,
-        ownerCustom,
+        category,
+        ownerSelect,
+        ownerNewDraft,
         appliesTo,
         preMitigationProbabilityPct,
         preMitigationCostMin,
@@ -252,6 +287,19 @@ export function AddRiskModal({
         return;
       }
       setValidationErrors([]);
+      const categoryToSave = category.trim();
+      const ownerResolved = getResolvedOwnerPickerValue(ownerSelect, ownerNewDraft);
+      if (shouldPersistNewOwnerOnSubmit(ownerSelect) && ownerResolved) {
+        try {
+          await createProjectOwner(ownerResolved);
+        } catch (err) {
+          setValidationErrors([
+            err instanceof Error ? err.message : "Could not save new owner. Try again.",
+          ]);
+          return;
+        }
+      }
+      dlog("[risk save] category", categoryToSave, "status", status, "appliesTo", appliesTo);
       const applyMitigation = !!mitigation.trim();
       const prePct = parseNum(preMitigationProbabilityPct) ?? 50;
       const postPct = applyMitigation ? (parseNum(postMitigationProbabilityPct) ?? 50) : prePct;
@@ -261,19 +309,18 @@ export function AddRiskModal({
       const postTimeML = applyMitigation ? (parseIntNum(postMitigationTimeML) ?? preTimeML) : preTimeML;
       const applies = appliesTo;
       const preP = probabilityPctToScale(prePct);
-      const preC = applies === "time" ? timeDaysToConsequenceScale(preTimeML) : applies === "cost" ? costToConsequenceScale(preCostML) : Math.max(costToConsequenceScale(preCostML), timeDaysToConsequenceScale(preTimeML));
+      const preC = consequenceScaleFromAppliesTo(applies, preCostML, preTimeML);
       const postP = probabilityPctToScale(postPct);
-      const postC = applies === "time" ? timeDaysToConsequenceScale(postTimeML) : applies === "cost" ? costToConsequenceScale(postCostML) : Math.max(costToConsequenceScale(postCostML), timeDaysToConsequenceScale(postTimeML));
+      const postC = consequenceScaleFromAppliesTo(applies, postCostML, postTimeML);
       const inherentRating = buildRating(preP, preC);
       const residualRating = buildRating(postP, postC);
       const risk = createRisk({
         title: title.trim() || "Untitled risk",
         description: description.trim() || undefined,
-        category,
+        category: categoryToSave,
         status,
-        owner: (owner === "Other" ? ownerCustom.trim() : owner) || undefined,
+        owner: ownerResolved || undefined,
         appliesTo: applies,
-        preMitigationProbabilityPct: prePct,
         preMitigationCostMin: parseNum(preMitigationCostMin),
         preMitigationCostML: preCostML ?? undefined,
         preMitigationCostMax: parseNum(preMitigationCostMax) ?? undefined,
@@ -282,7 +329,6 @@ export function AddRiskModal({
         preMitigationTimeMax: parseIntNum(preMitigationTimeMax) ?? undefined,
         mitigation: applyMitigation ? (mitigation.trim() || undefined) : undefined,
         mitigationCost: applyMitigation ? (parseNum(mitigationCost) ?? undefined) : undefined,
-        postMitigationProbabilityPct: applyMitigation ? postPct : undefined,
         postMitigationCostMin: applyMitigation ? parseNum(postMitigationCostMin) : undefined,
         postMitigationCostML: applyMitigation ? (postCostML ?? undefined) : undefined,
         postMitigationCostMax: applyMitigation ? parseNum(postMitigationCostMax) : undefined,
@@ -291,9 +337,6 @@ export function AddRiskModal({
         postMitigationTimeMax: applyMitigation ? parseIntNum(postMitigationTimeMax) : undefined,
         inherentRating,
         residualRating,
-        baseCostImpact: preCostML ?? undefined,
-        costImpact: postCostML ?? undefined,
-        scheduleImpactDays: postTimeML ?? undefined,
         probability: (applyMitigation ? postPct : prePct) / 100,
       });
       onAdd(risk);
@@ -304,8 +347,9 @@ export function AddRiskModal({
       description,
       category,
       status,
-      owner,
-      ownerCustom,
+      ownerSelect,
+      ownerNewDraft,
+      createProjectOwner,
       appliesTo,
       preMitigationProbabilityPct,
       preMitigationCostMin,
@@ -391,31 +435,45 @@ export function AddRiskModal({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label htmlFor="add-risk-category" className={labelClass}>Category</label>
-                    <select id="add-risk-category" value={category} onChange={(e) => setCategory(e.target.value as RiskCategory)} className={inputClass}>
-                      {CATEGORIES.map((c) => (<option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>))}
-                    </select>
+                    <RiskCategorySelect
+                      id="add-risk-category"
+                      value={category}
+                      onChange={setCategory}
+                      className={inputClass}
+                      allowEmptyPlaceholder
+                    />
                   </div>
                   <div>
-                    <label htmlFor="add-risk-owner" className={labelClass}>Owner {status !== "draft" && <span className="text-red-500" aria-label="required">*</span>}</label>
-                    <select id="add-risk-owner" value={owner} onChange={(e) => setOwner(e.target.value)} className={inputClass}>
-                      <option value="">Select an Owner</option>
-                      {OWNER_OPTIONS.map((o) => (<option key={o} value={o}>{o}</option>))}
-                    </select>
-                    {owner === "Other" && (
-                      <input type="text" value={ownerCustom} onChange={(e) => setOwnerCustom(e.target.value)} className={`${inputClass} mt-1`} placeholder="Enter owner" />
-                    )}
+                    <label htmlFor="add-risk-owner" className={labelClass}>Owner {!isRiskStatusDraft(status) && <span className="text-red-500" aria-label="required">*</span>}</label>
+                    <RiskOwnerPicker
+                      id="add-risk-owner"
+                      selectValue={ownerSelect}
+                      newNameDraft={ownerNewDraft}
+                      onSelectChange={setOwnerSelect}
+                      onNewNameDraftChange={setOwnerNewDraft}
+                      className={inputClass}
+                      allowEmptyPlaceholder
+                    />
                   </div>
                   <div>
                     <label htmlFor="add-risk-status" className={labelClass}>Status</label>
-                    <select id="add-risk-status" value={status} onChange={(e) => setStatus(e.target.value as RiskStatus)} className={inputClass}>
-                      {STATUSES.map((s) => (<option key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</option>))}
-                    </select>
+                    <RiskStatusSelect
+                      id="add-risk-status"
+                      value={status}
+                      onChange={setStatus}
+                      className={inputClass}
+                      allowEmptyPlaceholder
+                    />
                   </div>
                   <div>
                     <label htmlFor="add-risk-applies-to" className={labelClass}>Applies To</label>
-                    <select id="add-risk-applies-to" value={appliesTo} onChange={(e) => setAppliesTo(e.target.value as AppliesTo)} className={inputClass}>
-                      {APPLIES_TO_OPTIONS.map(({ value, label }) => (<option key={value} value={value}>{label}</option>))}
-                    </select>
+                    <RiskAppliesToSelect
+                      id="add-risk-applies-to"
+                      value={appliesTo}
+                      onChange={setAppliesTo}
+                      className={inputClass}
+                      allowEmptyPlaceholder
+                    />
                   </div>
                 </div>
               </div>

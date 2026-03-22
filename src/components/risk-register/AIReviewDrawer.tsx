@@ -1,14 +1,19 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import type { Risk, RiskCategory, RiskStatus } from "@/domain/risk/risk.schema";
+import type { Risk } from "@/domain/risk/risk.schema";
+import { probabilityScaleToDisplayPct } from "@/domain/risk/risk.logic";
 import type { RiskMergeCluster, MergeRiskDraft } from "@/domain/risk/risk-merge.types";
-import { OWNER_OPTIONS, APPLIES_TO_OPTIONS } from "./riskFormConstants";
-
-const CATEGORIES: RiskCategory[] = [
-  "commercial", "programme", "design", "construction", "procurement", "hse", "authority", "operations", "other",
-];
-const STATUSES: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed", "archived"];
+import { useRiskAppliesToOptions } from "./RiskAppliesToOptionsContext";
+import { useRiskCategoryOptions } from "./RiskCategoryOptionsContext";
+import { useRiskProjectOwners } from "./RiskProjectOwnersContext";
+import { useRiskStatusOptions } from "./RiskStatusOptionsContext";
+import {
+  NEW_RISK_OWNER_SENTINEL,
+  RiskOwnerPicker,
+  getResolvedOwnerPickerValue,
+  shouldPersistNewOwnerOnSubmit,
+} from "./RiskOwnerPicker";
 
 const panelClass =
   "rounded-lg border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/50 p-3 text-sm";
@@ -50,37 +55,37 @@ function riskValue(risk: Risk, key: string): string {
     case "appliesTo":
       return risk.appliesTo ?? "—";
     case "preMitigationProbabilityPct": {
-      const p = risk.preMitigationProbabilityPct ?? (risk.inherentRating ? (risk.inherentRating.probability / 5) * 100 : undefined);
+      const p = risk.inherentRating ? probabilityScaleToDisplayPct(risk.inherentRating.probability) : undefined;
       return formatPct(p);
     }
     case "preMitigationCostMin":
       return risk.preMitigationCostMin != null ? formatCost(risk.preMitigationCostMin) : "—";
     case "preMitigationCostML":
-      return formatCost(risk.preMitigationCostML ?? risk.baseCostImpact);
+      return formatCost(risk.preMitigationCostML);
     case "preMitigationCostMax":
       return risk.preMitigationCostMax != null ? formatCost(risk.preMitigationCostMax) : "—";
     case "preMitigationTimeMin":
       return risk.preMitigationTimeMin != null ? formatDays(risk.preMitigationTimeMin) : "—";
     case "preMitigationTimeML":
-      return formatDays(risk.preMitigationTimeML ?? risk.scheduleImpactDays);
+      return formatDays(risk.preMitigationTimeML);
     case "preMitigationTimeMax":
       return risk.preMitigationTimeMax != null ? formatDays(risk.preMitigationTimeMax) : "—";
     case "mitigationCost":
       return risk.mitigationCost != null ? formatCost(risk.mitigationCost) : "—";
     case "postMitigationProbabilityPct": {
-      const p = risk.postMitigationProbabilityPct ?? (risk.residualRating ? (risk.residualRating.probability / 5) * 100 : undefined);
+      const p = risk.residualRating ? probabilityScaleToDisplayPct(risk.residualRating.probability) : undefined;
       return formatPct(p);
     }
     case "postMitigationCostMin":
       return risk.postMitigationCostMin != null ? formatCost(risk.postMitigationCostMin) : "—";
     case "postMitigationCostML":
-      return formatCost(risk.postMitigationCostML ?? risk.costImpact);
+      return formatCost(risk.postMitigationCostML);
     case "postMitigationCostMax":
       return risk.postMitigationCostMax != null ? formatCost(risk.postMitigationCostMax) : "—";
     case "postMitigationTimeMin":
       return risk.postMitigationTimeMin != null ? formatDays(risk.postMitigationTimeMin) : "—";
     case "postMitigationTimeML":
-      return formatDays(risk.postMitigationTimeML ?? risk.scheduleImpactDays);
+      return formatDays(risk.postMitigationTimeML);
     case "postMitigationTimeMax":
       return risk.postMitigationTimeMax != null ? formatDays(risk.postMitigationTimeMax) : "—";
     default:
@@ -94,37 +99,37 @@ const inputClass =
 type ComparisonRow = {
   key: string;
   label: string;
-  inputType: "text" | "number" | "textarea" | "select";
+  inputType: "text" | "number" | "textarea" | "select" | "owner";
   selectOptions?: { value: string; label: string }[];
 };
 
-const COMPARISON_ROWS: ComparisonRow[] = [
+function buildComparisonRows(
+  categorySelectOptions: { value: string; label: string }[],
+  statusSelectOptions: { value: string; label: string }[],
+  appliesToSelectOptions: { value: string; label: string }[]
+): ComparisonRow[] {
+  return [
   { key: "title", label: "Title", inputType: "text" },
   { key: "description", label: "Description", inputType: "textarea" },
   {
     key: "category",
     label: "Category",
     inputType: "select",
-    selectOptions: CATEGORIES.map((c) => ({ value: c, label: c.charAt(0).toUpperCase() + c.slice(1) })),
+    selectOptions: categorySelectOptions,
   },
   {
     key: "status",
     label: "Status",
     inputType: "select",
-    selectOptions: STATUSES.map((s) => ({ value: s, label: s.charAt(0).toUpperCase() + s.slice(1) })),
+    selectOptions: statusSelectOptions,
   },
-  {
-    key: "owner",
-    label: "Owner",
-    inputType: "select",
-    selectOptions: [{ value: "", label: "Select owner" }, ...OWNER_OPTIONS.map((o) => ({ value: o, label: o }))],
-  },
+  { key: "owner", label: "Owner", inputType: "owner" },
   { key: "mitigation", label: "Mitigation", inputType: "textarea" },
   {
     key: "appliesTo",
     label: "Applies to",
     inputType: "select",
-    selectOptions: APPLIES_TO_OPTIONS.map(({ value, label }) => ({ value, label })),
+    selectOptions: appliesToSelectOptions,
   },
   { key: "preMitigationProbabilityPct", label: "Pre-mitigation probability", inputType: "number" },
   { key: "preMitigationCostMin", label: "Pre-mitigation cost (min)", inputType: "number" },
@@ -142,6 +147,7 @@ const COMPARISON_ROWS: ComparisonRow[] = [
   { key: "postMitigationTimeML", label: "Post-mitigation time (ML)", inputType: "number" },
   { key: "postMitigationTimeMax", label: "Post-mitigation time (max)", inputType: "number" },
 ];
+}
 
 function getDraftInputValue(draft: MergeRiskDraft, key: string): string {
   const v = (draft as Record<string, unknown>)[key];
@@ -212,27 +218,47 @@ function ProposedMergedCard({ draft }: { draft: MergeRiskDraft }) {
 function ClusterBlock({
   cluster,
   risksById,
+  comparisonRows,
   onAccept,
   onSkip,
 }: {
   cluster: RiskMergeCluster;
   risksById: Map<string, Risk>;
+  comparisonRows: ComparisonRow[];
   onAccept: (cluster: RiskMergeCluster, draft: MergeRiskDraft) => void;
   onSkip: (clusterId: string) => void;
 }) {
+  const { createProjectOwner } = useRiskProjectOwners();
   const [editingDraft, setEditingDraft] = useState<MergeRiskDraft | null>(() =>
     cluster.mergedDraft ? { ...cluster.mergedDraft } : null
   );
+  const [ownerSelectValue, setOwnerSelectValue] = useState("");
+  const [ownerNewDraft, setOwnerNewDraft] = useState("");
   const draft = editingDraft ?? cluster.mergedDraft;
 
   useEffect(() => {
-    if (cluster.mergedDraft) setEditingDraft({ ...cluster.mergedDraft });
-  }, [cluster.clusterId, cluster.mergedDraft]); // Sync when switching cluster or when merged draft updates from parent
+    if (cluster.mergedDraft) {
+      const next = { ...cluster.mergedDraft };
+      setEditingDraft(next);
+      const o = next.owner?.trim() ?? "";
+      setOwnerSelectValue(o);
+      setOwnerNewDraft("");
+    }
+  }, [cluster.clusterId, cluster.mergedDraft]);
 
-  const handleAccept = useCallback(() => {
+  const handleAccept = useCallback(async () => {
     if (!draft) return;
-    onAccept(cluster, draft);
-  }, [cluster, draft, onAccept]);
+    const resolved = getResolvedOwnerPickerValue(ownerSelectValue, ownerNewDraft).trim();
+    const finalDraft: MergeRiskDraft = { ...draft, owner: resolved || undefined };
+    if (shouldPersistNewOwnerOnSubmit(ownerSelectValue) && resolved) {
+      try {
+        await createProjectOwner(resolved);
+      } catch {
+        return;
+      }
+    }
+    onAccept(cluster, finalDraft);
+  }, [cluster, draft, ownerSelectValue, ownerNewDraft, createProjectOwner, onAccept]);
 
   const sourceRisks = cluster.riskIds
     .map((id) => risksById.get(id))
@@ -246,7 +272,6 @@ function ClusterBlock({
       <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mt-2">Why these are similar</p>
       <p className="text-sm text-[var(--foreground)] mt-0.5 mb-4">{cluster.rationale}</p>
 
-      {/* Side-by-side comparison table */}
       <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-600">
         <table className="w-full min-w-[800px] text-sm border-collapse">
           <thead>
@@ -273,7 +298,7 @@ function ClusterBlock({
             </tr>
           </thead>
           <tbody>
-            {COMPARISON_ROWS.map(({ key, label, inputType, selectOptions }) => (
+            {comparisonRows.map(({ key, label, inputType, selectOptions }) => (
               <tr
                 key={key}
                 className="border-b border-neutral-200 dark:border-neutral-600 last:border-b-0 hover:bg-neutral-50/50 dark:hover:bg-neutral-800/30"
@@ -299,13 +324,42 @@ function ClusterBlock({
                       onChange={(e) => setEditingDraft(setDraftValue(draft, key, e.target.value))}
                       aria-label={label}
                     />
-                  ) : inputType === "select" && selectOptions ? (
+                  ) : inputType === "owner" ? (
+                    <RiskOwnerPicker
+                      id={`ai-merge-owner-${cluster.clusterId}`}
+                      selectValue={ownerSelectValue}
+                      newNameDraft={ownerNewDraft}
+                      onSelectChange={(v) => {
+                        setOwnerSelectValue(v);
+                        if (v !== NEW_RISK_OWNER_SENTINEL) {
+                          setOwnerNewDraft("");
+                          setEditingDraft((d) => (d ? setDraftValue(d, "owner", v) : d));
+                        }
+                      }}
+                      onNewNameDraftChange={(t) => {
+                        setOwnerNewDraft(t);
+                        setEditingDraft((d) => {
+                          if (!d) return d;
+                          const resolved = getResolvedOwnerPickerValue(NEW_RISK_OWNER_SENTINEL, t);
+                          return setDraftValue(d, "owner", resolved);
+                        });
+                      }}
+                      className={inputClass}
+                      allowEmptyPlaceholder
+                    />
+                  ) : inputType === "select" && selectOptions != null ? (
                     (() => {
                       const value = getDraftInputValue(draft, key);
-                      const options =
-                        key === "owner" && value && !OWNER_OPTIONS.includes(value as (typeof OWNER_OPTIONS)[number])
-                          ? [...selectOptions, { value, label: value }]
-                          : selectOptions;
+                      let options = [...selectOptions];
+                      if (key === "category" && value && !options.some((o) => o.value === value)) {
+                        options = [...options, { value, label: value }];
+                      }
+                      if (key === "status" && value && !options.some((o) => o.value === value)) {
+                        options = [...options, { value, label: value }];
+                      }
+                      if (key === "appliesTo" && value && !options.some((o) => o.value === value)) {
+                        options = [...options, { value, label: value }];
+                      }
                       return (
                         <select
                           className={inputClass}
@@ -349,7 +403,7 @@ function ClusterBlock({
           <div className="flex gap-2 mt-3">
             <button
               type="button"
-              onClick={handleAccept}
+              onClick={() => void handleAccept()}
               className="px-4 py-2 text-sm font-medium rounded-md bg-neutral-800 dark:bg-neutral-200 text-neutral-100 dark:text-neutral-900 hover:opacity-90"
             >
               Accept merge (new risk + archive merged)
@@ -401,6 +455,14 @@ export function AIReviewDrawer({
   onSkipCluster,
 }: AIReviewDrawerProps) {
   const risksById = new Map(risks.map((r) => [r.id, r]));
+  const { categories } = useRiskCategoryOptions();
+  const { statuses } = useRiskStatusOptions();
+  const { appliesToOptions } = useRiskAppliesToOptions();
+  const comparisonRows = buildComparisonRows(
+    categories.map((c) => ({ value: c.name, label: c.name })),
+    statuses.map((s) => ({ value: s.name, label: s.name })),
+    appliesToOptions.map((a) => ({ value: a.name, label: a.name }))
+  );
 
   if (!open) return null;
 
@@ -455,6 +517,7 @@ export function AIReviewDrawer({
                     key={c.clusterId}
                     cluster={c}
                     risksById={risksById}
+                    comparisonRows={comparisonRows}
                     onAccept={onAcceptMerge}
                     onSkip={onSkipCluster}
                   />

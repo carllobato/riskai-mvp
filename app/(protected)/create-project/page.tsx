@@ -74,7 +74,7 @@ function CreateProjectForm() {
     const { data: inserted, error } = await supabase
       .from("projects")
       .insert({
-        owner_id: user.id,
+        owner_user_id: user.id,
         name,
         portfolio_id: selectedPortfolioId,
       })

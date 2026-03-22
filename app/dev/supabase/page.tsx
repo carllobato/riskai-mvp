@@ -12,7 +12,7 @@ export default function DevSupabasePage() {
     (async () => {
       try {
         const client = supabaseBrowserClient();
-        await client.auth.getSession();
+        await client.auth.getUser();
         if (!cancelled) {
           setStatus("ok");
           setMessage("Supabase connected ✅");

@@ -4,6 +4,7 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
+import { effectiveForwardCostImpact, probability01FromScale } from "@/domain/risk/risk.logic";
 import type { Scenario } from "./types";
 import type { AdjustedRiskParams } from "./types";
 import { safeNum, clamp01, clampNonNegative } from "./validate";
@@ -47,8 +48,11 @@ export function applyScenario(risk: Risk, scenario: Scenario): AdjustedRiskParam
   const persistenceMultiplierEffective = effectiveMultiplier(m.persistence, riskSensitivity);
   const sensitivityMultiplierEffective = effectiveMultiplier(m.sensitivity, riskSensitivity);
 
-  const prob = clamp01(safeNum(risk.probability, DEFAULT_PROBABILITY));
-  const impact = clampNonNegative(risk.baseCostImpact ?? DEFAULT_BASE_COST_IMPACT, DEFAULT_BASE_COST_IMPACT);
+  const defaultProb = probability01FromScale(risk.residualRating?.probability ?? risk.inherentRating?.probability ?? 3);
+  const prob = clamp01(
+    typeof risk.probability === "number" && Number.isFinite(risk.probability) ? risk.probability : defaultProb
+  );
+  const impact = clampNonNegative(effectiveForwardCostImpact(risk, DEFAULT_BASE_COST_IMPACT), DEFAULT_BASE_COST_IMPACT);
   const persistence = clamp01(safeNum(risk.escalationPersistence, DEFAULT_ESCALATION_PERSISTENCE));
   const sensitivity = clamp01(safeNum(risk.sensitivity, DEFAULT_SENSITIVITY));
 

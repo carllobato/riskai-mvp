@@ -30,10 +30,10 @@ export default async function DevProjectsPage() {
     );
   }
 
+  // RLS returns all projects the user can read (owner, project_members, portfolio).
   const { data: projects, error: projectsError } = await supabase
     .from("projects")
     .select("id, name, created_at")
-    .eq("owner_id", user.id)
     .order("created_at", { ascending: false });
 
   return (

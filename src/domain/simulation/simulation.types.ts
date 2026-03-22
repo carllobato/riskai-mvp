@@ -2,8 +2,8 @@ export type SimulationRiskSnapshot = {
   id: string;
   title: string;
   category?: string;
-  /** Risk status at run time (for Run Data snapshot display when live risks not available). */
-  status?: "draft" | "open" | "monitoring" | "mitigating" | "closed" | "archived";
+  /** Risk status at run time (same text as `risks.status`; lookup names or legacy values). */
+  status?: string;
   expectedCost: number;
   expectedDays: number;
   simMeanCost: number;

@@ -12,6 +12,7 @@ import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { getAccessiblePortfolios, getAccessibleProjects } from "@/lib/portfolios-server";
 import { fetchPublicProfile } from "@/lib/profiles/profileDb";
 import { supabaseServerClient } from "@/lib/supabase/server";
+import { dlog } from "@/lib/debug";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,11 @@ export default async function HomePage() {
     projectTiles = projectsResult.ok
       ? sortProjectTilesByRag(await getProjectTilePayloads(supabase, projects))
       : [];
+    dlog("[dashboard] accessible projects", {
+      count: projects.length,
+      portfolioScopeCount: portfolioIds.length,
+      source: "getAccessibleProjects (owner + project_members + portfolio)",
+    });
   }
 
   const meta = user?.user_metadata as Record<string, unknown> | undefined;
@@ -94,32 +100,36 @@ export default async function HomePage() {
 
       <section>
         <h2 className="mb-3 text-lg font-medium text-[var(--foreground)]">Projects</h2>
-        {portfolios.length === 0 ? (
+        {projects.length === 0 ? (
           <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-6 text-center dark:border-neutral-700 dark:bg-neutral-800/30">
-            <p className="text-sm text-neutral-600 dark:text-neutral-400">
-              Add a portfolio above before you can create projects. Every project belongs to a portfolio.
-            </p>
-          </div>
-        ) : projects.length === 0 ? (
-          <div className="rounded-lg border border-neutral-200 bg-neutral-50/50 p-6 text-center dark:border-neutral-700 dark:bg-neutral-800/30">
-            <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">You don&apos;t have any projects yet.</p>
-            <Link
-              href={
-                portfolios[0]?.id
-                  ? `/create-project?portfolioId=${encodeURIComponent(portfolios[0].id)}`
-                  : "/create-project"
-              }
-              className="inline-flex rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 no-underline hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
-            >
-              Create your first project
-            </Link>
+            {portfolios.length === 0 ? (
+              <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
+                You don&apos;t have any projects yet. Create a portfolio first if you need to start your own workspace, or ask to be added to a project you collaborate on.
+              </p>
+            ) : (
+              <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">You don&apos;t have any projects yet.</p>
+            )}
+            {portfolios.length > 0 ? (
+              <Link
+                href={
+                  portfolios[0]?.id
+                    ? `/create-project?portfolioId=${encodeURIComponent(portfolios[0].id)}`
+                    : "/create-project"
+                }
+                className="inline-flex rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 no-underline hover:bg-emerald-100 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200 dark:hover:bg-emerald-900/50"
+              >
+                Create your first project
+              </Link>
+            ) : null}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {projectTiles.map((payload) => (
               <ProjectTile key={payload.id} payload={payload} />
             ))}
-            <NewProjectTile portfolioId={portfolios[0]?.id ?? null} />
+            {portfolios.length > 0 ? (
+              <NewProjectTile portfolioId={portfolios[0]?.id ?? null} />
+            ) : null}
           </div>
         )}
       </section>

@@ -9,6 +9,7 @@ import { getLatestSnapshot, setSnapshotAsReportingVersion, type SimulationSnapsh
 import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 import {
   getNeutralSummary,
   getNeutralSamples,
@@ -137,6 +138,11 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   const effectiveProjectId = urlProjectId ?? activeProjectIdFromStorage ?? (projectContext ? DEFAULT_PROJECT_ID : undefined);
   effectiveProjectIdRef.current = effectiveProjectId;
 
+  const projectPerms = useProjectPermissions();
+  const simulationReadOnly =
+    Boolean(urlProjectId) &&
+    (projectPerms == null || !projectPerms.canEditContent);
+
   const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
   const [setReportingModalOpen, setSetReportingModalOpen] = useState(false);
   const [reportingNote, setReportingNote] = useState("");
@@ -151,11 +157,16 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   }, [invalidRunnableCount]);
 
   useEffect(() => {
+    if (simulationReadOnly && process.env.NODE_ENV === "development") {
+      console.log("[project-access] simulation UI read-only", { projectId: urlProjectId });
+    }
+  }, [simulationReadOnly, urlProjectId]);
+
+  useEffect(() => {
     const supabase = supabaseBrowserClient();
     supabase.auth
-      .getSession()
-      .then(async ({ data: { session } }) => {
-        const user = session?.user;
+      .getUser()
+      .then(async ({ data: { user } }) => {
         if (!user) {
           setTriggeredBy(null);
           return;
@@ -384,6 +395,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         <button
           type="button"
           onClick={async () => {
+            if (simulationReadOnly) return;
             try {
               const result = await runSimulation(10000, effectiveProjectId ?? undefined);
               if (!result.ran && result.blockReason === "invalid") {
@@ -402,23 +414,25 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
               // Snapshot insert failed; do not update timestamp
             }
           }}
-          disabled={hasDraftRisks || invalidRunnableCount > 0}
+          disabled={simulationReadOnly || hasDraftRisks || invalidRunnableCount > 0}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Run Simulation
         </button>
         <button
           type="button"
-          onClick={clearSimulationHistory}
-          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+          onClick={() => clearSimulationHistory()}
+          disabled={simulationReadOnly}
+          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
         >
           Clear History
         </button>
         {showResults && isCurrentRunPersisted && effectiveProjectId && !reportingSnapshotRow?.reporting_version && (
           <button
             type="button"
-            onClick={() => setSetReportingModalOpen(true)}
-            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+            onClick={() => !simulationReadOnly && setSetReportingModalOpen(true)}
+            disabled={simulationReadOnly}
+            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
             Set as reporting version
           </button>
@@ -441,6 +455,11 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
           Simulation blocked: fix {runBlockedInvalidCount} risk{runBlockedInvalidCount !== 1 ? "s" : ""} to run simulation.
         </p>
       )}
+      {simulationReadOnly && (
+        <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-2" role="status">
+          View-only access: you cannot run or change simulations for this project.
+        </p>
+      )}
 
       {loadingSnapshot && (
         <div className="mt-0 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6 text-center">
@@ -457,6 +476,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
             <button
               type="button"
               onClick={async () => {
+                if (simulationReadOnly) return;
                 try {
                   const result = await runSimulation(10000, effectiveProjectId ?? undefined);
                   if (!result.ran && result.blockReason === "invalid") {
@@ -475,7 +495,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                   // Snapshot insert failed; do not update timestamp
                 }
               }}
-              disabled={hasDraftRisks || invalidRunnableCount > 0}
+              disabled={simulationReadOnly || hasDraftRisks || invalidRunnableCount > 0}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               Run simulation

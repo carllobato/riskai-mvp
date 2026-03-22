@@ -5,21 +5,26 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
+import { appliesToExcludesCost, appliesToExcludesTime } from "@/domain/risk/riskFieldSemantics";
+import { probabilityScaleToDisplayPct } from "@/domain/risk/risk.logic";
 
 function isFiniteNum(x: unknown): x is number {
   return typeof x === "number" && Number.isFinite(x);
 }
 
-/** Pre probability: preMitigationProbabilityPct (0–100) or probability (0–1). */
+/** Pre probability: inherent 1–5 scale or explicit probability (0–1). */
 function hasPreProbability(r: Risk): boolean {
-  if (isFiniteNum(r.preMitigationProbabilityPct) && r.preMitigationProbabilityPct >= 0 && r.preMitigationProbabilityPct <= 100) return true;
+  const p = r.inherentRating?.probability;
+  if (typeof p === "number" && Number.isInteger(p) && p >= 1 && p <= 5) return true;
   if (isFiniteNum(r.probability) && r.probability >= 0 && r.probability <= 1) return true;
   return false;
 }
 
-/** Post probability: postMitigationProbabilityPct (0–100). */
+/** Post probability: when mitigated, residual 1–5 scale. */
 function hasPostProbability(r: Risk): boolean {
-  return isFiniteNum(r.postMitigationProbabilityPct) && r.postMitigationProbabilityPct >= 0 && r.postMitigationProbabilityPct <= 100;
+  if (!r.mitigation?.trim()) return true;
+  const p = r.residualRating?.probability;
+  return typeof p === "number" && Number.isInteger(p) && p >= 1 && p <= 5;
 }
 
 /** Cost range exists: pre or post min/max both finite and max > min. */
@@ -66,10 +71,10 @@ function hasMinEqualsMaxSchedule(r: Risk): boolean {
   return preFlat || postFlat;
 }
 
-/** Unchanged mitigation: pre and post probability, cost ML, and time ML all equal (including both missing). */
+/** Unchanged mitigation: pre and post display %, cost ML, and time ML all equal (including both missing). */
 function hasUnchangedMitigation(r: Risk): boolean {
-  const preProb = r.preMitigationProbabilityPct ?? r.probability;
-  const postProb = r.postMitigationProbabilityPct;
+  const preProb = probabilityScaleToDisplayPct(r.inherentRating.probability);
+  const postProb = probabilityScaleToDisplayPct(r.residualRating.probability);
   const preCost = r.preMitigationCostML;
   const postCost = r.postMitigationCostML;
   const preTime = r.preMitigationTimeML;
@@ -83,21 +88,12 @@ function hasUnchangedMitigation(r: Risk): boolean {
 
 /** Cost impact > 0 (pre): same canonical logic as run-data Risk Register Snapshot. */
 function hasPreCost(r: Risk): boolean {
-  return (
-    r.appliesTo !== "time" &&
-    ((isFiniteNum(r.preMitigationCostML) && r.preMitigationCostML > 0) ||
-      (isFiniteNum(r.costImpact) && r.costImpact > 0) ||
-      (isFiniteNum(r.baseCostImpact) && r.baseCostImpact > 0))
-  );
+  return !appliesToExcludesCost(r.appliesTo) && isFiniteNum(r.preMitigationCostML) && r.preMitigationCostML > 0;
 }
 
 /** Time impact > 0 (pre): same canonical logic as run-data Risk Register Snapshot. */
 function hasPreTime(r: Risk): boolean {
-  return (
-    r.appliesTo !== "cost" &&
-    ((isFiniteNum(r.preMitigationTimeML) && r.preMitigationTimeML > 0) ||
-      (isFiniteNum(r.scheduleImpactDays) && r.scheduleImpactDays > 0))
-  );
+  return !appliesToExcludesTime(r.appliesTo) && isFiniteNum(r.preMitigationTimeML) && r.preMitigationTimeML > 0;
 }
 
 export type SimulationAssumptionCounts = {
@@ -118,7 +114,7 @@ export type SimulationAssumptionCounts = {
 
 /**
  * Compute assumption counts for the set of risks that were in the run.
- * Uses live risk fields (min/max, probability, ML) for input quality checks.
+ * Uses live risk fields (min/max, probability scale, ML) for input quality checks.
  */
 export function computeSimulationAssumptionCounts(risksInRun: Risk[]): SimulationAssumptionCounts {
   const totalInRun = risksInRun.length;
@@ -144,9 +140,7 @@ export function computeSimulationAssumptionCounts(risksInRun: Risk[]): Simulatio
     if (scheduleRange) withScheduleRange += 1;
     if (costRange && scheduleRange) withBothRanges += 1;
     if (!costRange && !scheduleRange) withNoVariability += 1;
-    // Zero spread on cost: only count risks that have a schedule dimension (exclude cost-only)
     if (hasMinEqualsMaxCost(r) && preTime) withMinEqualsMaxCost += 1;
-    // Zero spread on schedule: only count risks that have a cost dimension (exclude schedule-only)
     if (hasMinEqualsMaxSchedule(r) && preCost) withMinEqualsMaxSchedule += 1;
     if (!hasPreProbability(r)) missingPreProbability += 1;
     if (!hasPostProbability(r)) missingPostProbability += 1;

@@ -21,7 +21,7 @@ export default function CreateProjectClient() {
       setMessage({ type: "error", text: userError?.message ?? "Not signed in." });
       return;
     }
-    const { error } = await supabase.from("projects").insert({ owner_id: user.id, name });
+    const { error } = await supabase.from("projects").insert({ owner_user_id: user.id, name });
     if (error) {
       setMessage({ type: "error", text: error.message });
       return;

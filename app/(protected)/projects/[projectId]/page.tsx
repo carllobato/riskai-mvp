@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import { supabaseServerClient } from "@/lib/supabase/server";
+import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 import { ProjectOverviewContent } from "./ProjectOverviewContent";
 import type { SimulationSnapshotRow } from "@/lib/db/snapshots";
 
@@ -15,20 +16,8 @@ export default async function ProjectDashboardPage({
 
   const supabase = await supabaseServerClient();
 
-  const [
-    { data: projectExtra },
-    { count: riskCount },
-    { data: latestSnapshotRow },
-  ] = await Promise.all([
-    supabase
-      .from("projects")
-      .select("portfolio_id, owner_id")
-      .eq("id", projectId)
-      .single(),
-    supabase
-      .from("risks")
-      .select("id", { count: "exact", head: true })
-      .eq("project_id", projectId),
+  const [{ data: riskRows }, { data: latestSnapshotRow }] = await Promise.all([
+    supabase.from("risks").select("id, status").eq("project_id", projectId),
     supabase
       .from("simulation_snapshots")
       .select("*")
@@ -38,12 +27,15 @@ export default async function ProjectDashboardPage({
       .maybeSingle(),
   ]);
 
+  const riskCount =
+    (riskRows ?? []).filter((r) => !isRiskStatusArchived((r as { status?: string | null }).status)).length;
+
   return (
     <ProjectOverviewContent
       initialData={{
         projectId,
         projectName: project.name,
-        riskCount: riskCount ?? 0,
+        riskCount,
         latestSnapshot: (latestSnapshotRow as SimulationSnapshotRow | null) ?? null,
       }}
     />

@@ -39,6 +39,13 @@ import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { dlog, dwarn } from "@/lib/debug";
 import { createSnapshot, type SimulationSnapshotRow } from "@/lib/db/snapshots";
 import { isRiskValid } from "@/domain/risk/runnable-risk.validator";
+import {
+  isRiskStatusArchived,
+  isRiskStatusClosed,
+  isRiskStatusDraft,
+  RISK_STATUS_ARCHIVED_LOOKUP,
+  RISK_STATUS_OPEN_LOOKUP,
+} from "@/domain/risk/riskFieldSemantics";
 
 /** Return type for runSimulation: ran true when simulation executed; blockReason and invalidCount when blocked. */
 export type RunSimulationResult =
@@ -186,7 +193,6 @@ type Action =
   | { type: "risk/update"; id: string; patch: Partial<Risk> }  // inline edit
   | { type: "RISK_UPDATE_RATING_PC"; payload: { id: string; target: "inherent" | "residual"; probability?: number; consequence?: number } }
   | { type: "risk/add"; risk: Risk }
-  | { type: "risk/delete"; id: string }
   | { type: "risks/clear" }
   | {
       type: "simulation/run";
@@ -291,9 +297,6 @@ function reducer(state: State, action: Action): State {
       });
       return { ...state, risks: [risk, ...state.risks] };
     }
-
-    case "risk/delete":
-      return { ...state, risks: state.risks.filter((r) => r.id !== action.id) };
 
     case "risks/clear":
       return { ...state, risks: [] };
@@ -415,7 +418,10 @@ type Ctx = {
   appendRisks: (risks: Risk[]) => void;
   updateRisk: (id: string, patch: Partial<Risk>) => void;
   updateRatingPc: (id: string, target: "inherent" | "residual", payload: { probability?: number; consequence?: number }) => void;
-  deleteRisk: (id: string) => void;
+  /** Soft-delete: sets status to Archived (persists on save). */
+  archiveRisk: (id: string) => void;
+  /** Restore archived risk to Open (persists on save). */
+  restoreArchivedRisk: (id: string) => void;
   clearRisks: () => void;
   simulation: State["simulation"];
   runSimulation: (iterations?: number, projectId?: string) => Promise<RunSimulationResult>;
@@ -618,7 +624,8 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
   const riskForecastsById = state.riskForecastsById;
   const invalidRunnableCount = useMemo(() => {
     const runnable = state.risks.filter(
-      (r) => r.status !== "draft" && r.status !== "closed" && r.status !== "archived"
+      (r) =>
+        !isRiskStatusDraft(r.status) && !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
     );
     return runnable.filter((r) => !isRiskValid(r)).length;
   }, [state.risks]);
@@ -638,14 +645,21 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
       updateRisk: (id, patch) => dispatch({ type: "risk/update", id, patch }),
       updateRatingPc: (id, target, payload) =>
         dispatch({ type: "RISK_UPDATE_RATING_PC", payload: { id, target, ...payload } }),
-      deleteRisk: (id) => dispatch({ type: "risk/delete", id }),
+      archiveRisk: (id) => {
+        console.log("[risks] archived (local store)", { riskId: id, status: RISK_STATUS_ARCHIVED_LOOKUP });
+        dispatch({ type: "risk/update", id, patch: { status: RISK_STATUS_ARCHIVED_LOOKUP } });
+      },
+      restoreArchivedRisk: (id) => {
+        console.log("[risks] restored from archive (local store)", { riskId: id, status: RISK_STATUS_OPEN_LOOKUP });
+        dispatch({ type: "risk/update", id, patch: { status: RISK_STATUS_OPEN_LOOKUP } });
+      },
       clearRisks: () => dispatch({ type: "risks/clear" }),
       simulation: state.simulation,
       runSimulation: (iterations, projectIdFromCaller) => {
-        const hasDraft = state.risks.some((r) => r.status === "draft");
+        const hasDraft = state.risks.some((r) => isRiskStatusDraft(r.status));
         if (hasDraft) return Promise.resolve({ ran: false, blockReason: "draft" });
         const runnable = state.risks.filter(
-          (r) => r.status !== "closed" && r.status !== "archived"
+          (r) => !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
         );
         const invalidCount = runnable.filter((r) => !isRiskValid(r)).length;
         if (invalidCount > 0) {
@@ -714,7 +728,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         );
 
         const effectiveRisks = state.risks.filter(
-          (r) => r.status !== "closed" && r.status !== "archived"
+          (r) => !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
         );
         const conservativeRisks = effectiveRisks.map((r) =>
           applyScenarioToRiskInputs(r, "conservative")
@@ -777,7 +791,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         }
       },
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
-      hasDraftRisks: state.risks.some((r) => r.status === "draft"),
+      hasDraftRisks: state.risks.some((r) => isRiskStatusDraft(r.status)),
       invalidRunnableCount,
       forwardPressure,
       riskForecastsById,

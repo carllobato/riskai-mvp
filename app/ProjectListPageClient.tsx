@@ -20,11 +20,11 @@ export function ProjectListPageClient() {
     async function run() {
       const supabase = supabaseBrowserClient();
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (cancelled) return;
-      if (!session?.user) {
+      if (!user) {
         router.replace("/login?next=" + encodeURIComponent("/"));
         return;
       }

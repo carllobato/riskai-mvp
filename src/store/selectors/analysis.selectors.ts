@@ -11,6 +11,7 @@ import type { Risk } from "@/domain/risk/risk.schema";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { getEffectiveRiskInputs } from "@/domain/simulation/monteCarlo";
 import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
+import { isRiskStatusArchived, isRiskStatusClosed } from "@/domain/risk/riskFieldSemantics";
 
 export type ScenarioSnapshotsMap = Partial<Record<ProjectionProfile, SimulationSnapshot>>;
 
@@ -63,7 +64,9 @@ export function getNeutralSummary(state: AnalysisSelectorState): NeutralSummary 
         ? snap.totalExpectedDays
         : undefined;
   const p90Time = summary != null && Number.isFinite(summary.p90Time) ? summary.p90Time : undefined;
-  const includedCount = state.risks.filter((r) => r.status !== "closed" && r.status !== "archived").length;
+  const includedCount = state.risks.filter(
+    (r) => !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
+  ).length;
   const p20Cost = (neutral?.summary != null && Number.isFinite(neutral.summary.p20Cost))
     ? neutral.summary.p20Cost
     : (snap as SimulationSnapshot & { p20Cost?: number }).p20Cost ?? snap.p50Cost;
@@ -222,7 +225,7 @@ export function getAnalysisAudit(state: AnalysisSelectorState): AnalysisAudit | 
     .map((r) => ({ risk: r, inp: getEffectiveRiskInputs(r) }))
     .filter((x): x is { risk: Risk; inp: NonNullable<ReturnType<typeof getEffectiveRiskInputs>> } => x.inp != null);
 
-  const closedCount = state.risks.filter((r) => r.status === "closed").length;
+  const closedCount = state.risks.filter((r) => isRiskStatusClosed(r.status)).length;
   const postCount = effectiveList.filter((x) => x.inp.sourceUsed === "post").length;
   const preCount = effectiveList.length - postCount;
 

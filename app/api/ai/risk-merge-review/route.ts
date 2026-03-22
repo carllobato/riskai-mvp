@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth/requireUser";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { RiskSchema } from "@/domain/risk/risk.schema";
 import type { Risk } from "@/domain/risk/risk.schema";
+import { probabilityScaleToDisplayPct } from "@/domain/risk/risk.logic";
 import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
 import { checkAiRateLimit, buildRateLimit429Payload } from "@/server/ai/rate-limit";
 
@@ -175,14 +176,14 @@ function buildUserPayload(risks: Risk[]): string {
     owner: r.owner ?? "",
     mitigation: r.mitigation ?? "",
     appliesTo: r.appliesTo ?? "both",
-    preMitigationProbabilityPct: r.preMitigationProbabilityPct,
+    preMitigationProbabilityPct: probabilityScaleToDisplayPct(r.inherentRating.probability),
     preMitigationCostMin: r.preMitigationCostMin,
     preMitigationCostML: r.preMitigationCostML,
     preMitigationCostMax: r.preMitigationCostMax,
     preMitigationTimeMin: r.preMitigationTimeMin,
     preMitigationTimeML: r.preMitigationTimeML,
     preMitigationTimeMax: r.preMitigationTimeMax,
-    postMitigationProbabilityPct: r.postMitigationProbabilityPct,
+    postMitigationProbabilityPct: probabilityScaleToDisplayPct(r.residualRating.probability),
     postMitigationCostMin: r.postMitigationCostMin,
     postMitigationCostML: r.postMitigationCostML,
     postMitigationCostMax: r.postMitigationCostMax,
@@ -251,6 +252,16 @@ export async function POST(req: Request) {
     }
     if ("error" in access && access.error === "forbidden") {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
+    }
+
+    if (!access.permissions.canEditContent) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("[project-access] risk-merge-review denied", {
+          projectId,
+          accessMode: access.permissions.accessMode,
+        });
+      }
+      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
 
     const risks: Risk[] = [];

@@ -28,6 +28,7 @@ import { computeSimulationAssumptionCounts } from "@/lib/simulationAssumptions";
 import { SIMULATION_ENGINE_VERSION } from "@/domain/simulation/monteCarlo";
 import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { appliesToExcludesCost, appliesToExcludesTime } from "@/domain/risk/riskFieldSemantics";
 
 /** Forward exposure payload keyed by engine scenario IDs (conservative, neutral, aggressive). */
 type ForwardExposurePayload = {
@@ -115,9 +116,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
   useEffect(() => {
     const supabase = supabaseBrowserClient();
     supabase.auth
-      .getSession()
-      .then(async ({ data: { session } }) => {
-        const user = session?.user;
+      .getUser()
+      .then(async ({ data: { user } }) => {
         if (!user) {
           setTriggeredBy(null);
           return;
@@ -206,12 +206,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
     list = list.filter((d) => {
       const risk = risks.find((r) => r.id === d.riskId);
       if (!risk) return true;
-      if (risk.appliesTo === "time") return false;
-      return (
-        (typeof risk.preMitigationCostML === "number" && risk.preMitigationCostML > 0) ||
-        (typeof risk.costImpact === "number" && risk.costImpact > 0) ||
-        (typeof risk.baseCostImpact === "number" && risk.baseCostImpact > 0)
-      );
+      if (appliesToExcludesCost(risk.appliesTo)) return false;
+      return typeof risk.preMitigationCostML === "number" && risk.preMitigationCostML > 0;
     });
     const total = forwardExposure.results.neutral?.total ?? 0;
     return list.map((d, i) => {
@@ -220,12 +216,11 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         total > 0 && Number.isFinite(d.total) ? (d.total / total) * 100 : null;
       let preMitigation: number;
       if (risk) {
-        const probPct = risk.preMitigationProbabilityPct;
-        const prob01 = probPct != null ? probPct / 100 : (risk.probability ?? 0.5);
-        const impact =
-          risk.preMitigationCostML ??
-          risk.baseCostImpact ??
-          (risk.postMitigationCostML ?? 0);
+        const prob01 =
+          typeof risk.probability === "number" && risk.probability >= 0 && risk.probability <= 1
+            ? risk.probability
+            : risk.inherentRating.probability / 5;
+        const impact = risk.preMitigationCostML ?? 0;
         preMitigation = impact * prob01;
         if (!Number.isFinite(preMitigation) || preMitigation < 0) preMitigation = d.total;
       } else {
@@ -263,13 +258,11 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
       const contributionPct = sumDaysAll > 0 ? (days / sumDaysAll) * 100 : null;
       let preMitigation: number;
       if (risk) {
-        const probPct = risk.preMitigationProbabilityPct;
-        const prob01 = probPct != null ? probPct / 100 : (risk.probability ?? 0.5);
-        const impactDays =
-          risk.preMitigationTimeML ??
-          risk.postMitigationTimeML ??
-          risk.scheduleImpactDays ??
-          0;
+        const prob01 =
+          typeof risk.probability === "number" && risk.probability >= 0 && risk.probability <= 1
+            ? risk.probability
+            : risk.inherentRating.probability / 5;
+        const impactDays = risk.preMitigationTimeML ?? risk.postMitigationTimeML ?? 0;
         preMitigation = impactDays * prob01;
         if (!Number.isFinite(preMitigation) || preMitigation < 0) preMitigation = days;
       } else {
@@ -475,19 +468,18 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
     const total = risks.length;
     const risksInRun = risks.filter((r) => snapshotIds.has(r.id));
     const hasPreCost = (r: (typeof risks)[number]) =>
-      r.appliesTo !== "time" &&
-      ((typeof r.preMitigationCostML === "number" && r.preMitigationCostML > 0) ||
-        (typeof r.costImpact === "number" && r.costImpact > 0) ||
-        (typeof r.baseCostImpact === "number" && r.baseCostImpact > 0));
+      !appliesToExcludesCost(r.appliesTo) &&
+      typeof r.preMitigationCostML === "number" &&
+      r.preMitigationCostML > 0;
     const hasPreTime = (r: (typeof risks)[number]) =>
-      r.appliesTo !== "cost" &&
-      ((typeof r.preMitigationTimeML === "number" && r.preMitigationTimeML > 0) ||
-        (typeof r.scheduleImpactDays === "number" && r.scheduleImpactDays > 0));
+      !appliesToExcludesTime(r.appliesTo) &&
+      typeof r.preMitigationTimeML === "number" &&
+      r.preMitigationTimeML > 0;
     const hasPostCost = (r: (typeof risks)[number]) =>
-      r.appliesTo !== "time" &&
+      !appliesToExcludesCost(r.appliesTo) &&
       ((typeof r.postMitigationCostML === "number" && r.postMitigationCostML > 0) || hasPreCost(r));
     const hasPostTime = (r: (typeof risks)[number]) =>
-      r.appliesTo !== "cost" &&
+      !appliesToExcludesTime(r.appliesTo) &&
       ((typeof r.postMitigationTimeML === "number" && r.postMitigationTimeML > 0) || hasPreTime(r));
     const preBoth = risksInRun.filter((r) => hasPreCost(r) && hasPreTime(r)).length;
     const preCostOnly = risksInRun.filter((r) => hasPreCost(r) && !hasPreTime(r)).length;

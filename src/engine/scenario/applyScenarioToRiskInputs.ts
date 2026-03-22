@@ -19,9 +19,6 @@ export function applyScenarioToRiskInputs(risk: Risk, scenarioId: ScenarioId): R
   return {
     ...risk,
     probability: adjusted.probability,
-    baseCostImpact: adjusted.baseCostImpact,
-    /** Simulation uses costImpact for cost ML; align with baseCostImpact for scenario consistency. */
-    costImpact: adjusted.baseCostImpact,
     escalationPersistence: adjusted.escalationPersistence,
     sensitivity: adjusted.sensitivity,
   };

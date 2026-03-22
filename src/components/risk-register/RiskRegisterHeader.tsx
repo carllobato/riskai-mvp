@@ -10,6 +10,8 @@ export type RiskRegisterHeaderProps = {
   onGenerateAiRiskClick?: () => void;
   onSaveToServer?: () => void | Promise<void>;
   saveToServerLoading?: boolean;
+  /** When true, hide mutating actions (viewer / read-only project access). */
+  readOnlyContent?: boolean;
 };
 
 export function RiskRegisterHeader({
@@ -18,14 +20,22 @@ export function RiskRegisterHeader({
   onGenerateAiRiskClick,
   onSaveToServer,
   saveToServerLoading = false,
+  readOnlyContent = false,
 }: RiskRegisterHeaderProps) {
   const { clearRisks } = useRiskRegister();
 
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <h2 className="text-lg font-semibold text-[var(--foreground)] m-0">Risk Register</h2>
+      <div className="min-w-0">
+        <h2 className="text-lg font-semibold text-[var(--foreground)] m-0">Risk Register</h2>
+        {readOnlyContent && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 m-0" role="status">
+            View-only access for this project.
+          </p>
+        )}
+      </div>
       <div className="flex flex-wrap items-center gap-3">
-        {onSaveToServer && (
+        {!readOnlyContent && onSaveToServer && (
           <button
             type="button"
             onClick={() => onSaveToServer()}
@@ -35,7 +45,7 @@ export function RiskRegisterHeader({
             {saveToServerLoading ? "Saving…" : "Save"}
           </button>
         )}
-        {onGenerateAiRiskClick && (
+        {!readOnlyContent && onGenerateAiRiskClick && (
           <button
             type="button"
             onClick={onGenerateAiRiskClick}
@@ -44,7 +54,7 @@ export function RiskRegisterHeader({
             Generate AI Risk
           </button>
         )}
-        {onAiReviewClick && (
+        {!readOnlyContent && onAiReviewClick && (
           <button
             type="button"
             onClick={onAiReviewClick}
@@ -54,13 +64,15 @@ export function RiskRegisterHeader({
             AI Review
           </button>
         )}
-        <button
-          type="button"
-          onClick={clearRisks}
-          className="px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30"
-        >
-          Clear
-        </button>
+        {!readOnlyContent && (
+          <button
+            type="button"
+            onClick={clearRisks}
+            className="px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30"
+          >
+            Clear
+          </button>
+        )}
       </div>
     </div>
   );

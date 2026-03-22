@@ -66,7 +66,8 @@ export function computeRiskExposureCurve(
       (result.debug as Record<string, unknown>).scenarioMultipliers = m;
       (result.debug as Record<string, unknown>).rawParams = {
         probability: risk.probability,
-        baseCostImpact: risk.baseCostImpact,
+        preMitigationCostML: risk.preMitigationCostML,
+        postMitigationCostML: risk.postMitigationCostML,
         escalationPersistence: risk.escalationPersistence,
         sensitivity: risk.sensitivity,
       };

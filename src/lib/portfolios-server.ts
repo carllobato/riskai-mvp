@@ -1,3 +1,8 @@
+import {
+  portfolioMemberRoleAllowsSettingsPageAccess,
+  resolvePortfolioMemberCapabilityFlags,
+  type PortfolioMemberCapabilityFlags,
+} from "@/lib/db/portfolioMemberAccess";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type AccessiblePortfolio = {
@@ -6,12 +11,13 @@ export type AccessiblePortfolio = {
   created_at: string | null;
 };
 
-/** Full portfolio row for admin (includes owner_id, description). */
+/** Full portfolio row for admin (includes owner_user_id, description, product). */
 export type PortfolioForAdmin = {
   id: string;
   name: string;
   description: string | null;
-  owner_id: string;
+  owner_user_id: string;
+  product_id: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -24,7 +30,9 @@ export type PortfolioMemberRow = {
   created_at: string | null;
 };
 
-export type AssertPortfolioAdminOk = { portfolio: PortfolioForAdmin };
+export type AssertPortfolioAdminOk = {
+  portfolio: PortfolioForAdmin;
+} & PortfolioMemberCapabilityFlags;
 export type AssertPortfolioAdminDenied =
   | { error: "unauthorized" }
   | { error: "forbidden" }
@@ -34,8 +42,8 @@ export type AssertPortfolioAdminResult =
   | AssertPortfolioAdminDenied;
 
 /**
- * Server-only. Verifies the current user can access portfolio admin (owner or member with role 'admin').
- * Returns the portfolio if allowed; use in page loaders and call notFound() on denied/not_found.
+ * Server-only. Verifies the user may open portfolio settings: table owner, or portfolio_members with
+ * owner / editor / viewer (non-members denied). Sets canEditPortfolioDetails for name/description edits.
  */
 export async function assertPortfolioAdminAccess(
   portfolioId: string,
@@ -44,7 +52,7 @@ export async function assertPortfolioAdminAccess(
 ): Promise<AssertPortfolioAdminResult> {
   const { data: portfolio, error: portfolioError } = await supabase
     .from("portfolios")
-    .select("id, name, description, owner_id, created_at, updated_at")
+    .select("id, name, description, owner_user_id, product_id, created_at, updated_at")
     .eq("id", portfolioId)
     .single();
 
@@ -52,40 +60,38 @@ export async function assertPortfolioAdminAccess(
     return { error: "not_found" };
   }
 
-  if (portfolio.owner_id === userId) {
-    return {
-      portfolio: {
-        id: portfolio.id,
-        name: portfolio.name,
-        description: portfolio.description ?? null,
-        owner_id: portfolio.owner_id,
-        created_at: portfolio.created_at ?? null,
-        updated_at: portfolio.updated_at ?? null,
-      },
-    };
-  }
+  const shaped: PortfolioForAdmin = {
+    id: portfolio.id,
+    name: portfolio.name,
+    description: portfolio.description ?? null,
+    owner_user_id: portfolio.owner_user_id,
+    product_id: portfolio.product_id ?? null,
+    created_at: portfolio.created_at ?? null,
+    updated_at: portfolio.updated_at ?? null,
+  };
+
+  const isTableOwner = portfolio.owner_user_id === userId;
 
   const { data: membership } = await supabase
     .from("portfolio_members")
     .select("role")
     .eq("portfolio_id", portfolioId)
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
-  if (membership?.role === "admin") {
-    return {
-      portfolio: {
-        id: portfolio.id,
-        name: portfolio.name,
-        description: portfolio.description ?? null,
-        owner_id: portfolio.owner_id,
-        created_at: portfolio.created_at ?? null,
-        updated_at: portfolio.updated_at ?? null,
-      },
-    };
+  const rowRole = membership?.role as string | undefined;
+
+  if (isTableOwner) {
+    const caps = resolvePortfolioMemberCapabilityFlags(true, rowRole);
+    return { portfolio: shaped, ...caps };
   }
 
-  return { error: "forbidden" };
+  if (!membership || !portfolioMemberRoleAllowsSettingsPageAccess(rowRole)) {
+    return { error: "forbidden" };
+  }
+
+  const caps = resolvePortfolioMemberCapabilityFlags(false, rowRole);
+  return { portfolio: shaped, ...caps };
 }
 
 export type GetAccessiblePortfoliosResult =
@@ -103,7 +109,7 @@ export async function getAccessiblePortfolios(
 ): Promise<GetAccessiblePortfoliosResult> {
   const { data: portfolios, error } = await supabase
     .from("portfolios")
-    .select("id, name, created_at, owner_id")
+    .select("id, name, created_at, owner_user_id")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -120,7 +126,7 @@ export async function getAccessiblePortfolios(
   );
 
   const allowed = (portfolios ?? []).filter(
-    (p) => p.owner_id === userId || memberPortfolioIds.has(p.id)
+    (p) => p.owner_user_id === userId || memberPortfolioIds.has(p.id)
   );
 
   const list = allowed.map(({ id, name, created_at }) => ({
@@ -143,9 +149,8 @@ export type GetAccessibleProjectsResult =
   | { ok: false; error: string };
 
 /**
- * Server-only: projects the user may see — owned by them or belonging to a portfolio they can access
- * (owner or member). Uses explicit queries instead of listing all projects so behaviour matches
- * getAccessiblePortfolios and does not depend on RLS alone.
+ * Server-only: projects the user may see — table owner, `project_members`, or projects in a portfolio
+ * they can access. Uses explicit queries so behaviour matches getAccessiblePortfolios; RLS still applies.
  */
 export async function getAccessibleProjects(
   supabase: SupabaseClient,
@@ -155,11 +160,38 @@ export async function getAccessibleProjects(
   const { data: ownedProjects, error: ownedError } = await supabase
     .from("projects")
     .select("id, name, created_at")
-    .eq("owner_id", userId)
+    .eq("owner_user_id", userId)
     .order("created_at", { ascending: true });
 
   if (ownedError) {
     return { ok: false, error: ownedError.message };
+  }
+
+  const { data: memberRows, error: memberError } = await supabase
+    .from("project_members")
+    .select("project_id")
+    .eq("user_id", userId);
+
+  if (memberError) {
+    return { ok: false, error: memberError.message };
+  }
+
+  const memberProjectIds = [
+    ...new Set((memberRows ?? []).map((r) => r.project_id as string)),
+  ];
+
+  let memberProjects: { id: string; name: string | null; created_at: string | null }[] = [];
+  if (memberProjectIds.length > 0) {
+    const { data, error: mpError } = await supabase
+      .from("projects")
+      .select("id, name, created_at")
+      .in("id", memberProjectIds)
+      .order("created_at", { ascending: true });
+
+    if (mpError) {
+      return { ok: false, error: mpError.message };
+    }
+    memberProjects = data ?? [];
   }
 
   let sharedProjects: { id: string; name: string | null; created_at: string | null }[] = [];
@@ -198,6 +230,11 @@ export async function getAccessibleProjects(
   const byId = new Map<string, AccessibleProject>();
   for (const p of ownedProjects ?? []) {
     byId.set(p.id, rowToAccessible(p));
+  }
+  for (const p of memberProjects) {
+    const next = rowToAccessible(p);
+    const prev = byId.get(p.id);
+    byId.set(p.id, prev ? mergeRows(prev, next) : next);
   }
   for (const p of sharedProjects) {
     const next = rowToAccessible(p);

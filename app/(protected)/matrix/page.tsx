@@ -7,6 +7,7 @@ import { useRiskRegister } from "@/store/risk-register.store";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
 import type { Risk, RiskLevel } from "@/domain/risk/risk.schema";
+import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 
 const PROBABILITY = [1, 2, 3, 4, 5] as const;
 const CONSEQUENCE = [1, 2, 3, 4, 5] as const;
@@ -86,7 +87,11 @@ export default function RiskMatrixPage() {
   const router = useRouter();
   const { uiMode } = useProjectionScenario();
   const { risks } = useRiskRegister();
-  const count = risks.length;
+  const activeRisks = useMemo(
+    () => risks.filter((r) => !isRiskStatusArchived(r.status)),
+    [risks]
+  );
+  const count = activeRisks.length;
   const [mode, setMode] = useState<MatrixMode>("Inherent");
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
 
@@ -107,7 +112,7 @@ export default function RiskMatrixPage() {
         map.set(`${p}-${c}`, []);
       }
     }
-    for (const risk of risks) {
+    for (const risk of activeRisks) {
       if (isPlottable(risk, mode)) {
         plottable++;
         const rating = mode === "Inherent" ? risk.inherentRating : risk.residualRating;
@@ -119,7 +124,7 @@ export default function RiskMatrixPage() {
       }
     }
     return { plottableCount: plottable, unplottableCount: unplottable, risksByCell: map };
-  }, [risks, mode, uiMode]);
+  }, [activeRisks, mode, uiMode]);
 
   const toggleCellExpanded = (cellKey: string) => {
     setExpandedCells((prev) => {
@@ -139,7 +144,7 @@ export default function RiskMatrixPage() {
         Visual validation of risk positions (no scoring logic).
       </p>
       <p className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600 dark:text-neutral-400">
-        <span>Risks loaded: {count}</span>
+        <span>Active risks (excludes archived): {count}</span>
         <span>Plotted: {plottableCount}</span>
         <span>Unplottable: {unplottableCount}</span>
       </p>

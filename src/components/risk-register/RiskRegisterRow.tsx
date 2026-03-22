@@ -1,33 +1,20 @@
 "use client";
 
 import { useState } from "react";
-import type { Risk, RiskCategory, RiskLevel, RiskStatus } from "@/domain/risk/risk.schema";
+import type { Risk, RiskLevel } from "@/domain/risk/risk.schema";
 import type { DecisionMetrics } from "@/domain/decision/decision.types";
+import { isRiskStatusDraft } from "@/domain/risk/riskFieldSemantics";
+import { dlog } from "@/lib/debug";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { RiskEditCell } from "@/components/risk-register/RiskEditCell";
+import { RiskOwnerRowSelect } from "@/components/risk-register/RiskOwnerRowSelect";
 import { RATING_TABLE_LEVEL_STYLES } from "@/components/risk-register/RiskLevelBadge";
+import { RiskCategorySelect } from "@/components/risk-register/RiskCategorySelect";
+import { RiskStatusSelect } from "@/components/risk-register/RiskStatusSelect";
 
-const categories: RiskCategory[] = [
-  "commercial",
-  "programme",
-  "design",
-  "construction",
-  "procurement",
-  "hse",
-  "authority",
-  "operations",
-  "other",
-];
-
-const statuses: RiskStatus[] = ["draft", "open", "monitoring", "mitigating", "closed", "archived"];
-
-function formatStatusLabel(status: RiskStatus): string {
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function formatCategoryLabel(category: RiskCategory | "" | null | undefined): string {
+function formatCategoryLabel(category: string | "" | null | undefined): string {
   if (category == null || category === "") return "—";
-  return category.charAt(0).toUpperCase() + category.slice(1);
+  return category;
 }
 
 /** Map risk level to single letter for Pre/Post Rating column. */
@@ -69,6 +56,7 @@ function truncateDescription(desc: string): string {
 export function RiskRegisterRow({
   risk,
   onRiskClick,
+  onRestoreArchived,
   validationErrors,
 }: {
   risk: Risk;
@@ -76,6 +64,8 @@ export function RiskRegisterRow({
   decision?: DecisionMetrics | null;
   scoreDelta?: number;
   onRiskClick?: (risk: Risk) => void;
+  /** When set (archived register), show Restore next to View / Edit. */
+  onRestoreArchived?: (risk: Risk) => void;
   /** When present and non-empty, a compact error summary is shown under the row (e.g. from runnable validator). */
   validationErrors?: string[];
 }) {
@@ -83,7 +73,7 @@ export function RiskRegisterRow({
   const readOnly = Boolean(onRiskClick);
   const [showDescCard, setShowDescCard] = useState(false);
   const hasDescription = Boolean(risk.description?.trim());
-  const isDraft = risk.status === "draft";
+  const isDraft = isRiskStatusDraft(risk.status);
 
   const cellTextClass = "text-sm text-[var(--foreground)] truncate min-w-0";
 
@@ -107,8 +97,13 @@ export function RiskRegisterRow({
   const movementPillClass = movement === "→" ? MOVEMENT_PILL_CLASS_STABLE : "";
   const preStyle = RATING_TABLE_LEVEL_STYLES[risk.inherentRating.level];
   const postStyle = RATING_TABLE_LEVEL_STYLES[risk.residualRating.level];
+  const actionCol = onRestoreArchived
+    ? "minmax(168px, 1.1fr)"
+    : onRiskClick
+      ? "minmax(96px, 96px)"
+      : "";
   const gridCols = onRiskClick
-    ? "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr) minmax(96px, 96px)"
+    ? `56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr) ${actionCol}`
     : "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr)";
 
   const hasValidationErrors = Boolean(validationErrors?.length);
@@ -174,27 +169,24 @@ export function RiskRegisterRow({
       {readOnly ? (
         <span className={cellTextClass}>{formatCategoryLabel(risk.category)}</span>
       ) : (
-        <select
-          value={risk.category}
-          onChange={(e) => updateRisk(risk.id, { category: e.target.value as RiskCategory })}
+        <RiskCategorySelect
+          id={`risk-row-category-${risk.id}`}
+          value={risk.category ?? ""}
+          onChange={(name) => updateRisk(risk.id, { category: name })}
+          className="w-full min-w-0"
           style={selectStyle}
-        >
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {formatCategoryLabel(c)}
-            </option>
-          ))}
-        </select>
+          allowEmptyPlaceholder={isDraft || !(risk.category?.trim())}
+        />
       )}
 
       {/* Owner */}
       {readOnly ? (
         <span className={cellTextClass}>{risk.owner ?? "—"}</span>
       ) : (
-        <RiskEditCell
-          value={risk.owner ?? ""}
-          placeholder="Owner"
-          onChange={(owner) => updateRisk(risk.id, { owner: owner || undefined })}
+        <RiskOwnerRowSelect
+          riskId={risk.id}
+          owner={risk.owner}
+          onCommit={(name) => updateRisk(risk.id, { owner: name || undefined })}
         />
       )}
 
@@ -262,25 +254,37 @@ export function RiskRegisterRow({
               Draft
             </span>
           ) : (
-            <span className={cellTextClass}>{formatStatusLabel(risk.status)}</span>
+            <span className={cellTextClass}>{risk.status}</span>
           )
         ) : (
-          <select
+          <RiskStatusSelect
+            id={`risk-row-status-${risk.id}`}
             value={risk.status}
-            onChange={(e) => updateRisk(risk.id, { status: e.target.value as RiskStatus })}
+            onChange={(name) => {
+              dlog("[risk register row] status change", name);
+              updateRisk(risk.id, { status: name });
+            }}
             style={selectStyle}
-          >
-            {statuses.map((s) => (
-              <option key={s} value={s}>
-                {formatStatusLabel(s)}
-              </option>
-            ))}
-          </select>
+            className="w-full min-w-0"
+          />
         )}
       </div>
 
       {onRiskClick && (
-        <div className="flex items-center justify-end min-w-0 shrink-0">
+        <div className="flex items-center justify-end gap-1 min-w-0 shrink-0 flex-wrap">
+          {onRestoreArchived && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRestoreArchived(risk);
+              }}
+              className="px-2 py-1.5 text-xs font-medium rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 focus:outline-none focus:ring-2 focus:ring-emerald-500 shrink-0 whitespace-nowrap"
+              title="Restore this risk to Open status"
+            >
+              Restore
+            </button>
+          )}
           <button
             type="button"
             onClick={(e) => {

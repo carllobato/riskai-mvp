@@ -1,4 +1,5 @@
 import type { Risk, RiskLevel, RiskRating } from "./risk.schema";
+import { normalizeAppliesToKey } from "./riskFieldSemantics";
 import { clamp } from "@/domain/decision/decision.score";
 
 export function computeRiskLevel(score: number): RiskLevel {
@@ -33,6 +34,27 @@ export function probabilityPctToScale(pct: number): number {
   return 5;
 }
 
+/** Linear display % (0–100) from stored 1–5 `pre_probability` / `post_probability` scale. */
+export function probabilityScaleToDisplayPct(scale: number): number {
+  const s = Math.max(1, Math.min(5, Number(scale)));
+  return (s / 5) * 100;
+}
+
+/** Trigger probability 0–1 from 1–5 DB scale (matches linear display %). */
+export function probability01FromScale(scale: number): number {
+  return probabilityScaleToDisplayPct(scale) / 100;
+}
+
+/** Cost basis for forward exposure when no explicit scenario field: post ML if mitigated, else pre ML, else default. */
+export function effectiveForwardCostImpact(risk: Risk, fallback = 100_000): number {
+  const hasMitigation = Boolean(risk.mitigation?.trim());
+  const post = risk.postMitigationCostML;
+  const pre = risk.preMitigationCostML;
+  if (hasMitigation && typeof post === "number" && Number.isFinite(post) && post > 0) return post;
+  if (typeof pre === "number" && Number.isFinite(pre) && pre > 0) return pre;
+  return fallback;
+}
+
 /** Map cost $ to consequence 1–5 scale (rough bands). */
 export function costToConsequenceScale(cost: number): number {
   if (cost <= 0) return 1;
@@ -51,6 +73,18 @@ export function timeDaysToConsequenceScale(days: number): number {
   if (days <= 90) return 3;
   if (days <= 180) return 4;
   return 5;
+}
+
+/** Consequence scale (1–5) from `applies_to` text and cost/time ML. */
+export function consequenceScaleFromAppliesTo(
+  appliesTo: string | undefined,
+  costML: number,
+  timeML: number
+): number {
+  const k = normalizeAppliesToKey(appliesTo);
+  if (k === "time") return timeDaysToConsequenceScale(timeML);
+  if (k === "cost") return costToConsequenceScale(costML);
+  return Math.max(costToConsequenceScale(costML), timeDaysToConsequenceScale(timeML));
 }
 
 /**

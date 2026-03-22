@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { buildRating, costToConsequenceScale, timeDaysToConsequenceScale } from "@/domain/risk/risk.logic";
 import type { AccessibleProject } from "@/lib/portfolios-server";
+import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 
 export type RagStatus = "green" | "amber" | "red";
 
@@ -13,6 +14,7 @@ export type ProjectTilePayload = {
 
 type RiskAggRow = {
   project_id: string;
+  status: string | null;
   post_probability: number;
   post_cost_ml: number;
   post_time_ml: number;
@@ -56,7 +58,7 @@ export async function getProjectTilePayloads(
   const [risksRes, snapshotsRes] = await Promise.all([
     supabase
       .from("risks")
-      .select("project_id, post_probability, post_cost_ml, post_time_ml, mitigation_description")
+      .select("project_id, status, post_probability, post_cost_ml, post_time_ml, mitigation_description")
       .in("project_id", ids),
     supabase.from("simulation_snapshots").select("project_id, created_at").in("project_id", ids),
   ]);
@@ -78,6 +80,7 @@ export async function getProjectTilePayloads(
     riskStats.set(id, { count: 0, highSeverity: 0 });
   }
   for (const r of risks) {
+    if (isRiskStatusArchived(r.status)) continue;
     const stat = riskStats.get(r.project_id);
     if (!stat) continue;
     stat.count += 1;

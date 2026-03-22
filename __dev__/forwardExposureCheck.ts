@@ -47,7 +47,7 @@ function runTests(): void {
   assert(adjNone.probMultiplier === 1 && adjNone.impactMultiplier === 1, "status none: no adjustment");
 
   // --- applyScenario
-  const r = createRisk({ probability: 0.5, baseCostImpact: 100_000 });
+  const r = createRisk({ probability: 0.5, preMitigationCostML: 100_000 });
   const neutral = applyScenario(r, "neutral");
   const conservative = applyScenario(r, "conservative");
   const aggressive = applyScenario(r, "aggressive");
@@ -76,9 +76,9 @@ function runTests(): void {
 
   // --- computePortfolioExposure
   const risks: Risk[] = [
-    createRisk({ id: "a", category: "commercial", baseCostImpact: 50_000 }),
-    createRisk({ id: "b", category: "programme", baseCostImpact: 80_000 }),
-    createRisk({ id: "c", category: "commercial", baseCostImpact: 30_000 }),
+    createRisk({ id: "a", category: "commercial", preMitigationCostML: 50_000 }),
+    createRisk({ id: "b", category: "programme", preMitigationCostML: 80_000 }),
+    createRisk({ id: "c", category: "commercial", preMitigationCostML: 30_000 }),
   ];
   const portfolio = computePortfolioExposure(risks, "neutral", horizonMonths, { topN: 2, includeDebug: true });
   assert(portfolio.monthlyTotal.length === horizonMonths, "portfolio monthly length");

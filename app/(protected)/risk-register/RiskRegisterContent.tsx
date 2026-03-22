@@ -22,6 +22,9 @@ import { CreateRiskFileModal } from "@/components/risk-register/CreateRiskFileMo
 import { CreateRiskAIModal } from "@/components/risk-register/CreateRiskAIModal";
 import { AddNewRiskChoiceModal } from "@/components/risk-register/AddNewRiskChoiceModal";
 import { AIReviewDrawer } from "@/components/risk-register/AIReviewDrawer";
+import { RiskRegisterLookupProviders } from "@/components/risk-register/RiskRegisterLookupProviders";
+import { isRiskStatusArchived, RISK_STATUS_ARCHIVED_LOOKUP } from "@/domain/risk/riskFieldSemantics";
+import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
 const HIGHLIGHT_DURATION_MS = 2000;
 
@@ -68,7 +71,8 @@ function applyColumnFilters<T>(list: T[], filters: ColumnFilters, getValue: (ite
 export type RiskRegisterContentProps = { projectId?: string | null };
 
 export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterContentProps = {}) {
-  const { risks, simulation, addRisk, updateRisk, setRisks } = useRiskRegister();
+  const { risks, simulation, addRisk, updateRisk, setRisks, archiveRisk, restoreArchivedRisk } =
+    useRiskRegister();
   const [saveToServerLoading, setSaveToServerLoading] = useState(false);
   const [saveToServerError, setSaveToServerError] = useState<string | null>(null);
   const [aiReviewOpen, setAiReviewOpen] = useState(false);
@@ -86,6 +90,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const [showCreateRiskFileModal, setShowCreateRiskFileModal] = useState(false);
   const [showCreateRiskAIModal, setShowCreateRiskAIModal] = useState(false);
   const [columnFilters, setColumnFilters] = useState<ColumnFilters>({});
+  const [registerView, setRegisterView] = useState<"active" | "archived">("active");
   const [risksLoadError, setRisksLoadError] = useState<string | null>(null);
   const [risksLoading, setRisksLoading] = useState(true);
   const [loadRetryKey, setLoadRetryKey] = useState(0);
@@ -100,6 +105,17 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}` : "/";
   /** UUID for DB/API: URL project when in project routes, else default (legacy). projectContext.projectName is a display name, not a UUID. */
   const projectIdForDb = urlProjectId ?? DEFAULT_PROJECT_ID;
+
+  const projectPermissions = useProjectPermissions();
+  const contentReadOnly =
+    Boolean(urlProjectId) &&
+    (projectPermissions == null || !projectPermissions.canEditContent);
+
+  useEffect(() => {
+    if (contentReadOnly && urlProjectId && process.env.NODE_ENV === "development") {
+      console.log("[project-access] risk register read-only UI", { projectId: urlProjectId });
+    }
+  }, [contentReadOnly, urlProjectId]);
 
   // Gate: load project context for gate/display. When urlProjectId is set use project-specific key; else legacy global key.
   useEffect(() => {
@@ -165,23 +181,18 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         ...server,
         riskNumber: preferServer(server.riskNumber, local.riskNumber),
         appliesTo: preferServer(server.appliesTo, local.appliesTo),
-        preMitigationProbabilityPct: preferServer(server.preMitigationProbabilityPct, local.preMitigationProbabilityPct),
         preMitigationCostMin: preferServer(server.preMitigationCostMin, local.preMitigationCostMin),
         preMitigationCostML: preferServer(server.preMitigationCostML, local.preMitigationCostML),
         preMitigationCostMax: preferServer(server.preMitigationCostMax, local.preMitigationCostMax),
         preMitigationTimeMin: preferServer(server.preMitigationTimeMin, local.preMitigationTimeMin),
         preMitigationTimeML: preferServer(server.preMitigationTimeML, local.preMitigationTimeML),
         preMitigationTimeMax: preferServer(server.preMitigationTimeMax, local.preMitigationTimeMax),
-        postMitigationProbabilityPct: preferServer(server.postMitigationProbabilityPct, local.postMitigationProbabilityPct),
         postMitigationCostMin: preferServer(server.postMitigationCostMin, local.postMitigationCostMin),
         postMitigationCostML: preferServer(server.postMitigationCostML, local.postMitigationCostML),
         postMitigationCostMax: preferServer(server.postMitigationCostMax, local.postMitigationCostMax),
         postMitigationTimeMin: preferServer(server.postMitigationTimeMin, local.postMitigationTimeMin),
         postMitigationTimeML: preferServer(server.postMitigationTimeML, local.postMitigationTimeML),
         postMitigationTimeMax: preferServer(server.postMitigationTimeMax, local.postMitigationTimeMax),
-        baseCostImpact: preferServer(server.baseCostImpact, local.baseCostImpact),
-        costImpact: preferServer(server.costImpact, local.costImpact),
-        scheduleImpactDays: preferServer(server.scheduleImpactDays, local.scheduleImpactDays),
         probability: preferServer(server.probability, local.probability),
       });
       if (matchByIndex && serverRisks.length === localRisks.length) {
@@ -223,7 +234,19 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const scoreDeltaByRiskId = useMemo(() => selectDecisionScoreDelta(state), [state]);
 
   const { filteredRisks, risksForFilterOptions } = useMemo(() => {
-    let list = risks.filter((r) => r.status !== "archived");
+    const baseList =
+      registerView === "active"
+        ? risks.filter((r) => !isRiskStatusArchived(r.status))
+        : risks.filter((r) => isRiskStatusArchived(r.status));
+
+    if (registerView === "active") {
+      console.log("[risk-ui] active register excludes archived", {
+        totalInStore: risks.length,
+        activeVisibleBeforeColumnFilters: baseList.length,
+      });
+    }
+
+    let list = baseList;
     const risksForFilterOptions = list;
     list = applyColumnFilters(list, columnFilters, getRiskColumnValue);
 
@@ -267,7 +290,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
       });
     }
     return { filteredRisks: list, risksForFilterOptions };
-  }, [risks, columnFilters, tableSortState]);
+  }, [risks, columnFilters, tableSortState, registerView]);
 
   if (process.env.NODE_ENV === "development") {
     console.log("[risk-ui] render", {
@@ -280,12 +303,14 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   // When opening the detail modal for a newly added risk, it may not be in filteredRisks (e.g. "Show flagged only").
   // Ensure the initial risk is included so the modal shows the correct risk instead of defaulting to the first filtered one.
   const risksForDetailModal = useMemo(() => {
+    const inView = (r: Risk) =>
+      registerView === "active" ? !isRiskStatusArchived(r.status) : isRiskStatusArchived(r.status);
     if (!detailInitialRiskId) return filteredRisks;
     if (filteredRisks.some((r) => r.id === detailInitialRiskId)) return filteredRisks;
     const initialRisk = risks.find((r) => r.id === detailInitialRiskId);
-    if (!initialRisk) return filteredRisks;
+    if (!initialRisk || !inView(initialRisk)) return filteredRisks;
     return [initialRisk, ...filteredRisks];
-  }, [filteredRisks, detailInitialRiskId, risks]);
+  }, [filteredRisks, detailInitialRiskId, risks, registerView]);
 
   useEffect(() => {
     if (!focusRiskId) return;
@@ -311,6 +336,7 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   }, [focusRiskId, router, urlProjectId]);
 
   const handleAiReviewClick = useCallback(async () => {
+    if (contentReadOnly) return;
     setAiReviewOpen(true);
     setAiReviewError(null);
     setAiClusters([]);
@@ -318,7 +344,10 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     setAiReviewLoading(true);
     const projectIdForApi = projectIdForDb;
     try {
-      const payload = { projectId: projectIdForApi, risks: risks.filter((r) => r.status !== "archived") };
+      const payload = {
+        projectId: projectIdForApi,
+        risks: risks.filter((r) => !isRiskStatusArchived(r.status)),
+      };
       const res = await fetch("/api/ai/risk-merge-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -343,23 +372,27 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
     } finally {
       setAiReviewLoading(false);
     }
-  }, [projectIdForDb, risks]);
+  }, [contentReadOnly, projectIdForDb, risks]);
 
   const handleAcceptMerge = useCallback(
     (cluster: RiskMergeCluster, draft: MergeRiskDraft) => {
+      if (contentReadOnly) return;
       // Create merged result as a new risk (new id, next riskNumber) to avoid losing information
       const newRisk = mergeDraftToRisk(draft, {
         mergedFromRiskIds: cluster.riskIds,
         aiMergeClusterId: cluster.clusterId,
       });
+      console.log("[risk lookup] selected status on save", newRisk.status);
+      console.log("[risk lookup] selected applies_to on save", newRisk.appliesTo);
       // Archive the risks that were merged (keep for completeness, do not delete)
       for (const id of cluster.riskIds) {
-        updateRisk(id, { status: "archived" });
+        console.log("[risks] archived (merge accept)", { riskId: id, status: RISK_STATUS_ARCHIVED_LOOKUP });
+        updateRisk(id, { status: RISK_STATUS_ARCHIVED_LOOKUP });
       }
       addRisk(newRisk);
       setAiClusters((prev) => prev.filter((c) => c.clusterId !== cluster.clusterId));
     },
-    [updateRisk, addRisk]
+    [addRisk, contentReadOnly, updateRisk]
   );
 
   const handleSkipCluster = useCallback((clusterId: string) => {
@@ -376,40 +409,51 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
 
   if (blockContent) {
     return (
-      <main className="p-6">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
-      </main>
+      <RiskRegisterLookupProviders projectId={projectIdForDb}>
+        <main className="p-6">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
+        </main>
+      </RiskRegisterLookupProviders>
     );
   }
 
   if (risksLoading) {
     return (
+      <RiskRegisterLookupProviders projectId={projectIdForDb}>
       <main className="p-6">
         <div className="mb-6">
           <RiskRegisterHeader
             projectContext={projectContext}
-            onAiReviewClick={handleAiReviewClick}
+            readOnlyContent={contentReadOnly}
+            onAiReviewClick={contentReadOnly ? undefined : handleAiReviewClick}
             aiReviewLoading={aiReviewLoading}
-            onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
-            onSaveToServer={handleSaveToServer}
+            onGenerateAiRiskClick={
+              contentReadOnly ? undefined : () => setShowAddNewRiskChoiceModal(true)
+            }
+            onSaveToServer={contentReadOnly ? undefined : handleSaveToServer}
             saveToServerLoading={saveToServerLoading}
           />
         </div>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading risks…</p>
       </main>
+      </RiskRegisterLookupProviders>
     );
   }
 
   if (risksLoadError) {
     return (
+      <RiskRegisterLookupProviders projectId={projectIdForDb}>
       <main className="p-6">
         <div className="mb-6">
           <RiskRegisterHeader
             projectContext={projectContext}
-            onAiReviewClick={handleAiReviewClick}
+            readOnlyContent={contentReadOnly}
+            onAiReviewClick={contentReadOnly ? undefined : handleAiReviewClick}
             aiReviewLoading={aiReviewLoading}
-            onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
-            onSaveToServer={handleSaveToServer}
+            onGenerateAiRiskClick={
+              contentReadOnly ? undefined : () => setShowAddNewRiskChoiceModal(true)
+            }
+            onSaveToServer={contentReadOnly ? undefined : handleSaveToServer}
             saveToServerLoading={saveToServerLoading}
           />
         </div>
@@ -430,18 +474,23 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
           </button>
         </div>
       </main>
+      </RiskRegisterLookupProviders>
     );
   }
 
   return (
+    <RiskRegisterLookupProviders projectId={projectIdForDb}>
     <main className="p-6">
       <div className="mb-6">
         <RiskRegisterHeader
           projectContext={projectContext}
-          onAiReviewClick={handleAiReviewClick}
+          readOnlyContent={contentReadOnly}
+          onAiReviewClick={contentReadOnly ? undefined : handleAiReviewClick}
           aiReviewLoading={aiReviewLoading}
-          onGenerateAiRiskClick={() => setShowAddNewRiskChoiceModal(true)}
-          onSaveToServer={handleSaveToServer}
+          onGenerateAiRiskClick={
+            contentReadOnly ? undefined : () => setShowAddNewRiskChoiceModal(true)
+          }
+          onSaveToServer={contentReadOnly ? undefined : handleSaveToServer}
           saveToServerLoading={saveToServerLoading}
         />
         {saveToServerError && (
@@ -454,18 +503,70 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-8 text-center">
           <p className="text-neutral-600 dark:text-neutral-400 font-medium">No risks in this project</p>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-500">
-            Add a risk manually, from file, or with AI to get started.
+            {contentReadOnly
+              ? "You have view-only access to this project."
+              : "Add a risk manually, from file, or with AI to get started."}
           </p>
-          <button
-            type="button"
-            onClick={() => setShowAddNewRiskChoiceModal(true)}
-            className="mt-4 px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-          >
-            Add risk
-          </button>
+          {!contentReadOnly && (
+            <button
+              type="button"
+              onClick={() => setShowAddNewRiskChoiceModal(true)}
+              className="mt-4 px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            >
+              Add risk
+            </button>
+          )}
         </div>
       ) : (
         <>
+          <div
+            className="flex flex-wrap gap-2 mb-4 border-b border-neutral-200 dark:border-neutral-700 pb-3"
+            role="tablist"
+            aria-label="Risk register view"
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={registerView === "active"}
+              onClick={() => {
+                setRegisterView("active");
+                setColumnFilters({});
+              }}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                registerView === "active"
+                  ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
+                  : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              }`}
+            >
+              Active register
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={registerView === "archived"}
+              onClick={() => {
+                setRegisterView("archived");
+                setColumnFilters({});
+              }}
+              className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                registerView === "archived"
+                  ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
+                  : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              }`}
+            >
+              Archived
+            </button>
+          </div>
+          {registerView === "active" &&
+            risks.length > 0 &&
+            risks.every((r) => isRiskStatusArchived(r.status)) && (
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
+                All risks are archived. Open the <strong>Archived</strong> tab to review or restore them.
+              </p>
+            )}
+          {registerView === "archived" && !risks.some((r) => isRiskStatusArchived(r.status)) && (
+            <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">No archived risks.</p>
+          )}
           <RiskRegisterTable
             risks={filteredRisks}
             risksForFilterOptions={risksForFilterOptions}
@@ -475,7 +576,18 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
               setDetailInitialRiskId(risk.id);
               setShowDetailModal(true);
             }}
-            onAddNewClick={() => setShowAddNewRiskChoiceModal(true)}
+            onArchivedRestore={
+              registerView === "archived" && !contentReadOnly
+                ? (risk) => {
+                    restoreArchivedRisk(risk.id);
+                  }
+                : undefined
+            }
+            onAddNewClick={
+              registerView === "active" && !contentReadOnly
+                ? () => setShowAddNewRiskChoiceModal(true)
+                : undefined
+            }
             sortState={tableSortState}
             onSortByColumn={(column: SortColumn) => {
               setTableSortState((prev) => {
@@ -499,20 +611,41 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
             open={showDetailModal}
             risks={risksForDetailModal}
             initialRiskId={detailInitialRiskId}
+            readOnly={contentReadOnly}
             onClose={() => setShowDetailModal(false)}
             onSave={(risk) => updateRisk(risk.id, risk)}
-            onAddNew={() => {
-              setShowDetailModal(false);
-              setShowAddRiskModal(true);
-            }}
-            onAddNewWithFile={() => {
-              setShowDetailModal(false);
-              setShowCreateRiskFileModal(true);
-            }}
-            onAddNewWithAI={() => {
-              setShowDetailModal(false);
-              setShowAddNewRiskChoiceModal(true);
-            }}
+            onArchiveRisk={
+              registerView === "active" && !contentReadOnly ? (id) => archiveRisk(id) : undefined
+            }
+            onRestoreRisk={
+              registerView === "archived" && !contentReadOnly
+                ? (id) => restoreArchivedRisk(id)
+                : undefined
+            }
+            onAddNew={
+              contentReadOnly
+                ? undefined
+                : () => {
+                    setShowDetailModal(false);
+                    setShowAddRiskModal(true);
+                  }
+            }
+            onAddNewWithFile={
+              contentReadOnly
+                ? undefined
+                : () => {
+                    setShowDetailModal(false);
+                    setShowCreateRiskFileModal(true);
+                  }
+            }
+            onAddNewWithAI={
+              contentReadOnly
+                ? undefined
+                : () => {
+                    setShowDetailModal(false);
+                    setShowAddNewRiskChoiceModal(true);
+                  }
+            }
           />
         </>
       )}
@@ -559,5 +692,6 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         onSkipCluster={handleSkipCluster}
       />
     </main>
+    </RiskRegisterLookupProviders>
   );
 }

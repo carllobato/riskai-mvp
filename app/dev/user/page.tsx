@@ -6,17 +6,16 @@ import DevSignOutClient from "./DevSignOutClient";
 export default async function DevUserPage() {
   const supabase = await supabaseServerClient();
   const {
-    data: { session },
-    error: sessionError,
-  } = await supabase.auth.getSession();
-  const user = session?.user ?? null;
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
 
-  if (sessionError) {
+  if (userError) {
     return (
       <main className="p-6 max-w-2xl">
         <h1 className="text-xl font-semibold m-0 mb-4">Dev: User persistence</h1>
         <p className="text-red-700 dark:text-red-400 mb-4">
-          Session error: {sessionError.message}
+          Auth error: {userError.message}
         </p>
         <DevLoginClient />
       </main>
@@ -28,7 +27,7 @@ export default async function DevUserPage() {
       <main className="p-6 max-w-2xl">
         <h1 className="text-xl font-semibold m-0 mb-4">Dev: User persistence</h1>
         <p className="text-neutral-600 dark:text-neutral-400 mb-4">
-          Sign in to verify that <code className="text-sm bg-neutral-100 dark:bg-neutral-800 px-1 rounded">public.users</code> has a row created by the trigger (R12).
+          Sign in to verify that <code className="text-sm bg-neutral-100 dark:bg-neutral-800 px-1 rounded">public.profiles</code> has a row (e.g. after saving account settings or migration copy from legacy <code className="text-xs">users</code>).
         </p>
         <DevLoginClient />
       </main>
@@ -36,7 +35,7 @@ export default async function DevUserPage() {
   }
 
   const { data: userRow, error: rowError } = await supabase
-    .from("users")
+    .from("profiles")
     .select("*")
     .eq("id", user.id)
     .single();
@@ -55,11 +54,11 @@ export default async function DevUserPage() {
       <div className="mb-4">
         {rowError ? (
           <p className="text-red-700 dark:text-red-400">
-            ❌ user row missing — {rowError.message}
+            ❌ profile row missing — {rowError.message}
           </p>
         ) : userRow ? (
           <p className="text-green-700 dark:text-green-400 font-medium">
-            ✅ user row exists (created via trigger)
+            ✅ profile row exists
           </p>
         ) : (
           <p className="text-red-700 dark:text-red-400">❌ user row missing</p>
