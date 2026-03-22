@@ -262,11 +262,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
           typeof risk.probability === "number" && risk.probability >= 0 && risk.probability <= 1
             ? risk.probability
             : risk.inherentRating.probability / 5;
-        const hasM = Boolean(risk.mitigation?.trim());
-        const impactDays =
-          risk.preMitigationTimeML ??
-          (hasM ? risk.postMitigationTimeML : undefined) ??
-          0;
+        const impactDays = risk.preMitigationTimeML ?? risk.postMitigationTimeML ?? 0;
         preMitigation = impactDays * prob01;
         if (!Number.isFinite(preMitigation) || preMitigation < 0) preMitigation = days;
       } else {

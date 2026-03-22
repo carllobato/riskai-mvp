@@ -2,12 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { canonicalUserId, coerceProfileFromUnknown } from "@/lib/profileDisplayCoerce";
+import type { ProfileDisplayRow } from "@/types/projectMembers";
 import type {
-  ProjectMemberRole,
-  ProjectMemberRow,
-  ProfileDisplayRow,
-  ProjectMemberWithProfileRow,
-} from "@/types/projectMembers";
+  PortfolioMemberRole,
+  PortfolioMemberWithProfileRow,
+} from "@/types/portfolioMembers";
 import { MemberSectionPermissionHints } from "@/components/settings/MemberSectionPermissionHints";
 import {
   settingsCardClass,
@@ -20,21 +19,22 @@ import {
 type Viewer = {
   currentUserId: string;
   canManageMembers: boolean;
-  memberRole: ProjectMemberRole | null;
+  memberRole: PortfolioMemberRole | null;
+  canEditPortfolioDetails: boolean;
   canInviteMembers: boolean;
   canChangeMemberRoles: boolean;
   canRemoveMembers: boolean;
 };
 
 type MembersResponse = {
-  members: ProjectMemberWithProfileRow[];
+  members: PortfolioMemberWithProfileRow[];
   profiles: Record<string, ProfileDisplayRow>;
   viewer: Viewer;
-  roleSemantics?: Record<ProjectMemberRole, string>;
+  roleSemantics?: Record<PortfolioMemberRole, string>;
 };
 
 function resolveProfile(
-  m: ProjectMemberWithProfileRow,
+  m: PortfolioMemberWithProfileRow,
   profilesMap: Record<string, ProfileDisplayRow>
 ): ProfileDisplayRow | undefined {
   const fromNested =
@@ -43,9 +43,8 @@ function resolveProfile(
   return profilesMap[canonicalUserId(m.user_id)] ?? profilesMap[m.user_id];
 }
 
-/** Prefer server `resolvedProfile`, then existing nested + map fallbacks. */
 function normalizeResolvedProfile(
-  m: ProjectMemberWithProfileRow,
+  m: PortfolioMemberWithProfileRow,
   profilesMap: Record<string, ProfileDisplayRow>
 ): ProfileDisplayRow | undefined {
   const fromResolved = coerceProfileFromUnknown(m.resolvedProfile);
@@ -53,7 +52,7 @@ function normalizeResolvedProfile(
   return resolveProfile(m, profilesMap);
 }
 
-/** 1) first + surname 2) server `member.email` 3) profile email 4) company 5) invited placeholder */
+/** Primary label: trimmed first+surname, else server `member.email`, else profile email, else company, else placeholder. */
 function computeDisplayName(
   profile: ProfileDisplayRow | undefined,
   topLevelEmail: string | null | undefined,
@@ -82,25 +81,27 @@ function computeDisplayEmail(
   return "—";
 }
 
-const ROLE_OPTIONS: { value: ProjectMemberRole; label: string }[] = [
+const ROLE_OPTIONS: { value: PortfolioMemberRole; label: string }[] = [
   { value: "owner", label: "Owner" },
   { value: "editor", label: "Editor" },
   { value: "viewer", label: "Viewer" },
 ];
 
-function isStandardProjectRole(role: string): role is ProjectMemberRole {
+function isStandardPortfolioRole(role: string): role is PortfolioMemberRole {
   return (ROLE_OPTIONS as { value: string }[]).some((o) => o.value === role);
 }
 
-export function ProjectMembersSection({ projectId }: { projectId: string }) {
+export function PortfolioMembersSection({ portfolioId }: { portfolioId: string }) {
   const [loading, setLoading] = useState(true);
-  const [members, setMembers] = useState<ProjectMemberWithProfileRow[]>([]);
+  const [members, setMembers] = useState<PortfolioMemberWithProfileRow[]>([]);
   const [profiles, setProfiles] = useState<Record<string, ProfileDisplayRow>>({});
   const [viewer, setViewer] = useState<Viewer | null>(null);
-  const [roleSemantics, setRoleSemantics] = useState<Record<ProjectMemberRole, string> | null>(null);
+  const [roleSemantics, setRoleSemantics] = useState<Record<PortfolioMemberRole, string> | null>(
+    null
+  );
   const [listError, setListError] = useState<string | null>(null);
   const [addEmail, setAddEmail] = useState("");
-  const [addRole, setAddRole] = useState<ProjectMemberRole>("editor");
+  const [addRole, setAddRole] = useState<PortfolioMemberRole>("editor");
   const [addError, setAddError] = useState<string | null>(null);
   const [rowActionError, setRowActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -109,8 +110,11 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
     setLoading(true);
     setListError(null);
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, { credentials: "include" });
-      const data = (await res.json().catch(() => null)) as MembersResponse & { error?: string; message?: string };
+      const res = await fetch(`/api/portfolios/${portfolioId}/members`, { credentials: "include" });
+      const data = (await res.json().catch(() => null)) as MembersResponse & {
+        error?: string;
+        message?: string;
+      };
 
       if (!res.ok) {
         setListError(data?.message ?? data?.error ?? "Could not load members.");
@@ -123,7 +127,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
       setMembers(data.members ?? []);
       setProfiles(data.profiles ?? {});
       setViewer(data.viewer ?? null);
-      setRoleSemantics((data.roleSemantics as Record<ProjectMemberRole, string>) ?? null);
+      setRoleSemantics((data.roleSemantics as Record<PortfolioMemberRole, string>) ?? null);
     } catch {
       setListError("Could not load members.");
       setMembers([]);
@@ -132,7 +136,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [portfolioId]);
 
   useEffect(() => {
     void load();
@@ -149,7 +153,9 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
       <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
         {ROLE_OPTIONS.map(({ value }) => (
           <span key={value} className="mr-3">
-            <span className="font-medium text-neutral-600 dark:text-neutral-300 capitalize">{value}</span>
+            <span className="font-medium text-neutral-600 dark:text-neutral-300 capitalize">
+              {value}
+            </span>
             {": "}
             {roleSemantics[value]}
           </span>
@@ -168,7 +174,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
     }
     setPendingId("__add__");
     try {
-      const res = await fetch(`/api/projects/${projectId}/members`, {
+      const res = await fetch(`/api/portfolios/${portfolioId}/members`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -200,12 +206,12 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
     }
   };
 
-  const onRoleChange = async (member: ProjectMemberRow, role: ProjectMemberRole) => {
+  const onRoleChange = async (member: PortfolioMemberWithProfileRow, role: PortfolioMemberRole) => {
     setRowActionError(null);
     setAddError(null);
     setPendingId(member.id);
     try {
-      const res = await fetch(`/api/projects/${projectId}/members/${member.id}`, {
+      const res = await fetch(`/api/portfolios/${portfolioId}/members/${member.id}`, {
         method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
@@ -218,7 +224,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
         return;
       }
       if (res.status === 400 && data?.error === "LAST_OWNER") {
-        setRowActionError(data.message ?? "Cannot remove the last project owner.");
+        setRowActionError(data.message ?? "Cannot remove the last portfolio owner role.");
         return;
       }
       if (res.status === 403 && data?.error === "PERMISSION_DENIED") {
@@ -236,19 +242,19 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
     }
   };
 
-  const onRemove = async (member: ProjectMemberRow) => {
+  const onRemove = async (member: PortfolioMemberWithProfileRow) => {
     setRowActionError(null);
     setAddError(null);
     setPendingId(member.id);
     try {
-      const res = await fetch(`/api/projects/${projectId}/members/${member.id}`, {
+      const res = await fetch(`/api/portfolios/${portfolioId}/members/${member.id}`, {
         method: "DELETE",
         credentials: "include",
       });
       const data = (await res.json().catch(() => null)) as { error?: string; message?: string };
 
       if (res.status === 400 && data?.error === "LAST_OWNER") {
-        setRowActionError(data.message ?? "Cannot remove the last project owner.");
+        setRowActionError(data.message ?? "Cannot remove the last portfolio owner role.");
         return;
       }
       if (res.status === 403 && data?.error === "PERMISSION_DENIED") {
@@ -268,7 +274,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
 
   return (
     <section className={settingsCardClass + " mb-4"}>
-      <h2 className={settingsSectionTitleClass}>Project members</h2>
+      <h2 className={settingsSectionTitleClass}>Portfolio members</h2>
 
       {semanticsLine}
 
@@ -297,7 +303,8 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
           <table className="min-w-full text-sm text-left">
             <thead>
               <tr className="border-b border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400">
-                <th className="py-2 pr-3 font-medium">Name</th>
+                <th className="py-2 pr-3 font-medium">First name</th>
+                <th className="py-2 pr-3 font-medium">Surname</th>
                 <th className="py-2 pr-3 font-medium">Email</th>
                 <th className="py-2 pr-3 font-medium">Role</th>
                 {showRowActions && <th className="py-2 pr-0 font-medium text-right">Actions</th>}
@@ -306,15 +313,24 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
             <tbody>
               {members.map((m) => {
                 const normalizedProfile = normalizeResolvedProfile(m, profiles);
-                const displayName = computeDisplayName(normalizedProfile, m.email, m.user_id);
                 const displayEmail = computeDisplayEmail(normalizedProfile, m.email);
                 const isSelf = viewer?.currentUserId === m.user_id;
                 const busy = pendingId === m.id;
+                const rowLabel = computeDisplayName(normalizedProfile, m.email, m.user_id);
+                const fullName = [normalizedProfile?.first_name, normalizedProfile?.surname]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim();
+                const hasNameParts = fullName.length > 0;
+                const identityFallback = rowLabel;
+                const fn = hasNameParts
+                  ? normalizedProfile?.first_name?.trim() || "—"
+                  : identityFallback;
+                const sn = hasNameParts ? normalizedProfile?.surname?.trim() || "—" : "—";
                 return (
                   <tr key={m.id} className="border-b border-neutral-100 dark:border-neutral-800">
-                    <td className="py-2 pr-3 text-[var(--foreground)]">
-                      {displayName}
-                    </td>
+                    <td className="py-2 pr-3 text-[var(--foreground)]">{fn}</td>
+                    <td className="py-2 pr-3 text-[var(--foreground)]">{sn}</td>
                     <td className="py-2 pr-3 text-neutral-600 dark:text-neutral-400">
                       {displayEmail}
                     </td>
@@ -324,14 +340,14 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
                           className={settingsInputClass + " h-9 py-1"}
                           value={m.role}
                           disabled={busy}
-                          aria-label={`Role for ${displayName}`}
+                          aria-label={`Role for ${rowLabel}`}
                           onChange={(e) => {
-                            const next = e.target.value as ProjectMemberRole | string;
-                            if (!isStandardProjectRole(next)) return;
+                            const next = e.target.value as PortfolioMemberRole | string;
+                            if (!isStandardPortfolioRole(next)) return;
                             if (next !== m.role) void onRoleChange(m, next);
                           }}
                         >
-                          {!isStandardProjectRole(m.role) && (
+                          {!isStandardPortfolioRole(m.role) && (
                             <option value={m.role}>
                               {m.role} (current)
                             </option>
@@ -389,11 +405,11 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
           )}
           <div className="flex flex-col sm:flex-row gap-2 sm:items-end">
             <div className="flex-1 min-w-0">
-              <label htmlFor="member-email" className={settingsLabelClass}>
+              <label htmlFor="portfolio-member-email" className={settingsLabelClass}>
                 Email
               </label>
               <input
-                id="member-email"
+                id="portfolio-member-email"
                 type="email"
                 autoComplete="off"
                 value={addEmail}
@@ -403,14 +419,14 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
               />
             </div>
             <div className="w-full sm:w-40">
-              <label htmlFor="member-role" className={settingsLabelClass}>
+              <label htmlFor="portfolio-member-role" className={settingsLabelClass}>
                 Role
               </label>
               <select
-                id="member-role"
+                id="portfolio-member-role"
                 className={settingsInputClass}
                 value={addRole}
-                onChange={(e) => setAddRole(e.target.value as ProjectMemberRole)}
+                onChange={(e) => setAddRole(e.target.value as PortfolioMemberRole)}
               >
                 {ROLE_OPTIONS.map(({ value, label }) => (
                   <option key={value} value={value}>
@@ -433,7 +449,7 @@ export function ProjectMembersSection({ projectId }: { projectId: string }) {
 
       {viewer && (
         <MemberSectionPermissionHints
-          resource="project"
+          resource="portfolio"
           canInviteMembers={viewer.canInviteMembers}
           canChangeMemberRoles={viewer.canChangeMemberRoles}
         />

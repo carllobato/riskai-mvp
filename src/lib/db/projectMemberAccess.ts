@@ -1,4 +1,3 @@
-import { resolveProjectPermissions } from "@/lib/db/projectPermissions.logic";
 import type {
   ProjectMemberRole,
   ProjectMembersViewerContext,
@@ -7,8 +6,28 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type { ProjectMemberRole, ProjectMembersViewerContext };
 
+export type ProjectMemberCapabilityFlags = {
+  canInviteMembers: boolean;
+  canChangeMemberRoles: boolean;
+  canRemoveMembers: boolean;
+};
+
+/** Aligns with project RLS: owners (table or role) full member admin; editors may invite only. */
+export function resolveProjectMemberCapabilityFlags(
+  isTableOwner: boolean,
+  rowRole: ProjectMemberRole | undefined
+): ProjectMemberCapabilityFlags {
+  const ownerCaps = isTableOwner || rowRole === "owner";
+  const editorOnly = !ownerCaps && rowRole === "editor";
+  return {
+    canInviteMembers: ownerCaps || editorOnly,
+    canChangeMemberRoles: ownerCaps,
+    canRemoveMembers: ownerCaps,
+  };
+}
+
 /**
- * Server-side: management flag + display role for the project members UI (uses shared permission resolver).
+ * Server-side: member list UI + API capability flags (invite vs role/remove), aligned with RLS.
  */
 export async function getProjectMembersViewerContext(
   supabase: SupabaseClient,
@@ -34,20 +53,19 @@ export async function getProjectMembersViewerContext(
 
   const rowRole = memberRow?.role as ProjectMemberRole | undefined;
   const isTableOwner = ownerUserId === userId;
-  const permissions = resolveProjectPermissions({
-    tableOwnerUserId: ownerUserId,
-    currentUserId: userId,
-    memberRole: rowRole ?? null,
-  });
 
   const memberRole: ProjectMemberRole | null = isTableOwner
     ? "owner"
     : rowRole ?? null;
 
+  const caps = resolveProjectMemberCapabilityFlags(isTableOwner, rowRole);
+  const canManageMembers = caps.canChangeMemberRoles || caps.canRemoveMembers;
+
   return {
     currentUserId: userId,
-    canManageMembers: permissions.canManageMembers,
+    canManageMembers,
     memberRole,
+    ...caps,
   };
 }
 

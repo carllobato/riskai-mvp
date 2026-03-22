@@ -1,12 +1,20 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/requireUser";
+import {
+  authEmailMapFromRpcRows,
+  isMemberAuthEmailsRpcMissing,
+  memberAuthEmailLookup,
+} from "@/lib/db/memberAuthEmailsMap";
 import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import { getProjectMembersViewerContext } from "@/lib/db/projectMemberAccess";
 import type {
   ProjectMemberRole,
   ProjectMemberRow,
   ProfileDisplayRow,
+  ProjectMemberWithProfileRow,
 } from "@/types/projectMembers";
+import { coerceProfileFromUnknown } from "@/lib/profileDisplayCoerce";
+import { firstRpcTableRow } from "@/lib/supabase/rpcTableFirstRow";
 import { supabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -43,6 +51,9 @@ export async function GET(
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
 
+  // Load members without embedding `profiles`: PostgREST only exposes embeds for FKs present
+  // in the live DB schema cache (e.g. user_id → profiles). If user_id still references
+  // auth.users, embed fails; batch-fetch profiles below instead.
   const { data: members, error: mErr } = await supabase
     .from("project_members")
     .select("id, project_id, user_id, role, created_at, updated_at")
@@ -53,39 +64,89 @@ export async function GET(
     return NextResponse.json({ error: mErr.message }, { status: 500 });
   }
 
-  const rows = (members ?? []) as ProjectMemberRow[];
-  const userIds = [...new Set(rows.map((r) => r.user_id))];
+  const rawRows = (members ?? []) as Record<string, unknown>[];
 
-  let profiles: Record<string, ProfileDisplayRow> = {};
-  if (userIds.length > 0) {
-    const { data: profRows, error: pErr } = await supabase
+  let shaped: ProjectMemberWithProfileRow[] = rawRows.map((raw) => ({
+    id: raw.id as string,
+    project_id: raw.project_id as string,
+    user_id: raw.user_id as string,
+    role: raw.role as ProjectMemberRole,
+    created_at: raw.created_at as string,
+    updated_at: raw.updated_at as string,
+    profiles: null,
+    email: null,
+    resolvedProfile: null,
+  }));
+
+  const memberUserIds = [...new Set(shaped.map((r) => r.user_id))];
+  const profilesMap: Record<string, ProfileDisplayRow> = {};
+
+  if (memberUserIds.length > 0) {
+    const { data: profileRows, error: profilesErr } = await supabase
       .from("profiles")
-      .select("id, first_name, surname, email")
-      .in("id", userIds);
+      .select("id, email, first_name, surname, company")
+      .in("id", memberUserIds);
 
-    if (pErr) {
-      return NextResponse.json({ error: pErr.message }, { status: 500 });
+    if (profilesErr) {
+      return NextResponse.json({ error: profilesErr.message }, { status: 500 });
     }
 
-    profiles = Object.fromEntries(
-      (profRows ?? []).map((p) => [p.id as string, p as ProfileDisplayRow])
-    );
+    for (const row of profileRows ?? []) {
+      const p = coerceProfileFromUnknown(row);
+      if (!p?.id) continue;
+      profilesMap[p.id] = p;
+      if (typeof row === "object" && row !== null && "id" in row) {
+        const raw = (row as { id: unknown }).id;
+        const rawStr = raw == null ? "" : String(raw);
+        if (rawStr && rawStr !== p.id) profilesMap[rawStr] = p;
+      }
+    }
   }
 
-  // Temporary log (acceptance / debugging)
-  console.log("[project-members] members fetched", {
-    projectId,
-    count: rows.length,
+  let authEmails: Record<string, string> = {};
+  if (memberUserIds.length > 0) {
+    const { data: authRows, error: authErr } = await supabase.rpc(
+      "riskai_project_member_auth_emails",
+      { p_project_id: projectId, p_user_ids: memberUserIds }
+    );
+    if (authErr) {
+      if (isMemberAuthEmailsRpcMissing(authErr)) {
+        authEmails = {};
+      } else {
+        return NextResponse.json({ error: authErr.message }, { status: 500 });
+      }
+    } else {
+      authEmails = authEmailMapFromRpcRows(authRows);
+    }
+  }
+
+  shaped = shaped.map((r) => {
+    const canonical = profilesMap[r.user_id] ?? null;
+    const profileEmail = canonical?.email?.trim();
+    return {
+      ...r,
+      profiles: canonical,
+      resolvedProfile: canonical,
+      email: profileEmail || memberAuthEmailLookup(authEmails, r.user_id) || r.email || null,
+    };
   });
 
+  const profiles: Record<string, ProfileDisplayRow> = {};
+  for (const r of shaped) {
+    const p = r.profiles;
+    if (p && !Array.isArray(p) && p.id) {
+      profiles[r.user_id] = p;
+    }
+  }
+
   return NextResponse.json({
-    members: rows,
+    members: shaped,
     profiles,
     viewer,
     roleSemantics: {
       owner: "Full access",
-      editor: "Can edit risks and project settings",
-      viewer: "Read-only",
+      editor: "Can view settings, edit project details, invite members",
+      viewer: "View only",
     },
   });
 }
@@ -110,7 +171,7 @@ export async function POST(
   if (!viewer) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
-  if (!viewer.canManageMembers) {
+  if (!viewer.canInviteMembers) {
     return NextResponse.json({ error: "Permission denied" }, { status: 403 });
   }
 
@@ -137,7 +198,7 @@ export async function POST(
 
   const { data: found, error: rpcErr } = await supabase.rpc(
     "riskai_find_profile_by_email_for_project",
-    { p_project_id: projectId, p_email: email }
+    { p_email: email, p_project_id: projectId }
   );
 
   if (rpcErr) {
@@ -151,8 +212,9 @@ export async function POST(
     return NextResponse.json({ error: rpcErr.message }, { status: 500 });
   }
 
-  const match = Array.isArray(found) ? found[0] : null;
-  if (!match || typeof match !== "object" || !("id" in match)) {
+  const match = firstRpcTableRow(found);
+  const rpcUserIdRaw = match?.user_id ?? match?.id;
+  if (!match || rpcUserIdRaw == null) {
     return NextResponse.json(
       {
         error: "USER_NOT_FOUND",
@@ -162,7 +224,20 @@ export async function POST(
     );
   }
 
-  const newUserId = (match as { id: string }).id;
+  const newUserId = typeof rpcUserIdRaw === "string" ? rpcUserIdRaw : String(rpcUserIdRaw);
+  const profileRow = {
+    id: newUserId,
+    already_member: match.already_member === true,
+  };
+  if (profileRow.already_member === true) {
+    return NextResponse.json(
+      {
+        error: "DUPLICATE_MEMBER",
+        message: "This user is already a member of the project.",
+      },
+      { status: 409 }
+    );
+  }
 
   const { data: inserted, error: insErr } = await supabase
     .from("project_members")
@@ -192,13 +267,6 @@ export async function POST(
     }
     return NextResponse.json({ error: insErr.message }, { status: 500 });
   }
-
-  console.log("[project-members] member added", {
-    projectId,
-    memberId: inserted?.id,
-    userId: newUserId,
-    role,
-  });
 
   return NextResponse.json({ member: inserted });
 }

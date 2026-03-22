@@ -6,7 +6,7 @@ import { supabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/portfolios/[portfolioId] — Returns portfolio (name, description, etc.) if the current user has admin access.
+ * GET /api/portfolios/[portfolioId] — Portfolio row if the user may access settings (member or table owner).
  */
 export async function GET(
   _request: Request,
@@ -30,12 +30,14 @@ export async function GET(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  return NextResponse.json(result.portfolio);
+  return NextResponse.json({
+    ...result.portfolio,
+    canEditPortfolioDetails: result.canEditPortfolioDetails,
+  });
 }
 
 /**
- * PATCH /api/portfolios/[portfolioId] — Update portfolio name and/or description. Body: { name?: string, description?: string }.
- * Only owner or member with role 'admin' can update.
+ * PATCH /api/portfolios/[portfolioId] — Update name/description. Owner-level only (not editors/viewers).
  */
 export async function PATCH(
   request: Request,
@@ -56,6 +58,10 @@ export async function PATCH(
     if (result.error === "not_found") {
       return NextResponse.json({ error: "Portfolio not found" }, { status: 404 });
     }
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (!result.canEditPortfolioDetails) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 

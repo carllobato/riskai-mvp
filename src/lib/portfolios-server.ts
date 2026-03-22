@@ -1,3 +1,8 @@
+import {
+  portfolioMemberRoleAllowsSettingsPageAccess,
+  resolvePortfolioMemberCapabilityFlags,
+  type PortfolioMemberCapabilityFlags,
+} from "@/lib/db/portfolioMemberAccess";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type AccessiblePortfolio = {
@@ -25,7 +30,9 @@ export type PortfolioMemberRow = {
   created_at: string | null;
 };
 
-export type AssertPortfolioAdminOk = { portfolio: PortfolioForAdmin };
+export type AssertPortfolioAdminOk = {
+  portfolio: PortfolioForAdmin;
+} & PortfolioMemberCapabilityFlags;
 export type AssertPortfolioAdminDenied =
   | { error: "unauthorized" }
   | { error: "forbidden" }
@@ -35,8 +42,8 @@ export type AssertPortfolioAdminResult =
   | AssertPortfolioAdminDenied;
 
 /**
- * Server-only. Verifies the current user can access portfolio admin (owner or member with role 'admin').
- * Returns the portfolio if allowed; use in page loaders and call notFound() on denied/not_found.
+ * Server-only. Verifies the user may open portfolio settings: table owner, or portfolio_members with
+ * owner / editor / viewer (non-members denied). Sets canEditPortfolioDetails for name/description edits.
  */
 export async function assertPortfolioAdminAccess(
   portfolioId: string,
@@ -53,42 +60,38 @@ export async function assertPortfolioAdminAccess(
     return { error: "not_found" };
   }
 
-  if (portfolio.owner_user_id === userId) {
-    return {
-      portfolio: {
-        id: portfolio.id,
-        name: portfolio.name,
-        description: portfolio.description ?? null,
-        owner_user_id: portfolio.owner_user_id,
-        product_id: portfolio.product_id ?? null,
-        created_at: portfolio.created_at ?? null,
-        updated_at: portfolio.updated_at ?? null,
-      },
-    };
-  }
+  const shaped: PortfolioForAdmin = {
+    id: portfolio.id,
+    name: portfolio.name,
+    description: portfolio.description ?? null,
+    owner_user_id: portfolio.owner_user_id,
+    product_id: portfolio.product_id ?? null,
+    created_at: portfolio.created_at ?? null,
+    updated_at: portfolio.updated_at ?? null,
+  };
+
+  const isTableOwner = portfolio.owner_user_id === userId;
 
   const { data: membership } = await supabase
     .from("portfolio_members")
     .select("role")
     .eq("portfolio_id", portfolioId)
     .eq("user_id", userId)
-    .single();
+    .maybeSingle();
 
-  if (membership?.role === "admin") {
-    return {
-      portfolio: {
-        id: portfolio.id,
-        name: portfolio.name,
-        description: portfolio.description ?? null,
-        owner_user_id: portfolio.owner_user_id,
-        product_id: portfolio.product_id ?? null,
-        created_at: portfolio.created_at ?? null,
-        updated_at: portfolio.updated_at ?? null,
-      },
-    };
+  const rowRole = membership?.role as string | undefined;
+
+  if (isTableOwner) {
+    const caps = resolvePortfolioMemberCapabilityFlags(true, rowRole);
+    return { portfolio: shaped, ...caps };
   }
 
-  return { error: "forbidden" };
+  if (!membership || !portfolioMemberRoleAllowsSettingsPageAccess(rowRole)) {
+    return { error: "forbidden" };
+  }
+
+  const caps = resolvePortfolioMemberCapabilityFlags(false, rowRole);
+  return { portfolio: shaped, ...caps };
 }
 
 export type GetAccessiblePortfoliosResult =

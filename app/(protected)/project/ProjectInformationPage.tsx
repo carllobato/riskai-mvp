@@ -30,6 +30,17 @@ import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
 import { RiskRegisterLookupProviders } from "@/components/risk-register/RiskRegisterLookupProviders";
 import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
+import { SettingsPermissionNotice } from "@/components/settings/SettingsPermissionNotice";
+import {
+  settingsCardClass,
+  settingsFieldLockedClass,
+  settingsInputClass,
+  settingsInputErrorClassSingleLine,
+  settingsLabelClass,
+  settingsPrimaryButtonClass,
+  settingsSectionTitleClass,
+} from "@/components/settings/settingsFieldClasses";
+import { PROJECT_SETTINGS_METADATA_VIEW_ONLY_NOTICE } from "@/lib/settings/settingsPermissionMessages";
 
 const RISK_APPETITE_OPTIONS: { value: RiskAppetite; label: string }[] = [
   { value: "P10", label: "P10" },
@@ -296,36 +307,23 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
     form.projectValue_input + form.contingencyValue_input;
   const showEquivalentInM = form.financialUnit !== "MILLIONS";
 
-  const cardClass =
-    "rounded-lg border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-4 sm:p-5";
-  const labelClass = "block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1";
-  const inputClass =
-    "w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 h-10";
-  const inputErrorClass =
-    "w-full rounded-md border-2 border-red-500 dark:border-red-400 bg-[var(--background)] px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400 dark:focus:ring-red-500 h-10";
+  const lockedField = settingsReadOnly ? ` ${settingsFieldLockedClass}` : "";
 
   return (
-    <main className="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+    <main className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
       <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
         Project Home
       </h1>
       {settingsReadOnly && (
-        <p
-          className="text-sm text-neutral-600 dark:text-neutral-400 mb-4 rounded-md border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/40 px-3 py-2"
-          role="status"
-        >
-          View-only access: you can review project settings but not change them.
-        </p>
+        <SettingsPermissionNotice>{PROJECT_SETTINGS_METADATA_VIEW_ONLY_NOTICE}</SettingsPermissionNotice>
       )}
 
       {/* 1) Details */}
-      <section className={cardClass + " mb-4"}>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Details
-        </h2>
+      <section className={settingsCardClass + " mb-4"}>
+        <h2 className={settingsSectionTitleClass}>Details</h2>
         <div className="space-y-3">
           <div>
-            <label htmlFor="projectName" className={labelClass}>
+            <label htmlFor="projectName" className={settingsLabelClass}>
               Name <span className="text-red-500">*</span>
             </label>
             <input
@@ -335,7 +333,10 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               value={form.projectName}
               readOnly={settingsReadOnly}
               onChange={(e) => update("projectName", e.target.value)}
-              className={validation.projectName ? inputErrorClass : inputClass}
+              className={
+                (validation.projectName ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
               placeholder="e.g. Northgate Rail Upgrade"
             />
             {validation.projectName && (
@@ -343,7 +344,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             )}
           </div>
           <div>
-            <label htmlFor="location" className={labelClass}>
+            <label htmlFor="location" className={settingsLabelClass}>
               Location (optional)
             </label>
             <input
@@ -352,12 +353,12 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               value={form.location ?? ""}
               readOnly={settingsReadOnly}
               onChange={(e) => update("location", e.target.value)}
-              className={inputClass}
+              className={settingsInputClass + lockedField}
               placeholder="e.g. Sydney, NSW"
             />
           </div>
           <div>
-            <label htmlFor="currency" className={labelClass}>
+            <label htmlFor="currency" className={settingsLabelClass}>
               Currency
             </label>
             <select
@@ -365,7 +366,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               value={form.currency}
               disabled={settingsReadOnly}
               onChange={(e) => update("currency", e.target.value as ProjectCurrency)}
-              className={inputClass}
+              className={settingsInputClass + lockedField}
               aria-label="Currency"
             >
               {CURRENCY_OPTIONS.map(({ value, label }) => (
@@ -381,13 +382,11 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       {projectId ? <ProjectMembersSection projectId={projectId} /> : null}
 
       {/* 2) Financial Context */}
-      <section className={cardClass + " mb-4"}>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Financial Context
-        </h2>
+      <section className={settingsCardClass + " mb-4"}>
+        <h2 className={settingsSectionTitleClass}>Financial Context</h2>
         <div className="space-y-3">
           <div>
-            <label htmlFor="financialUnit" className={labelClass}>
+            <label htmlFor="financialUnit" className={settingsLabelClass}>
               Unit
             </label>
             <select
@@ -395,7 +394,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               value={form.financialUnit}
               disabled={settingsReadOnly}
               onChange={(e) => update("financialUnit", e.target.value as FinancialUnit)}
-              className={inputClass}
+              className={settingsInputClass + lockedField}
               aria-label="Financial unit"
             >
               {FINANCIAL_UNIT_OPTIONS.map(({ value, label }) => (
@@ -406,7 +405,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             </select>
           </div>
           <div>
-            <label htmlFor="projectValue_input" className={labelClass}>
+            <label htmlFor="projectValue_input" className={settingsLabelClass}>
               Value (in selected unit) <span className="text-red-500">*</span>
             </label>
             <input
@@ -420,7 +419,10 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               onChange={(e) =>
                 update("projectValue_input", e.target.value === "" ? 0 : Math.max(0, Number(e.target.value)))
               }
-              className={validation.projectValue_input ? inputErrorClass : inputClass}
+              className={
+                (validation.projectValue_input ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
               placeholder={form.financialUnit === "BILLIONS" ? "e.g. 2.5" : form.financialUnit === "MILLIONS" ? "e.g. 217" : "e.g. 500000"}
             />
             {validation.projectValue_input && (
@@ -428,7 +430,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             )}
           </div>
           <div>
-            <label htmlFor="contingencyValue_input" className={labelClass}>
+            <label htmlFor="contingencyValue_input" className={settingsLabelClass}>
               Contingency Value (in selected unit) <span className="text-red-500">*</span>
             </label>
             <input
@@ -445,7 +447,10 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
                 const safe = raw === "" ? 0 : (Number.isFinite(num) ? Math.max(0, num) : 0);
                 update("contingencyValue_input", safe, raw);
               }}
-              className={validation.contingencyValue_input ? inputErrorClass : inputClass}
+              className={
+                (validation.contingencyValue_input ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
               placeholder={form.financialUnit === "BILLIONS" ? "e.g. 0.25" : form.financialUnit === "MILLIONS" ? "e.g. 22" : "e.g. 50000"}
             />
             {validation.contingencyValue_input && (
@@ -470,13 +475,11 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       </section>
 
       {/* 3) Schedule Context */}
-      <section className={cardClass + " mb-4"}>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Schedule Context
-        </h2>
+      <section className={settingsCardClass + " mb-4"}>
+        <h2 className={settingsSectionTitleClass}>Schedule Context</h2>
         <div className="space-y-3">
           <div>
-            <label htmlFor="plannedDuration_months" className={labelClass}>
+            <label htmlFor="plannedDuration_months" className={settingsLabelClass}>
               Planned duration (months) <span className="text-red-500">*</span>
             </label>
             <input
@@ -494,7 +497,10 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
                 const safe = raw === "" ? 0 : (Number.isFinite(num) ? Math.max(0, Math.min(MAX_MONTHS, Math.floor(num))) : 0);
                 update("plannedDuration_months", safe, raw);
               }}
-              className={validation.plannedDuration_months ? inputErrorClass : inputClass}
+              className={
+                (validation.plannedDuration_months ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
               placeholder="e.g. 24"
             />
             {validation.plannedDuration_months && (
@@ -502,7 +508,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             )}
           </div>
           <div>
-            <label htmlFor="targetCompletionDate" className={labelClass}>
+            <label htmlFor="targetCompletionDate" className={settingsLabelClass}>
               Target completion date <span className="text-red-500">*</span>
             </label>
             <input
@@ -512,14 +518,17 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               value={form.targetCompletionDate}
               readOnly={settingsReadOnly}
               onChange={(e) => update("targetCompletionDate", e.target.value)}
-              className={validation.targetCompletionDate ? inputErrorClass : inputClass}
+              className={
+                (validation.targetCompletionDate ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
             />
             {validation.targetCompletionDate && (
               <p className="mt-1 text-xs text-red-600 dark:text-red-400">{validation.targetCompletionDate}</p>
             )}
           </div>
           <div>
-            <label htmlFor="scheduleContingency_weeks" className={labelClass}>
+            <label htmlFor="scheduleContingency_weeks" className={settingsLabelClass}>
               Schedule contingency (weeks) <span className="text-red-500">*</span>
             </label>
             <input
@@ -537,7 +546,10 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
                 const safe = raw === "" ? 0 : (Number.isFinite(num) ? Math.max(0, Math.min(MAX_WEEKS, Math.floor(num))) : 0);
                 update("scheduleContingency_weeks", safe, raw);
               }}
-              className={validation.scheduleContingency_weeks ? inputErrorClass : inputClass}
+              className={
+                (validation.scheduleContingency_weeks ? settingsInputErrorClassSingleLine : settingsInputClass) +
+                lockedField
+              }
               placeholder="e.g. 4"
             />
             {validation.scheduleContingency_weeks && (
@@ -548,10 +560,8 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       </section>
 
       {/* 4) Risk Appetite */}
-      <section className={cardClass + " mb-4"}>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Risk Appetite
-        </h2>
+      <section className={settingsCardClass + " mb-4"}>
+        <h2 className={settingsSectionTitleClass}>Risk Appetite</h2>
         <div
           className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5"
           role="group"
@@ -567,7 +577,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
                 form.riskAppetite === value
                   ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
                   : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-              } disabled:opacity-50 disabled:pointer-events-none`}
+              } disabled:opacity-50 disabled:cursor-not-allowed disabled:pointer-events-none`}
             >
               {label}
             </button>
@@ -576,10 +586,8 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       </section>
 
       {/* 5) Archived risks */}
-      <section className={cardClass + " mb-4"}>
-        <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
-          Archived risks
-        </h2>
+      <section className={settingsCardClass + " mb-4"}>
+        <h2 className={settingsSectionTitleClass}>Archived risks</h2>
         <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-3">
           Open a window to review and edit archived risks one by one (Previous / Next).
         </p>
@@ -599,7 +607,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
           type="button"
           onClick={onSave}
           disabled={!isFormValid || settingsReadOnly}
-          className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--foreground)] text-[var(--background)] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
+          className={settingsPrimaryButtonClass}
         >
           Save
         </button>

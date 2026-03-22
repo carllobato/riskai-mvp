@@ -1,8 +1,8 @@
 /**
- * Access summary (aligned with RLS, 20250328_project_members):
- * - Table owner → full project + content + members.
+ * Access summary (aligned with RLS, 20250328_project_members + editor invite migration):
+ * - Table owner → full project + content + members (roles, remove, invite).
  * - project_members.owner → same as table owner for app checks.
- * - project_members.editor → edit project row + risks/snapshots; no member admin.
+ * - project_members.editor → edit project row + risks/snapshots; may invite members (not change roles / remove).
  * - project_members.viewer → read-only project + risks.
  * - No member row but portfolio access → edit risks/snapshots only (not project row).
  */

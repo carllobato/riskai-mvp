@@ -89,11 +89,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   const residualExposure = exposure?.total ?? 0;
   const totalScheduleExposureDays = useMemo(() => {
     return activeRisks.reduce((sum, r) => {
-      const hasM = Boolean(r.mitigation?.trim());
-      const days =
-        (hasM ? r.postMitigationTimeML : undefined) ??
-        r.preMitigationTimeML ??
-        0;
+      const days = r.preMitigationTimeML ?? r.postMitigationTimeML ?? 0;
       return sum + (Number.isFinite(days) ? days : 0);
     }, 0);
   }, [activeRisks]);
