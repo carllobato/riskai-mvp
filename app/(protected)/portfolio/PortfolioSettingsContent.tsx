@@ -95,7 +95,7 @@ export default function PortfolioSettingsContent({
   }, [portfolioId, name, description, router, canEditPortfolioDetails]);
 
   return (
-    <main className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
+    <main className="w-full px-4 sm:px-6 py-10">
       {permissionNotice && (
         <SettingsPermissionNotice>{permissionNotice}</SettingsPermissionNotice>
       )}
