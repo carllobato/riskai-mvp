@@ -19,7 +19,7 @@ export default async function ProjectDashboardPage({
   const [{ data: riskRows }, { data: latestSnapshotRow }] = await Promise.all([
     supabase.from("risks").select("id, status").eq("project_id", projectId),
     supabase
-      .from("simulation_snapshots")
+      .from("riskai_simulation_snapshots")
       .select("*")
       .eq("project_id", projectId)
       .order("created_at", { ascending: false })

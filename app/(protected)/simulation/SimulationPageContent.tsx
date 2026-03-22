@@ -5,7 +5,12 @@ import { createPortal } from "react-dom";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRiskRegister } from "@/store/risk-register.store";
-import { getLatestSnapshot, setSnapshotAsReportingVersion, type SimulationSnapshotRow } from "@/lib/db/snapshots";
+import {
+  getLatestSnapshot,
+  setSnapshotAsReportingVersion,
+  type SimulationSnapshotRow,
+  type SimulationSnapshotRowDb,
+} from "@/lib/db/snapshots";
 import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
@@ -144,6 +149,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
     (projectPerms == null || !projectPerms.canEditContent);
 
   const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
+  const reportingDbRow = reportingSnapshotRow as SimulationSnapshotRowDb | null;
   const [setReportingModalOpen, setSetReportingModalOpen] = useState(false);
   const [reportingNote, setReportingNote] = useState("");
   const [reportingMonthYear, setReportingMonthYear] = useState(() => toMonthYearKey(new Date()));
@@ -427,7 +433,10 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         >
           Clear History
         </button>
-        {showResults && isCurrentRunPersisted && effectiveProjectId && !reportingSnapshotRow?.reporting_version && (
+        {showResults &&
+          isCurrentRunPersisted &&
+          effectiveProjectId &&
+          !reportingDbRow?.reporting_version && (
           <button
             type="button"
             onClick={() => !simulationReadOnly && setSetReportingModalOpen(true)}

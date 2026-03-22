@@ -16,6 +16,8 @@ import {
   runMonteCarloSimulation,
   buildSimulationReport,
   buildSimulationSnapshotFromResult,
+  getEffectiveRiskInputs,
+  SIMULATION_ENGINE_VERSION,
 } from "@/domain/simulation/monteCarlo";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
@@ -37,7 +39,12 @@ import { DEBUG_FORWARD_PROJECTION } from "@/config/debug";
 import { runForwardProjectionGuards } from "@/lib/forwardProjectionGuards";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { dlog, dwarn } from "@/lib/debug";
-import { createSnapshot, type SimulationSnapshotRow } from "@/lib/db/snapshots";
+import { binSamplesIntoHistogram, binSamplesIntoTimeHistogram } from "@/lib/simulationDisplayUtils";
+import {
+  createSnapshot,
+  type SimulationSnapshotPayload,
+  type SimulationSnapshotRow,
+} from "@/lib/db/snapshots";
 import { isRiskValid } from "@/domain/risk/runnable-risk.validator";
 import {
   isRiskStatusArchived,
@@ -49,13 +56,48 @@ import {
 
 /** Return type for runSimulation: ran true when simulation executed; blockReason and invalidCount when blocked. */
 export type RunSimulationResult =
-  | { ran: true }
+  | { ran: true; snapshotPersistWarning?: string }
   | { ran: false; blockReason: "draft" }
   | { ran: false; blockReason: "invalid"; invalidCount: number };
 
 const STORAGE_KEY = "riskai:riskRegister:v1";
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 const PERSIST_SCHEMA_VERSION = 1;
+
+const SNAPSHOT_DISTRIBUTION_BINS = 40;
+
+function finiteNum(v: unknown, fallback = 0): number {
+  if (v == null) return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+/** DB rows migrated from legacy may omit P80; previously the app used (P50 + P90) / 2. */
+function p80OrP50P90Midpoint(
+  p50: number,
+  p80Column: number | null | undefined,
+  p90: number
+): number {
+  if (p80Column != null && Number.isFinite(Number(p80Column))) {
+    return finiteNum(p80Column);
+  }
+  return (p50 + p90) / 2;
+}
+
+function scenarioSnapshotScalarsForPayload(s: SimulationSnapshot): Record<string, number | undefined> {
+  return {
+    iterations: s.iterations,
+    p20Cost: s.p20Cost,
+    p50Cost: s.p50Cost,
+    p80Cost: s.p80Cost,
+    p90Cost: s.p90Cost,
+    totalExpectedCost: s.totalExpectedCost,
+    totalExpectedDays: s.totalExpectedDays,
+    runDurationMs: s.runDurationMs,
+    simStdDev: s.simStdDev,
+    triggerRate: s.triggerRate,
+  };
+}
 
 /** Build store simulation state from a DB snapshot row (so "last run" data can be restored). */
 function buildSimulationFromDbRow(row: SimulationSnapshotRow): {
@@ -64,59 +106,144 @@ function buildSimulationFromDbRow(row: SimulationSnapshotRow): {
 } | null {
   if (!row || typeof row !== "object") return null;
   const iter = Number(row.iterations) || 0;
-  const p10c = Number(row.p10_cost) || 0;
-  const p50c = Number(row.p50_cost) || 0;
-  const p90c = Number(row.p90_cost) || 0;
-  const p10t = Number(row.p10_time) || 0;
-  const p50t = Number(row.p50_time) || 0;
-  const p90t = Number(row.p90_time) || 0;
-  const meanC = row.mean_cost != null ? Number(row.mean_cost) : p50c;
-  const meanT = row.mean_time != null ? Number(row.mean_time) : p50t;
   const createdAt = row.created_at ?? new Date().toISOString();
   const ts = new Date(createdAt).getTime();
-  const p80Cost = (p50c + p90c) / 2;
-  const p80Time = (p50t + p90t) / 2;
+
+  const pl = row.payload;
+  const sum = pl?.summary;
+
+  const hasReportingScalars =
+    row.cost_p20 != null && Number.isFinite(Number(row.cost_p20));
+
+  let p20c: number;
+  let p50c: number;
+  let p80c: number;
+  let p90c: number;
+  let meanC: number;
+  let minC: number;
+  let maxC: number;
+  let p20t: number;
+  let p50t: number;
+  let p80t: number;
+  let p90t: number;
+  let meanT: number;
+  let minT: number;
+  let maxT: number;
+
+  if (hasReportingScalars) {
+    p20c = finiteNum(row.cost_p20);
+    p50c = finiteNum(row.cost_p50);
+    p90c = finiteNum(row.cost_p90);
+    p80c = p80OrP50P90Midpoint(p50c, row.cost_p80, p90c);
+    meanC = finiteNum(row.cost_mean);
+    p20t = finiteNum(row.time_p20);
+    p50t = finiteNum(row.time_p50);
+    p90t = finiteNum(row.time_p90);
+    p80t = p80OrP50P90Midpoint(p50t, row.time_p80, p90t);
+    meanT = finiteNum(row.time_mean);
+    const sumRec = sum && typeof sum === "object" ? (sum as Record<string, unknown>) : null;
+    minC =
+      row.cost_min != null && Number.isFinite(Number(row.cost_min))
+        ? finiteNum(row.cost_min)
+        : sumRec != null && sumRec.minCost != null
+          ? finiteNum(sumRec.minCost, p20c)
+          : p20c;
+    maxC =
+      row.cost_max != null && Number.isFinite(Number(row.cost_max))
+        ? finiteNum(row.cost_max)
+        : sumRec != null && sumRec.maxCost != null
+          ? finiteNum(sumRec.maxCost, p90c)
+          : p90c;
+    minT =
+      row.time_min != null && Number.isFinite(Number(row.time_min))
+        ? finiteNum(row.time_min)
+        : sumRec != null && sumRec.minTime != null
+          ? finiteNum(sumRec.minTime, p20t)
+          : p20t;
+    maxT =
+      row.time_max != null && Number.isFinite(Number(row.time_max))
+        ? finiteNum(row.time_max)
+        : sumRec != null && sumRec.maxTime != null
+          ? finiteNum(sumRec.maxTime, p90t)
+          : p90t;
+  } else if (sum && typeof sum === "object") {
+    p20c = finiteNum((sum as Record<string, unknown>).p20Cost);
+    p50c = finiteNum((sum as Record<string, unknown>).p50Cost);
+    p80c = finiteNum((sum as Record<string, unknown>).p80Cost);
+    p90c = finiteNum((sum as Record<string, unknown>).p90Cost);
+    meanC = finiteNum((sum as Record<string, unknown>).meanCost);
+    minC = finiteNum((sum as Record<string, unknown>).minCost);
+    maxC = finiteNum((sum as Record<string, unknown>).maxCost);
+    p20t = finiteNum((sum as Record<string, unknown>).p20Time);
+    p50t = finiteNum((sum as Record<string, unknown>).p50Time);
+    p80t = finiteNum((sum as Record<string, unknown>).p80Time);
+    p90t = finiteNum((sum as Record<string, unknown>).p90Time);
+    meanT = finiteNum((sum as Record<string, unknown>).meanTime);
+    minT = finiteNum((sum as Record<string, unknown>).minTime);
+    maxT = finiteNum((sum as Record<string, unknown>).maxTime);
+  } else {
+    p20c = p50c = p80c = p90c = meanC = minC = maxC = 0;
+    p20t = p50t = p80t = p90t = meanT = minT = maxT = 0;
+  }
+
+  const hydratedRisks = Array.isArray(pl?.risks)
+    ? (pl!.risks as SimulationSnapshot["risks"])
+    : [];
+
   const current: SimulationSnapshot = {
     id: (row as { id?: string }).id ?? `db-${createdAt}`,
     timestampIso: createdAt,
     iterations: iter,
-    p20Cost: p10c,
+    p20Cost: p20c,
     p50Cost: p50c,
-    p80Cost,
+    p80Cost: p80c,
     p90Cost: p90c,
     totalExpectedCost: meanC,
     totalExpectedDays: meanT,
-    risks: [],
+    risks: hydratedRisks,
+    runDurationMs: row.run_duration_ms != null ? finiteNum(row.run_duration_ms) : undefined,
   };
   const neutral: MonteCarloNeutralSnapshot = {
     costSamples: [],
     timeSamples: [],
     summary: {
       meanCost: meanC,
-      p20Cost: p10c,
+      p20Cost: p20c,
       p50Cost: p50c,
-      p80Cost,
+      p80Cost: p80c,
       p90Cost: p90c,
-      minCost: p10c,
-      maxCost: p90c,
+      minCost: minC,
+      maxCost: maxC,
       meanTime: meanT,
-      p20Time: p10t,
+      p20Time: p20t,
       p50Time: p50t,
-      p80Time,
+      p80Time: p80t,
       p90Time: p90t,
-      minTime: p10t,
-      maxTime: p90t,
+      minTime: minT,
+      maxTime: maxT,
     },
-    summaryReport: {
-      iterationCount: iter,
-      averageCost: meanC,
-      averageTime: meanT,
-      p50Cost: p50c,
-      p80Cost,
-      p90Cost: p90c,
-      minCost: p10c,
-      maxCost: p90c,
-    },
+    summaryReport: pl?.summaryReport
+      ? {
+          iterationCount: iter,
+          averageCost: finiteNum(pl.summaryReport.averageCost, meanC),
+          averageTime: finiteNum(pl.summaryReport.averageTime, meanT),
+          costVolatility: pl.summaryReport.costVolatility,
+          p50Cost: finiteNum(pl.summaryReport.p50Cost, p50c),
+          p80Cost: finiteNum(pl.summaryReport.p80Cost, p80c),
+          p90Cost: finiteNum(pl.summaryReport.p90Cost, p90c),
+          minCost: finiteNum(pl.summaryReport.minCost, minC),
+          maxCost: finiteNum(pl.summaryReport.maxCost, maxC),
+        }
+      : {
+          iterationCount: iter,
+          averageCost: meanC,
+          averageTime: meanT,
+          p50Cost: p50c,
+          p80Cost: p80c,
+          p90Cost: p90c,
+          minCost: minC,
+          maxCost: maxC,
+        },
     lastRunAt: ts,
     iterationCount: iter,
   };
@@ -688,7 +815,7 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         );
         const neutralSnapshot: SimulationSnapshot = {
           ...snapshotFields,
-          id: "", // Pending; replaced by simulation_snapshots.id after successful persist
+          id: "", // Pending; replaced by riskai_simulation_snapshots.id after successful persist
           timestampIso: new Date().toISOString(),
         };
         const summaryReport = buildSimulationReport(mcResult, iterCount);
@@ -699,6 +826,74 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           summaryReport,
           lastRunAt: Date.now(),
           iterationCount: iterCount,
+        };
+
+        const effectiveRisks = state.risks.filter(
+          (r) => !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
+        );
+        const conservativeRisks = effectiveRisks.map((r) =>
+          applyScenarioToRiskInputs(r, "conservative")
+        );
+        const aggressiveRisks = effectiveRisks.map((r) =>
+          applyScenarioToRiskInputs(r, "aggressive")
+        );
+        const scenarioSnapshots: ScenarioSnapshotsMap = {
+          neutral: neutralSnapshot,
+          conservative: simulatePortfolio(conservativeRisks, iterCount, {
+            profile: "conservative",
+          }),
+          aggressive: simulatePortfolio(aggressiveRisks, iterCount, { profile: "aggressive" }),
+        };
+        const runDurationMs =
+          (typeof performance !== "undefined" ? performance.now() : Date.now()) - runStartMs;
+        const runDurationRounded = Math.round(runDurationMs * 100) / 100;
+        const snapshotWithDuration: SimulationSnapshot = {
+          ...neutralSnapshot,
+          runDurationMs: runDurationRounded,
+        };
+        scenarioSnapshots.neutral = snapshotWithDuration;
+
+        const nextHistoryRaw = [snapshotWithDuration, ...state.simulation.history].slice(
+          0,
+          SIMULATION_HISTORY_CAP
+        );
+        const enrichedForPersist = enrichSnapshotWithIntelligenceMetrics(
+          snapshotWithDuration,
+          nextHistoryRaw
+        );
+
+        const inputsUsed = neutralRisks
+          .map((r) => {
+            const inp = getEffectiveRiskInputs(r);
+            if (!inp) return null;
+            return {
+              risk_id: r.id,
+              title: r.title,
+              source_used: inp.sourceUsed,
+              probability: inp.probability,
+              cost_ml: inp.costML,
+              time_ml: inp.timeML,
+            };
+          })
+          .filter((x): x is NonNullable<typeof x> => x != null);
+
+        const distributions = {
+          costHistogram: binSamplesIntoHistogram(mcResult.costSamples, SNAPSHOT_DISTRIBUTION_BINS),
+          timeHistogram: binSamplesIntoTimeHistogram(mcResult.timeSamples, SNAPSHOT_DISTRIBUTION_BINS),
+          binCount: SNAPSHOT_DISTRIBUTION_BINS,
+        };
+
+        const payload: SimulationSnapshotPayload = {
+          summary: { ...mcResult.summary },
+          summaryReport: { ...summaryReport },
+          risks: enrichedForPersist.risks,
+          distributions,
+          seed,
+          inputs_used: inputsUsed,
+          scenario_outputs: {
+            conservative: scenarioSnapshotScalarsForPayload(scenarioSnapshots.conservative),
+            aggressive: scenarioSnapshotScalarsForPayload(scenarioSnapshots.aggressive),
+          },
         };
 
         const s = mcResult.summary;
@@ -713,48 +908,28 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
         }
         const snapshotPromise = createSnapshot(
           {
-            scenario: "neutral",
             iterations: iterCount,
-            p10_cost: s.p20Cost,
-            p50_cost: s.p50Cost,
-            p90_cost: s.p90Cost,
-            p10_time: s.p20Time,
-            p50_time: s.p50Time,
-            p90_time: s.p90Time,
-            mean_cost: s.meanCost,
-            mean_time: s.meanTime,
+            cost_p20: s.p20Cost,
+            cost_p50: s.p50Cost,
+            cost_p80: s.p80Cost,
+            cost_p90: s.p90Cost,
+            cost_mean: s.meanCost,
+            cost_min: s.minCost,
+            cost_max: s.maxCost,
+            time_p20: s.p20Time,
+            time_p50: s.p50Time,
+            time_p80: s.p80Time,
+            time_p90: s.p90Time,
+            time_mean: s.meanTime,
+            time_min: s.minTime,
+            time_max: s.maxTime,
+            risk_count: enrichedForPersist.risks.length,
+            engine_version: SIMULATION_ENGINE_VERSION,
+            run_duration_ms: runDurationRounded,
+            payload,
           },
           snapshotProjectId
         );
-
-        const effectiveRisks = state.risks.filter(
-          (r) => !isRiskStatusClosed(r.status) && !isRiskStatusArchived(r.status)
-        );
-        const conservativeRisks = effectiveRisks.map((r) =>
-          applyScenarioToRiskInputs(r, "conservative")
-        );
-        const aggressiveRisks = effectiveRisks.map((r) =>
-          applyScenarioToRiskInputs(r, "aggressive")
-        );
-        const scenarioSnapshots: ScenarioSnapshotsMap = {
-          neutral: neutralSnapshot,
-          conservative: simulatePortfolio(
-            conservativeRisks,
-            iterCount,
-            { profile: "conservative" }
-          ),
-          aggressive: simulatePortfolio(
-            aggressiveRisks,
-            iterCount,
-            { profile: "aggressive" }
-          ),
-        };
-        const runDurationMs = (typeof performance !== "undefined" ? performance.now() : Date.now()) - runStartMs;
-        const snapshotWithDuration: SimulationSnapshot = {
-          ...neutralSnapshot,
-          runDurationMs: Math.round(runDurationMs * 100) / 100,
-        };
-        scenarioSnapshots.neutral = snapshotWithDuration;
         dispatch({
           type: "simulation/run",
           payload: { snapshot: snapshotWithDuration, scenarioSnapshots, neutral },
@@ -771,9 +946,17 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
             if (row?.id) dispatch({ type: "simulation/setCanonicalId", payload: { id: row.id } });
             return { ran: true } as const;
           })
-          .catch((e) => {
+          .catch((e: unknown) => {
             console.error("[snapshots]", e);
-            return { ran: true } as const; // Simulation ran; persistence failed; id stays pending
+            const message =
+              e &&
+              typeof e === "object" &&
+              "message" in e &&
+              typeof (e as { message: unknown }).message === "string"
+                ? (e as { message: string }).message
+                : String(e);
+            // Monte Carlo already ran and state was updated; surface persist failure without blocking UI.
+            return { ran: true as const, snapshotPersistWarning: message };
           });
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),

@@ -71,19 +71,41 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   const costPosition = useMemo(() => {
     const row = latestSnapshot;
     if (!row || typeof row !== "object") return null;
-    const p10 = Number(row.p10_cost) ?? 0;
-    const p50 = Number(row.p50_cost) ?? 0;
-    const p90 = Number(row.p90_cost) ?? 0;
-    return { p10, p50, p90 };
+    const p50 = Number(row.cost_p50);
+    const p50Safe = Number.isFinite(p50) ? p50 : 0;
+    const minCol = row.cost_min;
+    const maxCol = row.cost_max;
+    const hasMinMax =
+      minCol != null &&
+      maxCol != null &&
+      Number.isFinite(Number(minCol)) &&
+      Number.isFinite(Number(maxCol));
+    let minBound = hasMinMax ? Number(minCol) : Number(row.cost_p20);
+    let maxBound = hasMinMax ? Number(maxCol) : Number(row.cost_p90);
+    if (!Number.isFinite(minBound)) minBound = 0;
+    if (!Number.isFinite(maxBound)) maxBound = 0;
+    if (minBound > maxBound) [minBound, maxBound] = [maxBound, minBound];
+    return { p10: minBound, p50: p50Safe, p90: maxBound };
   }, [latestSnapshot]);
 
   const schedulePosition = useMemo(() => {
     const row = latestSnapshot;
     if (!row || typeof row !== "object") return null;
-    const p10 = Number(row.p10_time) ?? 0;
-    const p50 = Number(row.p50_time) ?? 0;
-    const p90 = Number(row.p90_time) ?? 0;
-    return { p10, p50, p90 };
+    const p50 = Number(row.time_p50);
+    const p50Safe = Number.isFinite(p50) ? p50 : 0;
+    const minCol = row.time_min;
+    const maxCol = row.time_max;
+    const hasMinMax =
+      minCol != null &&
+      maxCol != null &&
+      Number.isFinite(Number(minCol)) &&
+      Number.isFinite(Number(maxCol));
+    let minBound = hasMinMax ? Number(minCol) : Number(row.time_p20);
+    let maxBound = hasMinMax ? Number(maxCol) : Number(row.time_p90);
+    if (!Number.isFinite(minBound)) minBound = 0;
+    if (!Number.isFinite(maxBound)) maxBound = 0;
+    if (minBound > maxBound) [minBound, maxBound] = [maxBound, minBound];
+    return { p10: minBound, p50: p50Safe, p90: maxBound };
   }, [latestSnapshot]);
 
   const residualExposure = exposure?.total ?? 0;

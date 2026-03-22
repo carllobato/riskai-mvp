@@ -6,7 +6,11 @@ import { listRisks } from "@/lib/db/risks";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { portfolioMomentumSummary } from "@/domain/risk/risk.logic";
 import { getLatestSnapshot, getRiskHistory } from "@/lib/riskSnapshotHistory";
-import { getLatestSnapshot as getLatestDbSnapshot, type SimulationSnapshotRow } from "@/lib/db/snapshots";
+import {
+  getLatestSnapshot as getLatestDbSnapshot,
+  type SimulationSnapshotRow,
+  type SimulationSnapshotRowDb,
+} from "@/lib/db/snapshots";
 import { computeScenarioComparison } from "@/lib/riskForecast";
 import { MitigationOptimisationPanel } from "@/components/outputs/MitigationOptimisationPanel";
 import { computePortfolioExposure } from "@/engine/forwardExposure";
@@ -101,6 +105,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
   const { profile: scenarioProfile } = useProjectionScenario();
   const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount, riskForecastsById, forwardPressure, setRisks } = useRiskRegister();
   const [runBlockedInvalidCount, setRunBlockedInvalidCount] = useState<number | null>(null);
+  const [snapshotPersistWarning, setSnapshotPersistWarning] = useState<string | null>(null);
   const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
   const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
 
@@ -152,6 +157,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
       })
       .catch(() => setReportingSnapshotRow(null));
   }, [projectId, current?.id, isCurrentRunPersisted]);
+  const reportingDbRow = reportingSnapshotRow as SimulationSnapshotRowDb | null;
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
 
   /** Neutral baseline snapshot: always used for Project Cost block so project cost is scenario-invariant. */
@@ -868,9 +874,14 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         <button
           type="button"
           onClick={async () => {
+            setSnapshotPersistWarning(null);
             const result = await runSimulation(10000, projectId ?? undefined);
             if (!result.ran && result.blockReason === "invalid") {
               setRunBlockedInvalidCount(result.invalidCount);
+              return;
+            }
+            if (result.ran && result.snapshotPersistWarning) {
+              setSnapshotPersistWarning(result.snapshotPersistWarning);
             }
           }}
           disabled={hasDraftRisks || invalidRunnableCount > 0}
@@ -898,6 +909,11 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         {runBlockedInvalidCount != null && runBlockedInvalidCount > 0 && (
           <p className="text-sm text-amber-700 dark:text-amber-300 font-medium" role="alert">
             Simulation blocked: fix {runBlockedInvalidCount} risk{runBlockedInvalidCount !== 1 ? "s" : ""} to run simulation.
+          </p>
+        )}
+        {snapshotPersistWarning && (
+          <p className="text-sm text-red-700 dark:text-red-300 font-medium max-w-2xl" role="alert">
+            Could not save run to the database: {snapshotPersistWarning}
           </p>
         )}
       </div>
@@ -1020,7 +1036,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting version</dt>
                       <dd className="mt-0.5">
-                        {reportingSnapshotRow?.reporting_version ? (
+                        {reportingDbRow?.reporting_version ? (
                           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200">
                             Yes
                           </span>
@@ -1046,25 +1062,37 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting month / year</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingSnapshotRow?.reporting_month_year ? formatReportingMonthYear(reportingSnapshotRow.reporting_month_year) : <span className="text-neutral-500 dark:text-neutral-400">Not set</span>}
+                        {reportingDbRow?.reporting_month_year ? (
+                          formatReportingMonthYear(reportingDbRow.reporting_month_year)
+                        ) : (
+                          <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
+                        )}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked by</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingSnapshotRow?.reporting_locked_by?.trim() || <span className="text-neutral-500 dark:text-neutral-400">Not set</span>}
+                        {reportingDbRow?.reporting_locked_by?.trim() || (
+                          <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
+                        )}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked on</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingSnapshotRow?.reporting_locked_at ? formatRunTimestamp(reportingSnapshotRow.reporting_locked_at) : <span className="text-neutral-500 dark:text-neutral-400">Not set</span>}
+                        {reportingDbRow?.reporting_locked_at ? (
+                          formatRunTimestamp(reportingDbRow.reporting_locked_at)
+                        ) : (
+                          <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
+                        )}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting note</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingSnapshotRow?.reporting_note?.trim() || <span className="text-neutral-500 dark:text-neutral-400">Not available</span>}
+                        {reportingDbRow?.reporting_note?.trim() || (
+                          <span className="text-neutral-500 dark:text-neutral-400">Not available</span>
+                        )}
                       </dd>
                     </div>
                   </dl>
