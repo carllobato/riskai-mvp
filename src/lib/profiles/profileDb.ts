@@ -1,8 +1,8 @@
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { OnboardingMetaKey } from "@/lib/onboarding/types";
 
-/** Table in `public` for name + company (id = auth.users.id). Job title / role is kept in `user_metadata.role`. */
-export const USER_PROFILE_TABLE = "users";
+/** `public.profiles` — id matches `auth.users.id`. Job title (`role`) stays in `user_metadata.role`. */
+export const USER_PROFILE_TABLE = "profiles";
 
 /** PostgREST / DB error when the table is missing from the API (narrow — avoids silent fallback on RLS errors). */
 function isUserProfileTableUnavailable(message: string): boolean {
@@ -13,7 +13,10 @@ function isUserProfileTableUnavailable(message: string): boolean {
     (m.includes("could not find the table") &&
       (m.includes("users") || m.includes("profiles"))) ||
     ((m.includes("relation") && m.includes("does not exist")) &&
-      (m.includes("public.users") || m.includes('"users"') || m.includes("public.profiles")))
+      (m.includes("public.users") ||
+        m.includes('"users"') ||
+        m.includes("public.profiles") ||
+        m.includes('"profiles"')))
   );
 }
 
@@ -44,9 +47,11 @@ export async function saveUserProfileThroughApi(fields: {
 
 export type PublicProfileRow = {
   first_name: string | null;
-  last_name: string | null;
+  surname: string | null;
+  email: string | null;
   company: string | null;
-  /** Always from auth metadata in the app; not read from `public.users`. */
+  user_type: string | null;
+  /** Always from auth metadata in the app; not read from `public.profiles`. */
   role: string | null;
 };
 
@@ -56,16 +61,22 @@ export async function fetchPublicProfile(
 ): Promise<PublicProfileRow | null> {
   const { data, error } = await supabase
     .from(USER_PROFILE_TABLE)
-    .select("first_name,last_name,company")
+    .select("first_name,surname,company,email,user_type")
     .eq("id", userId)
     .maybeSingle();
   if (error || !data) return null;
-  const row = data as { first_name: string | null; last_name: string | null; company: string | null };
+  const row = data as {
+    first_name: string | null;
+    surname: string | null;
+    company: string | null;
+    email: string | null;
+    user_type: string | null;
+  };
   return { ...row, role: null };
 }
 
 /**
- * Persist name / company in `public.users`; role + onboarding flag in auth metadata.
+ * Persist name / company in `public.profiles`; role + onboarding flag in auth metadata.
  */
 export async function upsertPublicProfile(
   supabase: SupabaseClient,
@@ -81,7 +92,7 @@ export async function upsertPublicProfile(
     {
       id: userId,
       first_name: fields.first_name,
-      last_name: fields.last_name,
+      surname: fields.last_name,
       company: fields.company,
     },
     { onConflict: "id" },
@@ -110,11 +121,15 @@ export async function upsertPublicProfile(
   return { error: null };
 }
 
-/** “Triggered by” label; prefers `public.users` row, falls back to legacy `user_metadata`. */
+/** “Triggered by” label; prefers `public.profiles` row, falls back to legacy `user_metadata`. */
 export function formatTriggeredByLabel(user: User, profile: PublicProfileRow | null): string {
   const meta = user.user_metadata as Record<string, unknown> | undefined;
   const first = (profile?.first_name ?? (meta?.first_name as string | undefined))?.trim();
-  const last = (profile?.last_name ?? (meta?.last_name as string | undefined))?.trim();
+  const last = (
+    profile?.surname ??
+    (meta?.last_name as string | undefined) ??
+    (meta?.surname as string | undefined)
+  )?.trim();
   const company = (profile?.company ?? (meta?.company as string | undefined))?.trim();
   const fullName =
     (meta?.full_name as string | undefined)?.trim() || (meta?.name as string | undefined)?.trim();

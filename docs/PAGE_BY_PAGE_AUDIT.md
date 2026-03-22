@@ -173,7 +173,7 @@
 - **Route:** `app/(protected)/create-project/page.tsx`.
 - **Purpose:** Create a new project (name only).
 - **Current contents:** Form (project name), submit, “Back to projects”.
-- **Data loaded:** Client: auth; insert into Supabase `projects` with `owner_id`, `name`.
+- **Data loaded:** Client: auth; insert into Supabase `projects` with `owner_user_id`, `name`.
 - **User actions:** Enter name, create, then redirect to `/projects/[id]` and set `activeProjectId` in localStorage.
 - **Status:** **Working**.
 

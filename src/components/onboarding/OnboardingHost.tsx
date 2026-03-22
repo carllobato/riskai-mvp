@@ -141,8 +141,8 @@ export function OnboardingHost() {
               : "",
         );
         setInitialLastName(
-          typeof profileRow?.last_name === "string"
-            ? profileRow.last_name
+          typeof profileRow?.surname === "string"
+            ? profileRow.surname
             : typeof meta?.last_name === "string"
               ? meta.last_name
               : "",

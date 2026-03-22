@@ -50,13 +50,9 @@ export async function updateSession(request: NextRequest) {
       },
     });
 
-    // Refresh session (updates cookies if needed)
-    await supabase.auth.getUser();
-
     const {
-      data: { session },
-    } = await supabase.auth.getSession();
-    const user = session?.user ?? null;
+      data: { user },
+    } = await supabase.auth.getUser();
 
     if (isPublicPath(pathname)) {
       if (user && pathname === "/login") {

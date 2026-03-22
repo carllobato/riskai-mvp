@@ -5,6 +5,7 @@
 
 import type { Risk } from "@/domain/risk/risk.schema";
 import type { MitigationStatus } from "@/domain/risk/risk.schema";
+import { probability01FromScale } from "@/domain/risk/risk.logic";
 
 const MITIGATION_STATUSES: MitigationStatus[] = ["none", "planned", "active", "completed"];
 
@@ -41,13 +42,12 @@ export function sanitizeRiskForExposure(risk: Risk): { sanitized: Risk; warnings
   const warnings: string[] = [];
   const id = risk.id ?? "unknown";
 
-  const probability = clamp01(safeNum(risk.probability, 0.5));
+  const defaultProb01 = probability01FromScale(risk.residualRating?.probability ?? risk.inherentRating?.probability ?? 3);
+  const probability = clamp01(
+    typeof risk.probability === "number" && Number.isFinite(risk.probability) ? risk.probability : defaultProb01
+  );
   if (risk.probability !== undefined && (risk.probability !== probability || !Number.isFinite(risk.probability)))
     warnings.push(`[${id}] probability clamped to 0..1`);
-
-  const baseCostImpact = clampNonNegative(risk.baseCostImpact ?? 100_000, 100_000);
-  if (risk.baseCostImpact !== undefined && (risk.baseCostImpact !== baseCostImpact || !Number.isFinite(risk.baseCostImpact as number)))
-    warnings.push(`[${id}] baseCostImpact clamped to non-negative`);
 
   const escalationPersistence = clamp01(safeNum(risk.escalationPersistence, 0.5));
   if (risk.escalationPersistence !== undefined && (risk.escalationPersistence !== escalationPersistence || !Number.isFinite(risk.escalationPersistence as number)))
@@ -96,7 +96,6 @@ export function sanitizeRiskForExposure(risk: Risk): { sanitized: Risk; warnings
   const sanitized: Risk = {
     ...risk,
     probability,
-    baseCostImpact,
     escalationPersistence,
     sensitivity,
     timeProfile,

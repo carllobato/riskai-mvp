@@ -6,12 +6,13 @@ export type AccessiblePortfolio = {
   created_at: string | null;
 };
 
-/** Full portfolio row for admin (includes owner_id, description). */
+/** Full portfolio row for admin (includes owner_user_id, description, product). */
 export type PortfolioForAdmin = {
   id: string;
   name: string;
   description: string | null;
-  owner_id: string;
+  owner_user_id: string;
+  product_id: string | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -44,7 +45,7 @@ export async function assertPortfolioAdminAccess(
 ): Promise<AssertPortfolioAdminResult> {
   const { data: portfolio, error: portfolioError } = await supabase
     .from("portfolios")
-    .select("id, name, description, owner_id, created_at, updated_at")
+    .select("id, name, description, owner_user_id, product_id, created_at, updated_at")
     .eq("id", portfolioId)
     .single();
 
@@ -52,13 +53,14 @@ export async function assertPortfolioAdminAccess(
     return { error: "not_found" };
   }
 
-  if (portfolio.owner_id === userId) {
+  if (portfolio.owner_user_id === userId) {
     return {
       portfolio: {
         id: portfolio.id,
         name: portfolio.name,
         description: portfolio.description ?? null,
-        owner_id: portfolio.owner_id,
+        owner_user_id: portfolio.owner_user_id,
+        product_id: portfolio.product_id ?? null,
         created_at: portfolio.created_at ?? null,
         updated_at: portfolio.updated_at ?? null,
       },
@@ -78,7 +80,8 @@ export async function assertPortfolioAdminAccess(
         id: portfolio.id,
         name: portfolio.name,
         description: portfolio.description ?? null,
-        owner_id: portfolio.owner_id,
+        owner_user_id: portfolio.owner_user_id,
+        product_id: portfolio.product_id ?? null,
         created_at: portfolio.created_at ?? null,
         updated_at: portfolio.updated_at ?? null,
       },
@@ -103,7 +106,7 @@ export async function getAccessiblePortfolios(
 ): Promise<GetAccessiblePortfoliosResult> {
   const { data: portfolios, error } = await supabase
     .from("portfolios")
-    .select("id, name, created_at, owner_id")
+    .select("id, name, created_at, owner_user_id")
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -120,7 +123,7 @@ export async function getAccessiblePortfolios(
   );
 
   const allowed = (portfolios ?? []).filter(
-    (p) => p.owner_id === userId || memberPortfolioIds.has(p.id)
+    (p) => p.owner_user_id === userId || memberPortfolioIds.has(p.id)
   );
 
   const list = allowed.map(({ id, name, created_at }) => ({
@@ -143,9 +146,8 @@ export type GetAccessibleProjectsResult =
   | { ok: false; error: string };
 
 /**
- * Server-only: projects the user may see — owned by them or belonging to a portfolio they can access
- * (owner or member). Uses explicit queries instead of listing all projects so behaviour matches
- * getAccessiblePortfolios and does not depend on RLS alone.
+ * Server-only: projects the user may see — table owner, `project_members`, or projects in a portfolio
+ * they can access. Uses explicit queries so behaviour matches getAccessiblePortfolios; RLS still applies.
  */
 export async function getAccessibleProjects(
   supabase: SupabaseClient,
@@ -155,11 +157,38 @@ export async function getAccessibleProjects(
   const { data: ownedProjects, error: ownedError } = await supabase
     .from("projects")
     .select("id, name, created_at")
-    .eq("owner_id", userId)
+    .eq("owner_user_id", userId)
     .order("created_at", { ascending: true });
 
   if (ownedError) {
     return { ok: false, error: ownedError.message };
+  }
+
+  const { data: memberRows, error: memberError } = await supabase
+    .from("project_members")
+    .select("project_id")
+    .eq("user_id", userId);
+
+  if (memberError) {
+    return { ok: false, error: memberError.message };
+  }
+
+  const memberProjectIds = [
+    ...new Set((memberRows ?? []).map((r) => r.project_id as string)),
+  ];
+
+  let memberProjects: { id: string; name: string | null; created_at: string | null }[] = [];
+  if (memberProjectIds.length > 0) {
+    const { data, error: mpError } = await supabase
+      .from("projects")
+      .select("id, name, created_at")
+      .in("id", memberProjectIds)
+      .order("created_at", { ascending: true });
+
+    if (mpError) {
+      return { ok: false, error: mpError.message };
+    }
+    memberProjects = data ?? [];
   }
 
   let sharedProjects: { id: string; name: string | null; created_at: string | null }[] = [];
@@ -198,6 +227,11 @@ export async function getAccessibleProjects(
   const byId = new Map<string, AccessibleProject>();
   for (const p of ownedProjects ?? []) {
     byId.set(p.id, rowToAccessible(p));
+  }
+  for (const p of memberProjects) {
+    const next = rowToAccessible(p);
+    const prev = byId.get(p.id);
+    byId.set(p.id, prev ? mergeRows(prev, next) : next);
   }
   for (const p of sharedProjects) {
     const next = rowToAccessible(p);

@@ -22,6 +22,7 @@ function getPostDisplay(risk: Risk): string {
 /** Column order: Risk ID | Title | Category | Owner | Pre | Post | Mitigation Movement | Status | [View / Edit] */
 const TABLE_GRID_COLS = "56px minmax(0, 2.5fr) minmax(0, 1fr) minmax(0, 1fr) 100px 100px 100px minmax(0, 0.9fr)";
 const TABLE_GRID_WITH_ACTION = `${TABLE_GRID_COLS} minmax(96px, 96px)`;
+const TABLE_GRID_WITH_RESTORE = `${TABLE_GRID_COLS} minmax(168px, 1.1fr)`;
 
 const addNewRowGridStyle: React.CSSProperties = {
   display: "grid",
@@ -332,6 +333,7 @@ export function RiskRegisterTable({
   decisionById = {},
   scoreDeltaByRiskId = {},
   onRiskClick,
+  onArchivedRestore,
   onAddNewClick,
   sortState = null,
   onSortByColumn,
@@ -343,6 +345,8 @@ export function RiskRegisterTable({
   decisionById?: Record<string, DecisionMetrics>;
   scoreDeltaByRiskId?: Record<string, number>;
   onRiskClick?: (risk: Risk) => void;
+  /** Archived register: restore to Open from the row. */
+  onArchivedRestore?: (risk: Risk) => void;
   onAddNewClick?: () => void;
   sortState?: TableSortState;
   onSortByColumn?: (column: SortColumn) => void;
@@ -350,7 +354,8 @@ export function RiskRegisterTable({
   onColumnFilterChange?: (column: SortColumn, values: string[]) => void;
 }) {
   const showActions = Boolean(onRiskClick);
-  const gridCols = showActions ? TABLE_GRID_WITH_ACTION : TABLE_GRID_COLS;
+  const gridCols =
+    showActions && onArchivedRestore ? TABLE_GRID_WITH_RESTORE : showActions ? TABLE_GRID_WITH_ACTION : TABLE_GRID_COLS;
   const canSort = Boolean(onSortByColumn);
   const canFilter = Boolean(onColumnFilterChange);
   const [openFilterColumn, setOpenFilterColumn] = useState<SortColumn | null>(null);
@@ -511,6 +516,7 @@ export function RiskRegisterTable({
               decision={decisionById[risk.id]}
               scoreDelta={scoreDeltaByRiskId[risk.id]}
               onRiskClick={onRiskClick}
+              onRestoreArchived={onArchivedRestore}
               validationErrors={getRiskValidationErrors(risk)}
             />
           ))}

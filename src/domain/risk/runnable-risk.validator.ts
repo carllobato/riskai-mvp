@@ -6,6 +6,7 @@
  */
 
 import type { Risk } from "./risk.schema";
+import { isRiskStatusDraft } from "./riskFieldSemantics";
 
 /** Coerce to number for validation (handles string numbers from JSON/form). */
 function toNum(v: unknown): number {
@@ -23,18 +24,18 @@ function toInt(v: unknown): number {
   return Number.isFinite(n) ? Math.floor(n) : NaN;
 }
 
-function inRangePct(n: number): boolean {
-  return n >= 0 && n <= 100;
+function isValidProbScale(n: number): boolean {
+  return Number.isInteger(n) && n >= 1 && n <= 5;
 }
 
 /**
  * Returns a list of validation error messages for the risk.
- * Pre-mitigation: title, probability% (0–100), cost min/ml/max (≥0, min≤ml≤max), time min/ml/max (same).
+ * Pre-mitigation: title, probability scale 1–5 (from `pre_probability` / inherent rating), cost min/ml/max, time min/ml/max.
  * Post-mitigation: required only when risk.mitigation is present (non-empty string); same rules.
  * Draft risks are not validated (return no errors).
  */
 export function getRiskValidationErrors(risk: Risk): string[] {
-  if (risk.status === "draft") return [];
+  if (isRiskStatusDraft(risk.status)) return [];
 
   const errors: string[] = [];
 
@@ -42,9 +43,13 @@ export function getRiskValidationErrors(risk: Risk): string[] {
     errors.push("Title is required");
   }
 
-  const prePct = toNum(risk.preMitigationProbabilityPct);
-  if (!Number.isFinite(prePct) || !inRangePct(prePct)) {
-    errors.push("Pre-mitigation probability % must be 0–100");
+  if (!risk.owner?.trim()) {
+    errors.push("Owner is required");
+  }
+
+  const preProbScale = risk.inherentRating?.probability;
+  if (!isValidProbScale(preProbScale)) {
+    errors.push("Pre-mitigation probability must be valid (1–5 scale)");
   }
 
   const preCostMin = toNum(risk.preMitigationCostMin);
@@ -81,9 +86,9 @@ export function getRiskValidationErrors(risk: Risk): string[] {
 
   const hasMitigation = Boolean(risk.mitigation?.trim());
   if (hasMitigation) {
-    const postPct = toNum(risk.postMitigationProbabilityPct);
-    if (!Number.isFinite(postPct) || !inRangePct(postPct)) {
-      errors.push("Post-mitigation probability % must be 0–100 (mitigation is set)");
+    const postProbScale = risk.residualRating?.probability;
+    if (!isValidProbScale(postProbScale)) {
+      errors.push("Post-mitigation probability must be valid (1–5 scale) when mitigation is set");
     }
 
     const postCostMin = toNum(risk.postMitigationCostMin);
@@ -124,8 +129,6 @@ export function getRiskValidationErrors(risk: Risk): string[] {
 
 /**
  * Returns true if the risk has all required fields for simulation (RunnableRisk).
- * Pre-mitigation: title, probability% 0–100, cost min/ml/max ≥0 and min≤ml≤max, time min/ml/max same.
- * Post-mitigation: required only when mitigation is enabled/present.
  */
 export function isRiskValid(risk: Risk): boolean {
   return getRiskValidationErrors(risk).length === 0;

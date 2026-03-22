@@ -9,6 +9,7 @@ import {
   runMonteCarloSimulation,
 } from "@/domain/simulation/monteCarlo";
 import type { Risk } from "@/domain/risk/risk.schema";
+import { buildRating, probabilityPctToScale } from "@/domain/risk/risk.logic";
 
 const baseRating = { probability: 3, consequence: 3, score: 9, level: "high" as const };
 const iso = "2025-01-01T00:00:00.000Z";
@@ -38,12 +39,13 @@ describe("getEffectiveRiskInputs", () => {
     assert.strictEqual(getEffectiveRiskInputs(risk), null);
   });
 
-  it("uses post-mitigation when all post fields present", () => {
+  it("uses post-mitigation when mitigation set and post ML cost/time present", () => {
     const risk = makeRisk({
-      preMitigationProbabilityPct: 60,
+      mitigation: "Active mitigation",
+      inherentRating: buildRating(probabilityPctToScale(60), 3),
+      residualRating: buildRating(probabilityPctToScale(40), 3),
       preMitigationCostML: 100_000,
       preMitigationTimeML: 20,
-      postMitigationProbabilityPct: 40,
       postMitigationCostML: 50_000,
       postMitigationTimeML: 10,
     });
@@ -57,9 +59,9 @@ describe("getEffectiveRiskInputs", () => {
 
   it("falls back to pre-mitigation when post missing", () => {
     const risk = makeRisk({
-      preMitigationProbabilityPct: 50,
       preMitigationCostML: 80_000,
       preMitigationTimeML: 15,
+      probability: 0.5,
     });
     const out = getEffectiveRiskInputs(risk);
     assert.ok(out);
@@ -69,11 +71,11 @@ describe("getEffectiveRiskInputs", () => {
     assert.strictEqual(out.timeML, 15);
   });
 
-  it("falls back to scenario/rating when no pre/post probability", () => {
+  it("uses explicit probability with pre ML cost/time", () => {
     const risk = makeRisk({
       probability: 0.35,
-      costImpact: 200_000,
-      scheduleImpactDays: 25,
+      preMitigationCostML: 200_000,
+      preMitigationTimeML: 25,
     });
     const out = getEffectiveRiskInputs(risk);
     assert.ok(out);
@@ -84,7 +86,7 @@ describe("getEffectiveRiskInputs", () => {
 
   it("treats zero as present for cost and time", () => {
     const risk = makeRisk({
-      preMitigationProbabilityPct: 10,
+      probability: 0.1,
       preMitigationCostML: 0,
       preMitigationTimeML: 0,
     });
@@ -98,8 +100,8 @@ describe("getEffectiveRiskInputs", () => {
 describe("runMonteCarloSimulation", () => {
   it("excludes closed risks from simulation", () => {
     const risks: Risk[] = [
-      makeRisk({ id: "a", status: "open", probability: 1, costImpact: 1000, scheduleImpactDays: 5 }),
-      makeRisk({ id: "b", status: "closed", probability: 1, costImpact: 1_000_000, scheduleImpactDays: 1000 }),
+      makeRisk({ id: "a", status: "open", probability: 1, preMitigationCostML: 1000, preMitigationTimeML: 5 }),
+      makeRisk({ id: "b", status: "closed", probability: 1, preMitigationCostML: 1_000_000, preMitigationTimeML: 1000 }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 1000, seed: 42 });
     assert.ok(result.costSamples.length === 1000);
@@ -109,8 +111,8 @@ describe("runMonteCarloSimulation", () => {
 
   it("programme P-values are from combined time distribution", () => {
     const risks: Risk[] = [
-      makeRisk({ id: "1", probability: 0.5, costImpact: 10_000, scheduleImpactDays: 10 }),
-      makeRisk({ id: "2", probability: 0.5, costImpact: 20_000, scheduleImpactDays: 20 }),
+      makeRisk({ id: "1", probability: 0.5, preMitigationCostML: 10_000, preMitigationTimeML: 10 }),
+      makeRisk({ id: "2", probability: 0.5, preMitigationCostML: 20_000, preMitigationTimeML: 20 }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 5000, seed: 123 });
     assert.ok(Number.isFinite(result.summary.p20Time));
@@ -124,7 +126,7 @@ describe("runMonteCarloSimulation", () => {
 
   it("deterministic single risk 100% prob 10 days: all schedule percentiles equal 10", () => {
     const risks: Risk[] = [
-      makeRisk({ id: "d", probability: 1, costImpact: 0, scheduleImpactDays: 10 }),
+      makeRisk({ id: "d", probability: 1, preMitigationCostML: 0, preMitigationTimeML: 10 }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 1000, seed: 99 });
     assert.strictEqual(result.summary.p20Time, 10, "p20Time should be 10");
@@ -141,8 +143,8 @@ describe("runMonteCarloSimulation", () => {
         id: "single",
         status: "open",
         probability: 1,
-        costImpact: constantCost,
-        scheduleImpactDays: constantTimeDays,
+        preMitigationCostML: constantCost,
+        preMitigationTimeML: constantTimeDays,
       }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 100, seed: 42 });
@@ -171,7 +173,7 @@ describe("runMonteCarloSimulation", () => {
       makeRisk({
         id: "r1",
         status: "open",
-        preMitigationProbabilityPct: 100,
+        probability: 1,
         preMitigationCostML: preCost,
         preMitigationTimeML: preTime,
       }),
@@ -180,10 +182,10 @@ describe("runMonteCarloSimulation", () => {
       makeRisk({
         id: "r1",
         status: "open",
-        preMitigationProbabilityPct: 100,
+        mitigation: "Mitigated",
+        probability: 1,
         preMitigationCostML: preCost,
         preMitigationTimeML: preTime,
-        postMitigationProbabilityPct: 100,
         postMitigationCostML: postCost,
         postMitigationTimeML: postTime,
       }),
@@ -206,10 +208,10 @@ describe("runMonteCarloSimulation", () => {
 
   it("no NaN or negative in summary percentiles for normal run", () => {
     const risks: Risk[] = [
-      makeRisk({ id: "r1", probability: 0.3, costImpact: 50_000, scheduleImpactDays: 10 }),
-      makeRisk({ id: "r2", probability: 0.5, costImpact: 100_000, scheduleImpactDays: 20 }),
-      makeRisk({ id: "r3", probability: 0.2, costImpact: 25_000, scheduleImpactDays: 5 }),
-      makeRisk({ id: "r4", probability: 0.4, costImpact: 75_000, scheduleImpactDays: 15 }),
+      makeRisk({ id: "r1", probability: 0.3, preMitigationCostML: 50_000, preMitigationTimeML: 10 }),
+      makeRisk({ id: "r2", probability: 0.5, preMitigationCostML: 100_000, preMitigationTimeML: 20 }),
+      makeRisk({ id: "r3", probability: 0.2, preMitigationCostML: 25_000, preMitigationTimeML: 5 }),
+      makeRisk({ id: "r4", probability: 0.4, preMitigationCostML: 75_000, preMitigationTimeML: 15 }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 500, seed: 123 });
     const s = result.summary;
@@ -232,10 +234,10 @@ describe("runMonteCarloSimulation", () => {
 
   it("no NaN or negative when risks include zero impacts", () => {
     const risks: Risk[] = [
-      makeRisk({ id: "z1", probability: 0.5, costImpact: 0, scheduleImpactDays: 0 }),
-      makeRisk({ id: "z2", probability: 0.3, costImpact: 100_000, scheduleImpactDays: 10 }),
-      makeRisk({ id: "z3", probability: 0.2, costImpact: 0, scheduleImpactDays: 5 }),
-      makeRisk({ id: "z4", probability: 0.4, costImpact: 50_000, scheduleImpactDays: 0 }),
+      makeRisk({ id: "z1", probability: 0.5, preMitigationCostML: 0, preMitigationTimeML: 0 }),
+      makeRisk({ id: "z2", probability: 0.3, preMitigationCostML: 100_000, preMitigationTimeML: 10 }),
+      makeRisk({ id: "z3", probability: 0.2, preMitigationCostML: 0, preMitigationTimeML: 5 }),
+      makeRisk({ id: "z4", probability: 0.4, preMitigationCostML: 50_000, preMitigationTimeML: 0 }),
     ];
     const result = runMonteCarloSimulation({ risks, iterations: 500, seed: 456 });
     const s = result.summary;
@@ -314,8 +316,8 @@ describe("runMonteCarloSimulation", () => {
         makeRisk({
           id: `stress-${i}`,
           probability: ((i % 10) + 1) / 10,
-          costImpact: i * 1000,
-          scheduleImpactDays: i % 30,
+          preMitigationCostML: i * 1000,
+          preMitigationTimeML: i % 30,
         })
       );
     }

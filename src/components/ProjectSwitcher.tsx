@@ -138,7 +138,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
       }
       const { data: inserted, error } = await supabase
         .from("projects")
-        .insert({ owner_id: user.id, name })
+        .insert({ owner_user_id: user.id, name })
         .select("id")
         .single();
 

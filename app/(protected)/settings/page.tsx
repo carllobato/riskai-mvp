@@ -61,7 +61,7 @@ export default async function UserSettingsPage() {
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50/50 dark:bg-neutral-800/30 p-4 space-y-4">
           <AccountProfileForm
             initialFirstName={profileRow?.first_name ?? (meta?.first_name as string | undefined)}
-            initialLastName={profileRow?.last_name ?? (meta?.last_name as string | undefined)}
+            initialLastName={profileRow?.surname ?? (meta?.last_name as string | undefined)}
             initialCompany={profileRow?.company ?? (meta?.company as string | undefined)}
             initialRole={profileRow?.role ?? (meta?.role as string | undefined)}
           />

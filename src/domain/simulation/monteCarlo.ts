@@ -10,6 +10,8 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
+import { isRiskStatusExcludedFromSimulation } from "@/domain/risk/riskFieldSemantics";
+import { probability01FromScale } from "@/domain/risk/risk.logic";
 import type {
   SimulationRiskSnapshot,
   SimulationSnapshot,
@@ -30,39 +32,37 @@ function isPresentNum(n: unknown): n is number {
   return typeof n === "number" && Number.isFinite(n) && n >= 0;
 }
 
-function isPresentPct(n: unknown): n is number {
-  return typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 100;
-}
-
 /**
  * Single source of truth for Analysis/simulation inputs.
  * - Excludes closed and archived risks (returns null).
- * - Uses post-mitigation values when present, else fallback to pre-mitigation (per field).
- * - Probability in 0–1; cost and time in dollars and days respectively.
+ * - Uses post-mitigation values when mitigation text is set and post ML cost/time are present; else pre.
+ * - Probability in 0–1 from `pre_probability` / `post_probability` (1–5) scale; optional `risk.probability` overrides when set.
+ * - Cost and time in dollars and days respectively.
  */
 export function getEffectiveRiskInputs(risk: Risk): EffectiveRiskInputs | null {
-  if (risk.status === "closed" || risk.status === "archived") return null;
+  if (isRiskStatusExcludedFromSimulation(risk.status)) return null;
 
-  const postProbPct = risk.postMitigationProbabilityPct;
-  const preProbPct = risk.preMitigationProbabilityPct;
+  const hasMitigation = Boolean(risk.mitigation?.trim());
   const postCost = risk.postMitigationCostML;
   const preCost = risk.preMitigationCostML;
   const postTime = risk.postMitigationTimeML;
   const preTime = risk.preMitigationTimeML;
 
-  const probPct = isPresentPct(postProbPct) ? postProbPct : (isPresentPct(preProbPct) ? preProbPct : null);
+  const usePost = hasMitigation && isPresentNum(postCost) && isPresentNum(postTime);
+
+  const fromScalePre = probability01FromScale(risk.inherentRating.probability);
+  const fromScalePost = probability01FromScale(risk.residualRating.probability);
   const probability =
-    probPct != null
-      ? Math.max(0, Math.min(1, probPct / 100))
-      : typeof risk.probability === "number" && Number.isFinite(risk.probability) && risk.probability >= 0 && risk.probability <= 1
-        ? risk.probability
-        : normalizeProbability(risk.residualRating?.probability ?? risk.inherentRating?.probability);
+    typeof risk.probability === "number" && Number.isFinite(risk.probability) && risk.probability >= 0 && risk.probability <= 1
+      ? risk.probability
+      : usePost
+        ? fromScalePost
+        : fromScalePre;
 
   const costML = getCostMLFromPrePost(risk, postCost, preCost);
   const timeML = getTimeMLFromPrePost(risk, postTime, preTime);
 
-  const sourceUsed =
-    isPresentPct(postProbPct) && isPresentNum(postCost) && isPresentNum(postTime) ? "post" : "pre";
+  const sourceUsed: "post" | "pre" = usePost ? "post" : "pre";
 
   return { sourceUsed, probability, costML, timeML };
 }
@@ -70,10 +70,6 @@ export function getEffectiveRiskInputs(risk: Risk): EffectiveRiskInputs | null {
 function getCostMLFromPrePost(risk: Risk, postCost: number | undefined, preCost: number | undefined): number {
   if (isPresentNum(postCost)) return postCost;
   if (isPresentNum(preCost)) return preCost;
-  const explicit = typeof risk.costImpact === "number" ? risk.costImpact : Number(risk.costImpact);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const base = typeof risk.baseCostImpact === "number" && Number.isFinite(risk.baseCostImpact) && risk.baseCostImpact > 0 ? risk.baseCostImpact : 0;
-  if (base > 0) return base;
   const c = risk.residualRating?.consequence ?? risk.inherentRating?.consequence;
   const cons = typeof c === "number" ? c : Number(c);
   if (!Number.isFinite(cons)) return 0;
@@ -88,9 +84,7 @@ const SCHEDULE_IMPACT_DAYS_CAP = 30;
 function getTimeMLFromPrePost(risk: Risk, postTime: number | undefined, preTime: number | undefined): number {
   if (isPresentNum(postTime)) return Math.min(postTime, SCHEDULE_IMPACT_DAYS_CAP);
   if (isPresentNum(preTime)) return Math.min(preTime, SCHEDULE_IMPACT_DAYS_CAP);
-  const days = risk.scheduleImpactDays ?? 0;
-  const raw = Number.isFinite(days) && days >= 0 ? days : 0;
-  return Math.min(raw, SCHEDULE_IMPACT_DAYS_CAP);
+  return 0;
 }
 
 export type SimulationResult = {
@@ -134,16 +128,6 @@ function seededRandom(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-function normalizeProbability(p: unknown): number {
-  const n = typeof p === "number" ? p : Number(p);
-  if (!Number.isFinite(n)) return 0;
-  if (n >= 0 && n <= 1) return n;
-  if (n > 1 && n <= 100) return n / 100;
-  if (n >= 1 && n <= 5) return n / 5;
-  if (n >= 1 && n <= 10) return n / 10;
-  return 0;
 }
 
 /**

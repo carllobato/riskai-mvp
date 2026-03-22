@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { PageHeader } from "@/components/PageHeader";
+import { ProjectPermissionsProvider } from "@/contexts/ProjectPermissionsContext";
 import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
 import { supabaseServerClient } from "@/lib/supabase/server";
@@ -32,7 +33,15 @@ export default async function ProjectLayout({
     redirect("/project-not-found");
   }
 
-  const { project } = access;
+  const { project, permissions } = access;
+  if (process.env.NODE_ENV === "development") {
+    // Temporary trace (access consistency pass)
+    console.log("[project-access] layout", {
+      projectId,
+      accessMode: permissions.accessMode,
+      canEditContent: permissions.canEditContent,
+    });
+  }
   let portfolioId: string | null = null;
   let portfolioName: string | null = null;
   const supabase = await supabaseServerClient();
@@ -52,7 +61,7 @@ export default async function ProjectLayout({
   }
 
   return (
-    <>
+    <ProjectPermissionsProvider permissions={permissions}>
       <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
       <PageHeader
         projectId={projectId}
@@ -61,6 +70,6 @@ export default async function ProjectLayout({
         portfolioName={portfolioName}
       />
       {children}
-    </>
+    </ProjectPermissionsProvider>
   );
 }

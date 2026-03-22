@@ -94,13 +94,13 @@ describe("risk-merge", () => {
       });
       // Accept merge: archive source risks (do not remove), add new merged risk
       const risksAfterArchive = risks.map((r) =>
-        cluster.riskIds.includes(r.id) ? { ...r, status: "archived" as const } : r
+        cluster.riskIds.includes(r.id) ? { ...r, status: "Archived" as const } : r
       );
       const nextRisks = [...risksAfterArchive, newRisk];
 
       assert.strictEqual(nextRisks.length, 3);
-      assert.strictEqual(nextRisks[0].status, "archived");
-      assert.strictEqual(nextRisks[1].status, "archived");
+      assert.strictEqual(nextRisks[0].status, "Archived");
+      assert.strictEqual(nextRisks[1].status, "Archived");
       const merged = nextRisks[2];
       assert.strictEqual(merged.title, draft.title);
       assert.deepStrictEqual(merged.mergedFromRiskIds, [r1.id, r2.id]);

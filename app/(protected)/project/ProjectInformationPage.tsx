@@ -23,8 +23,13 @@ import {
   computeValueM,
 } from "@/lib/projectContext";
 import { ProjectExcelUploadSection } from "@/components/project/ProjectExcelUploadSection";
+import { ProjectMembersSection } from "@/components/project/ProjectMembersSection";
 import { useRiskRegister } from "@/store/risk-register.store";
+import { DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
+import { RiskRegisterLookupProviders } from "@/components/risk-register/RiskRegisterLookupProviders";
+import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
+import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 
 const RISK_APPETITE_OPTIONS: { value: RiskAppetite; label: string }[] = [
   { value: "P10", label: "P10" },
@@ -125,6 +130,14 @@ const SAVED_CONFIRM_AUTO_HIDE_MS = 3000;
 export type ProjectInformationPageProps = { projectId?: string | null };
 
 export default function ProjectInformationPage({ projectId }: ProjectInformationPageProps = {}) {
+  const projectPermissions = useProjectPermissions();
+  const settingsReadOnly =
+    Boolean(projectId) &&
+    (projectPermissions == null || !projectPermissions.canEditProjectMetadata);
+  const riskUiReadOnly =
+    Boolean(projectId) &&
+    (projectPermissions == null || !projectPermissions.canEditContent);
+
   const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState<ProjectContext>(defaultContext());
   const [rawNumericFields, setRawNumericFields] = useState<RawNumericFields>({});
@@ -133,11 +146,11 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
   const [showArchivedReviewModal, setShowArchivedReviewModal] = useState(false);
   const [validation, setValidation] = useState<Record<string, string>>({});
   const router = useRouter();
-  const { risks, updateRisk } = useRiskRegister();
+  const { risks, updateRisk, restoreArchivedRisk } = useRiskRegister();
   const archivedRisks = useMemo(
     () =>
       risks
-        .filter((r) => r.status === "archived")
+        .filter((r) => isRiskStatusArchived(r.status))
         .sort((a, b) => (a.riskNumber ?? 0) - (b.riskNumber ?? 0)),
     [risks]
   );
@@ -223,6 +236,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
   const isFormValid = Object.keys(validationErrors).length === 0;
 
   const onSave = useCallback(() => {
+    if (settingsReadOnly) return;
     const err = getValidationErrors(form, rawNumericFields);
     setValidation(err);
     if (Object.keys(err).length > 0) {
@@ -265,16 +279,17 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
           .catch(() => {});
       }
     }
-  }, [form, rawNumericFields, projectId, router]);
+  }, [form, rawNumericFields, projectId, router, settingsReadOnly]);
 
   const onClear = useCallback(() => {
+    if (settingsReadOnly) return;
     setShowClearConfirm(false);
     clearProjectContext(projectId ?? undefined);
     setForm(defaultContext());
     setRawNumericFields({});
     setSaved(false);
     setValidation({});
-  }, [projectId]);
+  }, [projectId, settingsReadOnly]);
 
   const contingencyPct = getContingencyPercent(form);
   const approvedBudgetInUnit =
@@ -294,6 +309,14 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
       <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
         Project Home
       </h1>
+      {settingsReadOnly && (
+        <p
+          className="text-sm text-neutral-600 dark:text-neutral-400 mb-4 rounded-md border border-neutral-200 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800/40 px-3 py-2"
+          role="status"
+        >
+          View-only access: you can review project settings but not change them.
+        </p>
+      )}
 
       {/* 1) Details */}
       <section className={cardClass + " mb-4"}>
@@ -310,6 +333,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               id="projectName"
               type="text"
               value={form.projectName}
+              readOnly={settingsReadOnly}
               onChange={(e) => update("projectName", e.target.value)}
               className={validation.projectName ? inputErrorClass : inputClass}
               placeholder="e.g. Northgate Rail Upgrade"
@@ -326,6 +350,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               id="location"
               type="text"
               value={form.location ?? ""}
+              readOnly={settingsReadOnly}
               onChange={(e) => update("location", e.target.value)}
               className={inputClass}
               placeholder="e.g. Sydney, NSW"
@@ -338,6 +363,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             <select
               id="currency"
               value={form.currency}
+              disabled={settingsReadOnly}
               onChange={(e) => update("currency", e.target.value as ProjectCurrency)}
               className={inputClass}
               aria-label="Currency"
@@ -352,6 +378,8 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
         </div>
       </section>
 
+      {projectId ? <ProjectMembersSection projectId={projectId} /> : null}
+
       {/* 2) Financial Context */}
       <section className={cardClass + " mb-4"}>
         <h2 className="text-base font-semibold text-[var(--foreground)] mb-3 border-b border-neutral-200 dark:border-neutral-700 pb-2">
@@ -365,6 +393,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             <select
               id="financialUnit"
               value={form.financialUnit}
+              disabled={settingsReadOnly}
               onChange={(e) => update("financialUnit", e.target.value as FinancialUnit)}
               className={inputClass}
               aria-label="Financial unit"
@@ -385,6 +414,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               id="projectValue_input"
               type="number"
               min={0}
+              readOnly={settingsReadOnly}
               step={form.financialUnit === "BILLIONS" || form.financialUnit === "MILLIONS" ? 0.1 : 1}
               value={form.projectValue_input === 0 ? "" : form.projectValue_input}
               onChange={(e) =>
@@ -406,6 +436,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               id="contingencyValue_input"
               type="number"
               min={0}
+              readOnly={settingsReadOnly}
               step={form.financialUnit === "BILLIONS" || form.financialUnit === "MILLIONS" ? 0.1 : 1}
               value={rawNumericFields.contingencyValue_input ?? (form.contingencyValue_input === 0 ? "" : String(form.contingencyValue_input))}
               onChange={(e) => {
@@ -454,6 +485,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               type="number"
               min={0}
               max={MAX_MONTHS}
+              readOnly={settingsReadOnly}
               step={1}
               value={rawNumericFields.plannedDuration_months ?? (form.plannedDuration_months === 0 ? "" : String(form.plannedDuration_months))}
               onChange={(e) => {
@@ -478,6 +510,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               id="targetCompletionDate"
               type="date"
               value={form.targetCompletionDate}
+              readOnly={settingsReadOnly}
               onChange={(e) => update("targetCompletionDate", e.target.value)}
               className={validation.targetCompletionDate ? inputErrorClass : inputClass}
             />
@@ -495,6 +528,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
               type="number"
               min={0}
               max={MAX_WEEKS}
+              readOnly={settingsReadOnly}
               step={1}
               value={rawNumericFields.scheduleContingency_weeks ?? (form.scheduleContingency_weeks === 0 ? "" : String(form.scheduleContingency_weeks))}
               onChange={(e) => {
@@ -527,12 +561,13 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
             <button
               key={value}
               type="button"
+              disabled={settingsReadOnly}
               onClick={() => update("riskAppetite", value)}
               className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                 form.riskAppetite === value
                   ? "bg-neutral-200 dark:bg-neutral-600 text-[var(--foreground)] shadow-sm"
                   : "text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)]"
-              }`}
+              } disabled:opacity-50 disabled:pointer-events-none`}
             >
               {label}
             </button>
@@ -557,24 +592,26 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
         </button>
       </section>
 
-      <ProjectExcelUploadSection />
+      {!riskUiReadOnly && <ProjectExcelUploadSection />}
 
       <div className="flex flex-wrap items-center gap-3 mt-6">
         <button
           type="button"
           onClick={onSave}
-          disabled={!isFormValid}
+          disabled={!isFormValid || settingsReadOnly}
           className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--foreground)] text-[var(--background)] text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:opacity-50"
         >
           Save
         </button>
-        <button
-          type="button"
-          onClick={() => setShowClearConfirm(true)}
-          className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
-        >
-          Clear
-        </button>
+        {!settingsReadOnly && (
+          <button
+            type="button"
+            onClick={() => setShowClearConfirm(true)}
+            className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            Clear
+          </button>
+        )}
       </div>
       {saved && (
         <div
@@ -622,13 +659,19 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
         </div>
       )}
 
-      <RiskDetailModal
-        open={showArchivedReviewModal}
-        risks={archivedRisks}
-        initialRiskId={archivedRisks[0]?.id ?? null}
-        onClose={() => setShowArchivedReviewModal(false)}
-        onSave={(risk) => updateRisk(risk.id, risk)}
-      />
+      <RiskRegisterLookupProviders projectId={projectId ?? DEFAULT_PROJECT_ID}>
+        <RiskDetailModal
+          open={showArchivedReviewModal}
+          risks={archivedRisks}
+          initialRiskId={archivedRisks[0]?.id ?? null}
+          readOnly={riskUiReadOnly}
+          onClose={() => setShowArchivedReviewModal(false)}
+          onSave={(risk) => updateRisk(risk.id, risk)}
+          onRestoreRisk={
+            riskUiReadOnly ? undefined : (id) => restoreArchivedRisk(id)
+          }
+        />
+      </RiskRegisterLookupProviders>
     </main>
   );
 }

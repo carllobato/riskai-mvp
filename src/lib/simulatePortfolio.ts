@@ -1,4 +1,5 @@
 import type { Risk } from "@/domain/risk/risk.schema";
+import { probability01FromScale } from "@/domain/risk/risk.logic";
 import type { SimulationRiskSnapshot, SimulationSnapshot } from "@/domain/simulation/simulation.types";
 import { makeId } from "@/lib/id";
 import type { ProjectionProfile } from "@/lib/projectionProfiles";
@@ -28,36 +29,35 @@ function triangular(min: number, mode: number, max: number): number {
   return max - Math.sqrt((1 - u) * (max - min) * (max - mode));
 }
 
-function normalizeProbability(p: unknown): number {
-  const n = typeof p === "number" ? p : Number(p);
-  if (!Number.isFinite(n)) return 0;
-  if (n >= 0 && n <= 1) return n;
-  if (n > 1 && n <= 100) return n / 100;
-  if (n >= 1 && n <= 5) return n / 5;
-  if (n >= 1 && n <= 10) return n / 10;
-  return 0;
-}
-
-/** Probability for simulation: prefer risk.probability (0–1, scenario-adjusted) when present. */
+/** Probability for simulation: prefer risk.probability (0–1, scenario-adjusted) when present; else 1–5 scale from ratings. */
 function getSimProbability(risk: Risk): number {
   if (typeof risk.probability === "number" && Number.isFinite(risk.probability) && risk.probability >= 0 && risk.probability <= 1)
     return risk.probability;
-  return normalizeProbability(
-    risk.residualRating?.probability ?? risk.inherentRating?.probability
-  );
+  const scale = risk.residualRating?.probability ?? risk.inherentRating?.probability ?? 3;
+  return probability01FromScale(scale);
 }
 
-/** Cost for simulation: prefer baseCostImpact/costImpact (scenario-adjusted) when present. */
+/** Cost for simulation: post ML if mitigated and set, else pre ML, else consequence mapping. */
 function getSimCostML(risk: Risk): number {
-  const explicit = typeof risk.costImpact === "number" ? risk.costImpact : Number(risk.costImpact);
-  if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  const base = typeof risk.baseCostImpact === "number" && Number.isFinite(risk.baseCostImpact) && risk.baseCostImpact > 0
-    ? risk.baseCostImpact
-    : 0;
-  if (base > 0) return base;
+  const hasMitigation = Boolean(risk.mitigation?.trim());
+  const post = risk.postMitigationCostML;
+  const pre = risk.preMitigationCostML;
+  if (hasMitigation && typeof post === "number" && Number.isFinite(post) && post > 0) return post;
+  if (typeof pre === "number" && Number.isFinite(pre) && pre > 0) return pre;
   return costFromConsequence(
     risk.residualRating?.consequence ?? risk.inherentRating?.consequence
   );
+}
+
+function scheduleDaysMLFromRisk(risk: Risk): number {
+  const hasMitigation = Boolean(risk.mitigation?.trim());
+  const rawDays =
+    hasMitigation && typeof risk.postMitigationTimeML === "number" && Number.isFinite(risk.postMitigationTimeML)
+      ? risk.postMitigationTimeML
+      : typeof risk.preMitigationTimeML === "number" && Number.isFinite(risk.preMitigationTimeML)
+        ? risk.preMitigationTimeML
+        : 0;
+  return Math.min(SCHEDULE_IMPACT_DAYS_CAP, Math.max(0, rawDays));
 }
 
 function costFromConsequence(consequence: unknown): number {
@@ -134,10 +134,7 @@ export function simulatePortfolio(
     for (const risk of risks) {
       const probability = getSimProbability(risk);
       const costML = getSimCostML(risk);
-      const scheduleDaysML = Math.min(
-        SCHEDULE_IMPACT_DAYS_CAP,
-        Math.max(0, risk.scheduleImpactDays ?? 0)
-      );
+      const scheduleDaysML = scheduleDaysMLFromRisk(risk);
 
       const costMin = costML * (1 - spread);
       const costMax = costML * (1 + spread);
@@ -183,10 +180,7 @@ export function simulatePortfolio(
   const riskSnapshots: SimulationRiskSnapshot[] = risks.map((risk) => {
     const probability = getSimProbability(risk);
     const costML = getSimCostML(risk);
-    const scheduleDaysML = Math.min(
-      SCHEDULE_IMPACT_DAYS_CAP,
-      Math.max(0, risk.scheduleImpactDays ?? 0)
-    );
+    const scheduleDaysML = scheduleDaysMLFromRisk(risk);
     const expectedCost = probability * costML;
     const expectedDays = probability * scheduleDaysML;
     const acc = perRiskSums.get(risk.id)!;

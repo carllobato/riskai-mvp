@@ -66,8 +66,8 @@ export function TopNav({ onMenuClick, onAccountMenuOpen, variant = "default" }: 
 
   useEffect(() => {
     const supabase = supabaseBrowserClient();
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
+    supabase.auth.getUser().then(({ data: { user: u } }) => {
+      setUser(u ?? null);
     });
     const {
       data: { subscription },

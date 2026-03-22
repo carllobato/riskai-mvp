@@ -1,29 +1,20 @@
 import { z } from "zod";
 
 /**
- * Enums (tight + explicit = consistency everywhere)
+ * Stored on `risks.status` as free text; UI options come from `riskai_risk_statuses.name`.
  */
-export const RiskStatusSchema = z.enum(["draft", "open", "monitoring", "mitigating", "closed", "archived"]);
+export const RiskStatusSchema = z.string().min(1);
 export type RiskStatus = z.infer<typeof RiskStatusSchema>;
 
-export const RiskCategorySchema = z.enum([
-  "commercial",
-  "programme",
-  "design",
-  "construction",
-  "procurement",
-  "hse",
-  "authority",
-  "operations",
-  "other",
-]);
+/** Stored on `risks.category` as free text; UI options come from `riskai_risk_categories.name`. Empty allowed for in-register drafts before the user picks a category. */
+export const RiskCategorySchema = z.string();
 export type RiskCategory = z.infer<typeof RiskCategorySchema>;
 
 export const RiskLevelSchema = z.enum(["low", "medium", "high", "extreme"]);
 export type RiskLevel = z.infer<typeof RiskLevelSchema>;
 
-/** Whether risk impact applies to time, cost, or both. */
-export const AppliesToSchema = z.enum(["time", "cost", "both"]);
+/** Stored on `risks.applies_to` as free text; UI options come from `riskai_risk_applies_to.name`. */
+export const AppliesToSchema = z.string().min(1);
 export type AppliesTo = z.infer<typeof AppliesToSchema>;
 
 /**
@@ -98,13 +89,9 @@ export const RiskSchema = z.object({
   residualRating: RiskRatingSchema,
 
   dueDate: z.string().optional(), // YYYY-MM-DD (simple Day-1)
-  costImpact: z.number().optional(),
-  scheduleImpactDays: z.number().int().optional(),
 
   /** User-facing: impact applies to Time, Cost, or Both. */
   appliesTo: AppliesToSchema.optional(),
-  /** Pre-mitigation probability 0–100 %. */
-  preMitigationProbabilityPct: z.number().min(0).max(100).optional(),
   /** Pre-mitigation cost range ($). */
   preMitigationCostMin: z.number().min(0).optional(),
   preMitigationCostML: z.number().min(0).optional(),
@@ -115,8 +102,6 @@ export const RiskSchema = z.object({
   preMitigationTimeMax: z.number().int().min(0).optional(),
   /** Mitigation cost ($). */
   mitigationCost: z.number().min(0).optional(),
-  /** Post-mitigation probability 0–100 %. */
-  postMitigationProbabilityPct: z.number().min(0).max(100).optional(),
   /** Post-mitigation cost range ($). */
   postMitigationCostMin: z.number().min(0).optional(),
   postMitigationCostML: z.number().min(0).optional(),
@@ -126,9 +111,7 @@ export const RiskSchema = z.object({
   postMitigationTimeML: z.number().int().min(0).optional(),
   postMitigationTimeMax: z.number().int().min(0).optional(),
 
-  /** Forward exposure: base cost impact (e.g. expected value basis). */
-  baseCostImpact: z.number().optional(),
-  /** Forward exposure: trigger probability 0..1 (distinct from inherent 1–5 scale). */
+  /** Forward exposure / scenario: trigger probability 0..1 (computed in app, not a DB column). */
   probability: z.number().min(0).max(1).optional(),
   /** Forward exposure: how much escalation persists over time (0..1). */
   escalationPersistence: z.number().min(0).max(1).optional(),
@@ -174,22 +157,21 @@ export const RiskDraftResponseSchema = z.object({
 });
 export type RiskDraftResponse = z.infer<typeof RiskDraftResponseSchema>;
 
-/** Normalise appliesTo from AI (e.g. "Cost" | "Time" | "Both") to schema enum. */
-const appliesToIntelligent = z
-  .union([AppliesToSchema, z.enum(["Cost", "Time", "Both"]), z.string()])
-  .transform((s) => {
-    const lower = (s ?? "").toString().toLowerCase().trim();
-    if (lower === "time" || lower === "cost" || lower === "both") return lower as AppliesTo;
-    return "both";
-  });
-
-const VALID_CATEGORIES = [
-  "commercial", "programme", "design", "construction", "procurement", "hse", "authority", "operations", "other",
-] as const;
-const categoryIntelligent = z.union([RiskCategorySchema, z.string()]).transform((s) => {
-  const lower = (typeof s === "string" ? s : "").toLowerCase().trim();
-  return (VALID_CATEGORIES.includes(lower as (typeof VALID_CATEGORIES)[number]) ? lower : "other") as RiskCategory;
+/** Normalise appliesTo from AI; known words map to lowercase, else keep trimmed text. */
+const appliesToIntelligent = z.union([z.string(), z.number()]).transform((raw) => {
+  const s = String(raw ?? "").trim();
+  if (!s) return "both";
+  const lower = s.toLowerCase();
+  if (lower === "time" || lower === "cost" || lower === "both") return lower;
+  return s;
 });
+
+const categoryIntelligent = z
+  .union([z.string(), z.number()])
+  .transform((s) => {
+    const t = String(s ?? "").trim();
+    return t.length > 0 ? t : "other";
+  });
 
 function numCoerce(minVal = 0): z.ZodType<number> {
   return z.union([z.number(), z.string()]).transform((v) => {
@@ -213,7 +195,13 @@ export const IntelligentExtractDraftSchema = z.object({
   title: z.string().min(1).transform((s) => s.trim()),
   description: z.string().optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
   category: categoryIntelligent,
-  owner: z.union([z.string(), z.number()]).transform((s) => String(s ?? "").trim() || "Project Director"),
+  owner: z
+    .union([z.string(), z.number(), z.undefined(), z.null()])
+    .optional()
+    .transform((s) => {
+      const t = String(s ?? "").trim();
+      return t.length > 0 ? t : undefined;
+    }),
   probability: z.union([z.number(), z.string()]).transform((v) => {
     const n = typeof v === "string" ? Number(v) : v;
     return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : 50;

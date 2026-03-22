@@ -13,7 +13,7 @@ import type { PortfolioMemberRow } from "@/lib/portfolios-server";
 export type PortfolioSettingsInitial = {
   name: string;
   description: string | null;
-  owner_id: string;
+  owner_user_id: string;
   created_at: string | null;
 };
 
@@ -161,7 +161,7 @@ export default function PortfolioSettingsContent({
           <div>
             <dt className="text-neutral-500 dark:text-neutral-400">Owner ID</dt>
             <dd className="font-mono text-xs text-[var(--foreground)] break-all">
-              {initial.owner_id}
+              {initial.owner_user_id}
             </dd>
           </div>
           <div>

@@ -12,6 +12,7 @@ import { formatDurationDays } from "@/lib/formatDuration";
 import { loadProjectContext } from "@/lib/projectContext";
 import type { Risk } from "@/domain/risk/risk.schema";
 import type { SimulationSnapshotRow } from "@/lib/db/snapshots";
+import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 
 export type ProjectOverviewInitialData = {
   projectId: string;
@@ -51,16 +52,21 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
+  const activeRisks = useMemo(
+    () => risks.filter((r) => !isRiskStatusArchived(r.status)),
+    [risks]
+  );
+
   const exposure = useMemo(() => {
-    if (risks.length === 0) return null;
-    return computePortfolioExposure(risks, "neutral", 12, { topN: 5 });
-  }, [risks]);
+    if (activeRisks.length === 0) return null;
+    return computePortfolioExposure(activeRisks, "neutral", 12, { topN: 5 });
+  }, [activeRisks]);
 
   const highSeverityCount = useMemo(() => {
-    return risks.filter(
+    return activeRisks.filter(
       (r) => r.residualRating?.level === "high" || r.residualRating?.level === "extreme"
     ).length;
-  }, [risks]);
+  }, [activeRisks]);
 
   const costPosition = useMemo(() => {
     const row = latestSnapshot;
@@ -82,15 +88,15 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
 
   const residualExposure = exposure?.total ?? 0;
   const totalScheduleExposureDays = useMemo(() => {
-    return risks.reduce((sum, r) => {
+    return activeRisks.reduce((sum, r) => {
+      const hasM = Boolean(r.mitigation?.trim());
       const days =
-        r.scheduleImpactDays ??
-        r.postMitigationTimeML ??
+        (hasM ? r.postMitigationTimeML : undefined) ??
         r.preMitigationTimeML ??
         0;
       return sum + (Number.isFinite(days) ? days : 0);
     }, 0);
-  }, [risks]);
+  }, [activeRisks]);
 
   const projectContext = useMemo(
     () => (projectId ? loadProjectContext(projectId) : null),
@@ -111,14 +117,21 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   const verdict = useMemo(() => {
     if (highSeverityCount > 0 && (coverageRatio == null || coverageRatio < 1))
       return { label: "Review recommended", support: "Exposure exceeds contingency or high-severity risks present.", tone: "amber" as const };
-    if (riskCount === 0)
-      return { label: "No risks yet", support: "Add risks and run simulation to see verdict.", tone: "neutral" as const };
+    if (riskCount === 0 || activeRisks.length === 0)
+      return {
+        label: "No risks yet",
+        support:
+          risks.length > 0 && activeRisks.length === 0
+            ? "All risks are archived. Restore from the risk register Archived tab if needed."
+            : "Add risks and run simulation to see verdict.",
+        tone: "neutral" as const,
+      };
     return {
       label: "Controlled",
       support: `Project is operating within recommended confidence (${projectContext?.riskAppetite ?? "P80"}).`,
       tone: "emerald" as const,
     };
-  }, [highSeverityCount, coverageRatio, riskCount, projectContext?.riskAppetite]);
+  }, [highSeverityCount, coverageRatio, riskCount, projectContext?.riskAppetite, risks.length, activeRisks.length]);
 
   const scheduleBufferDays =
     projectContext?.scheduleContingency_weeks != null && Number.isFinite(projectContext.scheduleContingency_weeks)
@@ -175,7 +188,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
           <SummaryTile
             title="Residual Schedule"
             primaryValue={
-              risks.length > 0 && totalScheduleExposureDays > 0
+              activeRisks.length > 0 && totalScheduleExposureDays > 0
                 ? formatDurationDays(totalScheduleExposureDays)
                 : "—"
             }

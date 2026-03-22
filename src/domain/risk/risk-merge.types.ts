@@ -1,21 +1,4 @@
 import { z } from "zod";
-import {
-  RiskCategorySchema,
-  RiskStatusSchema,
-  AppliesToSchema,
-} from "./risk.schema";
-
-const VALID_CATEGORIES = [
-  "commercial",
-  "programme",
-  "design",
-  "construction",
-  "procurement",
-  "hse",
-  "authority",
-  "operations",
-  "other",
-] as const;
 
 /** Coerce string or number to number; empty/null/undefined → undefined. Clamp to [min, max] when provided. */
 function optionalNum(min = 0, max = Number.POSITIVE_INFINITY) {
@@ -43,26 +26,23 @@ function optionalInt(min = 0, max = Number.POSITIVE_INFINITY) {
     });
 }
 
-/** Normalise appliesTo to valid enum. */
-const appliesToNormaliser = z
-  .union([AppliesToSchema, z.string()])
+/** Any non-empty trimmed string from AI / editor; empty → undefined. */
+const mergeAppliesToField = z
+  .union([z.string(), z.null(), z.undefined()])
   .optional()
   .transform((s) => {
     if (s === undefined || s === null) return undefined;
-    const lower = (s ?? "").toString().toLowerCase().trim();
-    if (lower === "time" || lower === "cost" || lower === "both") return lower;
-    return undefined;
+    const t = String(s).trim();
+    return t.length > 0 ? t : undefined;
   });
 
-const VALID_STATUSES = ["draft", "open", "monitoring", "mitigating", "closed", "archived"] as const;
-/** Normalise status to valid enum; invalid or empty → undefined. */
-const statusNormaliser = z
-  .union([RiskStatusSchema, z.string(), z.null(), z.undefined()])
+const mergeStatusField = z
+  .union([z.string(), z.null(), z.undefined()])
   .optional()
   .transform((s) => {
-    if (s === undefined || s === null || (typeof s === "string" && s.trim() === "")) return undefined;
-    const lower = (s ?? "").toString().toLowerCase().trim();
-    return VALID_STATUSES.includes(lower as (typeof VALID_STATUSES)[number]) ? (lower as (typeof VALID_STATUSES)[number]) : undefined;
+    if (s === undefined || s === null) return undefined;
+    const t = String(s).trim();
+    return t.length > 0 ? t : undefined;
   });
 
 /**
@@ -73,18 +53,17 @@ const statusNormaliser = z
 export const MergeRiskDraftSchema = z.object({
   title: z.union([z.string(), z.number()]).transform((s) => String(s ?? "").trim()).refine((s) => s.length > 0, "title required"),
   description: z.union([z.string(), z.undefined(), z.null()]).optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
-  category: z.union([RiskCategorySchema, z.string()]).transform((s) => {
-    const lower = (typeof s === "string" ? s : "").toLowerCase().trim();
-    const out = VALID_CATEGORIES.includes(lower as (typeof VALID_CATEGORIES)[number]) ? lower : "other";
-    return out as (typeof VALID_CATEGORIES)[number];
-  }),
-  status: statusNormaliser,
+  category: z
+    .union([z.string(), z.number()])
+    .transform((s) => String(s ?? "").trim())
+    .refine((s) => s.length > 0, "category required"),
+  status: mergeStatusField,
   owner: z.union([z.string(), z.undefined(), z.null()]).optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
 
   mitigation: z.union([z.string(), z.undefined(), z.null()]).optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
   contingency: z.union([z.string(), z.undefined(), z.null()]).optional().transform((s) => (s != null && String(s).trim() !== "" ? String(s).trim() : undefined)),
 
-  appliesTo: appliesToNormaliser,
+  appliesTo: mergeAppliesToField,
   preMitigationProbabilityPct: optionalNum(0, 100),
   preMitigationCostMin: optionalNum(0),
   preMitigationCostML: optionalNum(0),

@@ -1,4 +1,4 @@
--- App profile fields on public.users (1:1 with auth.users.id).
+-- Legacy: public.users (1:1 with auth.users.id). Prefer public.profiles — see 20250322_public_profiles.sql.
 -- Run in Supabase SQL Editor or via CLI. Safe if public.users already exists (adds columns).
 
 CREATE TABLE IF NOT EXISTS public.users (

@@ -7,7 +7,7 @@ import { supabaseServerClient } from "@/lib/supabase/server";
 export const dynamic = "force-dynamic";
 
 /**
- * POST /api/me/profile — Upsert the signed-in user’s row in `public.users` (cookie session).
+ * POST /api/me/profile — Upsert the signed-in user’s row in `public.profiles` (cookie session).
  * Uses the server Supabase client so RLS sees the same JWT as other API routes.
  */
 export async function POST(request: Request) {
@@ -40,7 +40,8 @@ export async function POST(request: Request) {
     {
       id: user.id,
       first_name,
-      last_name,
+      surname: last_name,
+      email: user.email ?? null,
       company,
     },
     { onConflict: "id" },

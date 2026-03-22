@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth/requireUser";
 import { getAccessiblePortfolios } from "@/lib/portfolios-server";
+import { getRiskAIProductId } from "@/lib/products";
+import type { OnboardingPortfolioInsertPayload } from "@/lib/onboarding/types";
 import { supabaseServerClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +13,8 @@ const CACHE_HEADERS = {
 };
 
 /**
- * POST /api/portfolios — Create a portfolio owned by the current user (RLS: owner_id = auth.uid()).
+ * POST /api/portfolios — Create a portfolio owned by the current user (RLS: owner_user_id = auth.uid()).
+ * Always attaches the RiskAI product from `public.products` (key = 'riskai'); `product_id` is never omitted.
  */
 export async function POST(request: Request) {
   const user = await requireUser();
@@ -33,10 +36,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Portfolio name is required." }, { status: 400 });
   }
 
+  const rawCode =
+    typeof body === "object" && body !== null && "code" in body
+      ? (body as { code: unknown }).code
+      : undefined;
+  const codeTrimmed =
+    typeof rawCode === "string" && rawCode.trim().length > 0 ? rawCode.trim() : undefined;
+
   const supabase = await supabaseServerClient();
+  let productId: string;
+  try {
+    productId = await getRiskAIProductId(supabase);
+  } catch {
+    return NextResponse.json(
+      { error: "RiskAI product not found in products table" },
+      { status: 500 }
+    );
+  }
+
+  const insertPayload: OnboardingPortfolioInsertPayload = {
+    name,
+    product_id: productId,
+    owner_user_id: user.id,
+    ...(codeTrimmed !== undefined ? { code: codeTrimmed } : {}),
+  };
+
   const { data, error } = await supabase
     .from("portfolios")
-    .insert({ name, owner_id: user.id })
+    .insert(insertPayload)
     .select("id, name, created_at")
     .single();
 

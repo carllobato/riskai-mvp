@@ -1,5 +1,6 @@
 import type { Risk, RiskDraft, RiskStatus } from "./risk.schema";
 import type { IntelligentExtractDraft } from "./risk.schema";
+import { normalizeAppliesToKey } from "./riskFieldSemantics";
 import { buildRating, probabilityPctToScale, costToConsequenceScale, timeDaysToConsequenceScale } from "./risk.logic";
 import { makeId } from "@/lib/id";
 import { nowIso } from "@/lib/time";
@@ -37,10 +38,7 @@ export function draftToRisk(draft: RiskDraft): Risk {
     residualRating,
 
     dueDate: undefined,
-    costImpact: undefined,
-    scheduleImpactDays: undefined,
 
-    baseCostImpact: undefined,
     probability: undefined,
     escalationPersistence: undefined,
     sensitivity: undefined,
@@ -84,6 +82,10 @@ export function intelligentDraftToRisk(draft: IntelligentExtractDraft): Risk {
   const consequencePost = Math.max(consFromCostPost, consFromTimePost, 1);
   const residualRating = buildRating(probScalePost, consequencePost);
 
+  const preProb01 = prePct / 100;
+  const postProb01 = postPct / 100;
+  const appliesKey = normalizeAppliesToKey(draft.appliesTo);
+
   return {
     id: makeId(),
     title: draft.title,
@@ -100,21 +102,17 @@ export function intelligentDraftToRisk(draft: IntelligentExtractDraft): Risk {
     residualRating,
 
     dueDate: undefined,
-    costImpact: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
-    scheduleImpactDays: draft.appliesTo !== "cost" ? draft.timeMostLikely : undefined,
 
     appliesTo: draft.appliesTo,
-    preMitigationProbabilityPct: draft.probability,
-    preMitigationCostMin: draft.appliesTo !== "time" ? draft.costMin : undefined,
-    preMitigationCostML: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
-    preMitigationCostMax: draft.appliesTo !== "time" ? draft.costMax : undefined,
-    preMitigationTimeMin: draft.appliesTo !== "cost" ? draft.timeMin : undefined,
-    preMitigationTimeML: draft.appliesTo !== "cost" ? draft.timeMostLikely : undefined,
-    preMitigationTimeMax: draft.appliesTo !== "cost" ? draft.timeMax : undefined,
+    preMitigationCostMin: appliesKey !== "time" ? draft.costMin : undefined,
+    preMitigationCostML: appliesKey !== "time" ? draft.costMostLikely : undefined,
+    preMitigationCostMax: appliesKey !== "time" ? draft.costMax : undefined,
+    preMitigationTimeMin: appliesKey !== "cost" ? draft.timeMin : undefined,
+    preMitigationTimeML: appliesKey !== "cost" ? draft.timeMostLikely : undefined,
+    preMitigationTimeMax: appliesKey !== "cost" ? draft.timeMax : undefined,
 
     mitigationCost: draft.mitigationCost,
 
-    postMitigationProbabilityPct: hasPost ? postPct : undefined,
     postMitigationCostMin: draft.postCostMin,
     postMitigationCostML: draft.postCostMostLikely,
     postMitigationCostMax: draft.postCostMax,
@@ -122,7 +120,7 @@ export function intelligentDraftToRisk(draft: IntelligentExtractDraft): Risk {
     postMitigationTimeML: draft.postTimeMostLikely,
     postMitigationTimeMax: draft.postTimeMax,
 
-    baseCostImpact: draft.appliesTo !== "time" ? draft.costMostLikely : undefined,
+    probability: hasPost ? postProb01 : preProb01,
     createdAt,
     updatedAt: createdAt,
   };
@@ -173,7 +171,6 @@ export function mergeDraftToRisk(
     inherentRating,
     residualRating,
     appliesTo: draft.appliesTo,
-    preMitigationProbabilityPct: draft.preMitigationProbabilityPct,
     preMitigationCostMin: draft.preMitigationCostMin,
     preMitigationCostML: draft.preMitigationCostML,
     preMitigationCostMax: draft.preMitigationCostMax,
@@ -181,7 +178,6 @@ export function mergeDraftToRisk(
     preMitigationTimeML: draft.preMitigationTimeML,
     preMitigationTimeMax: draft.preMitigationTimeMax,
     mitigationCost: draft.mitigationCost,
-    postMitigationProbabilityPct: draft.postMitigationProbabilityPct,
     postMitigationCostMin: draft.postMitigationCostMin,
     postMitigationCostML: draft.postMitigationCostML,
     postMitigationCostMax: draft.postMitigationCostMax,
@@ -190,6 +186,7 @@ export function mergeDraftToRisk(
     postMitigationTimeMax: draft.postMitigationTimeMax,
     mergedFromRiskIds: options.mergedFromRiskIds,
     aiMergeClusterId: options.aiMergeClusterId,
+    probability: postPct / 100,
     createdAt,
     updatedAt: createdAt,
   };

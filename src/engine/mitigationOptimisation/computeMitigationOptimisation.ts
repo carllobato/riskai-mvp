@@ -12,8 +12,9 @@ type RiskInput = {
   id: string;
   title: string;
   probability?: number;
-  costImpact?: number;
-  baseCostImpact?: number;
+  mitigation?: string;
+  preMitigationCostML?: number;
+  postMitigationCostML?: number;
   inherentRating?: { probability?: number; consequence?: number };
   residualRating?: { probability?: number; consequence?: number };
   mitigationProfile?: { effectiveness?: number; confidence?: number };
@@ -35,10 +36,13 @@ function getProbability(r: RiskInput): number {
   return 0.2;
 }
 
-/** Cost (consequence mapped to $): same logic as sim – costImpact, baseCostImpact, or consequence 1–5 map. */
+/** Cost ($): post ML if mitigated and set, else pre ML, else consequence 1–5 map. */
 function getCost(r: RiskInput): number {
-  const explicit = r.costImpact ?? r.baseCostImpact;
-  if (typeof explicit === "number" && Number.isFinite(explicit) && explicit > 0) return explicit;
+  const hasMitigation = Boolean(r.mitigation?.trim());
+  if (hasMitigation && typeof r.postMitigationCostML === "number" && Number.isFinite(r.postMitigationCostML) && r.postMitigationCostML > 0)
+    return r.postMitigationCostML;
+  if (typeof r.preMitigationCostML === "number" && Number.isFinite(r.preMitigationCostML) && r.preMitigationCostML > 0)
+    return r.preMitigationCostML;
   const c = r.residualRating?.consequence ?? r.inherentRating?.consequence;
   const n = typeof c === "number" ? c : Number(c);
   if (!Number.isFinite(n)) return 0;

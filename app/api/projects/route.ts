@@ -10,8 +10,9 @@ const CACHE_HEADERS = {
 };
 
 /**
- * GET /api/projects — Returns current user's projects (id, name, created_at) ordered by created_at asc.
- * Used by home redirect to resolve last-active or first project.
+ * GET /api/projects — Returns projects the user can access (id, name, created_at) ordered by created_at asc.
+ * Used by home redirect to resolve last-active or first project. Rows are filtered by RLS (owner,
+ * project_members, portfolio).
  */
 export async function GET() {
   const user = await requireUser();
@@ -21,7 +22,6 @@ export async function GET() {
   const { data: projects, error } = await supabase
     .from("projects")
     .select("id, name, created_at")
-    .eq("owner_id", user.id)
     .order("created_at", { ascending: true });
 
   if (error) {

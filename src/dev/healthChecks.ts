@@ -5,6 +5,7 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
+import { effectiveForwardCostImpact } from "@/domain/risk/risk.logic";
 import { buildTimeWeights } from "@/engine/forwardExposure/timeWeights";
 import { computeMitigationAdjustment } from "@/engine/forwardExposure/mitigation";
 import { applyScenario, SCENARIO_MULTIPLIERS } from "@/engine/forwardExposure/scenario";
@@ -111,11 +112,11 @@ export const groupedHealthChecks: GroupedCheck[] = [
     run: () => {
       const risk = baselineRisks[0]!;
       const probBefore = risk.probability;
-      const impactBefore = risk.baseCostImpact;
+      const impactBefore = effectiveForwardCostImpact(risk);
       applyScenario(risk, "aggressive");
       applyScenario(risk, "conservative");
       const probAfter = risk.probability;
-      const impactAfter = risk.baseCostImpact;
+      const impactAfter = effectiveForwardCostImpact(risk);
       if (probBefore !== probAfter || impactBefore !== impactAfter)
         return { status: "fail", message: "applyScenario mutated risk", details: { probBefore, probAfter, impactBefore, impactAfter } };
       return { status: "pass", message: "original risk unchanged after applyScenario" };

@@ -2,6 +2,7 @@ import type { Risk, RiskCategory, RiskStatus } from "./risk.schema";
 import { buildRating } from "./risk.logic";
 import { makeId } from "@/lib/id";
 import { nowIso } from "@/lib/time";
+import { isRiskStatusDraft } from "./riskFieldSemantics";
 
 const DEFAULT_MITIGATION_PROFILE = {
   status: "active" as const,
@@ -14,7 +15,14 @@ const DEFAULT_MITIGATION_PROFILE = {
 export function createRisk(partial?: Partial<Risk>): Risk {
   const createdAt = nowIso();
 
-  const category: RiskCategory = partial?.category ?? "commercial";
+  const rawCat = partial?.category;
+  const statusIncoming = partial?.status;
+  const category: RiskCategory =
+    typeof rawCat === "string" && rawCat.trim().length > 0
+      ? rawCat.trim()
+      : isRiskStatusDraft(statusIncoming)
+        ? ""
+        : "commercial";
   const status: RiskStatus = partial?.status ?? "open";
 
   const inherentRating = partial?.inherentRating ?? buildRating(3, 3);
@@ -37,19 +45,15 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     residualRating,
 
     dueDate: partial?.dueDate,
-    costImpact: partial?.costImpact,
-    scheduleImpactDays: partial?.scheduleImpactDays,
 
     appliesTo: partial?.appliesTo ?? "both",
-    preMitigationProbabilityPct: partial?.preMitigationProbabilityPct,
     preMitigationCostMin: partial?.preMitigationCostMin,
-    preMitigationCostML: partial?.preMitigationCostML,
+    preMitigationCostML: partial?.preMitigationCostML ?? 50_000,
     preMitigationCostMax: partial?.preMitigationCostMax,
     preMitigationTimeMin: partial?.preMitigationTimeMin,
-    preMitigationTimeML: partial?.preMitigationTimeML,
+    preMitigationTimeML: partial?.preMitigationTimeML ?? 30,
     preMitigationTimeMax: partial?.preMitigationTimeMax,
     mitigationCost: partial?.mitigationCost,
-    postMitigationProbabilityPct: partial?.postMitigationProbabilityPct,
     postMitigationCostMin: partial?.postMitigationCostMin,
     postMitigationCostML: partial?.postMitigationCostML,
     postMitigationCostMax: partial?.postMitigationCostMax,
@@ -57,7 +61,6 @@ export function createRisk(partial?: Partial<Risk>): Risk {
     postMitigationTimeML: partial?.postMitigationTimeML,
     postMitigationTimeMax: partial?.postMitigationTimeMax,
 
-    baseCostImpact: partial?.baseCostImpact ?? 50_000,
     probability: partial?.probability ?? 0.4,
     escalationPersistence: partial?.escalationPersistence ?? 0.5,
     sensitivity: partial?.sensitivity ?? 0.5,

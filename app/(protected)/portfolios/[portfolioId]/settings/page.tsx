@@ -48,7 +48,7 @@ export default async function PortfolioSettingsPage({
       initial={{
         name: portfolio.name,
         description: portfolio.description,
-        owner_id: portfolio.owner_id,
+        owner_user_id: portfolio.owner_user_id,
         created_at: portfolio.created_at,
       }}
       members={memberList}

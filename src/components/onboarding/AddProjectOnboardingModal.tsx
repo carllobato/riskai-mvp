@@ -58,7 +58,7 @@ export function AddProjectOnboardingModal({
     const { data: inserted, error: insertError } = await supabase
       .from("projects")
       .insert({
-        owner_id: user.id,
+        owner_user_id: user.id,
         name: trimmed,
         portfolio_id: portfolioId,
       })
