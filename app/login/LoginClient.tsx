@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { LegalDocumentLink } from "@/components/legal/LegalDocumentLink";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -21,9 +21,6 @@ const subtleLinkClass =
 const legalLinkClass =
   "cursor-pointer text-[11px] text-neutral-600 transition-[color,text-decoration-color] duration-200 ease-in-out hover:text-neutral-900 hover:underline hover:decoration-neutral-500/90 hover:underline-offset-2 dark:text-neutral-500 dark:hover:text-neutral-300 dark:hover:decoration-neutral-500";
 
-const oauthButtonClass =
-  "flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-neutral-400 bg-[#F3F5F8] px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors duration-200 ease-out hover:border-neutral-500 hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-[0.62] dark:border-neutral-500 dark:bg-[#0C0E12] dark:text-neutral-200 dark:hover:border-neutral-400 dark:hover:bg-neutral-900 dark:focus-visible:outline-neutral-400";
-
 const primaryButtonClass =
   "relative mt-1 w-full cursor-pointer rounded-md border border-transparent bg-[#111] px-4 py-3 text-sm font-semibold text-white transition-[background-color,border-color] duration-200 ease-out hover:border-white/25 hover:bg-neutral-800 active:border-white/40 active:bg-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-700 disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-50 " +
   "dark:border-neutral-400/50 dark:bg-white dark:text-neutral-950 dark:hover:border-neutral-500/75 dark:hover:bg-neutral-200 dark:active:border-neutral-600/85 dark:active:bg-neutral-400 dark:focus-visible:outline-neutral-400";
@@ -33,6 +30,12 @@ const tabSwitchMs = "duration-[250ms]";
 const tabSwitchEase = "ease-in-out";
 const tabCrossfadeClass = `transition-opacity ${tabSwitchMs} ${tabSwitchEase}`;
 const tabCollapseGridClass = `grid overflow-hidden transition-[grid-template-rows] ${tabSwitchMs} ${tabSwitchEase}`;
+
+/** Toggle to show the Google / Microsoft row again. */
+const SHOW_SOCIAL_LOGIN = false;
+
+const oauthButtonClass =
+  "flex w-full cursor-pointer items-center justify-center gap-2 rounded-md border border-neutral-400 bg-[#F3F5F8] px-3 py-2.5 text-sm font-medium text-neutral-900 transition-colors duration-200 ease-out hover:border-neutral-500 hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-500 disabled:cursor-not-allowed disabled:pointer-events-none disabled:opacity-[0.62] dark:border-neutral-500 dark:bg-[#0C0E12] dark:text-neutral-200 dark:hover:border-neutral-400 dark:hover:bg-neutral-900 dark:focus-visible:outline-neutral-400";
 
 function IconGoogle({ className }: { className?: string }) {
   return (
@@ -56,6 +59,97 @@ function IconMicrosoft({ className }: { className?: string }) {
   );
 }
 
+function LoginSocialProviders({
+  tab,
+  formLoading,
+  next,
+  onClearFormError,
+  onError,
+}: {
+  tab: Tab;
+  formLoading: boolean;
+  next: string;
+  onClearFormError: () => void;
+  onError: (message: string) => void;
+}) {
+  const [microsoftOAuthLoading, setMicrosoftOAuthLoading] = useState(false);
+
+  const handleMicrosoftOAuth = async () => {
+    onClearFormError();
+    setMicrosoftOAuthLoading(true);
+    try {
+      const path = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+      const redirectTo = `${window.location.origin}/auth/callback?next=${encodeURIComponent(path)}`;
+      const { data, error: err } = await supabaseBrowserClient().auth.signInWithOAuth({
+        provider: "azure",
+        options: {
+          redirectTo,
+          scopes: "email",
+          skipBrowserRedirect: true,
+        },
+      });
+      if (err) {
+        onError(err.message);
+        return;
+      }
+      if (data.url) {
+        window.location.assign(data.url);
+      }
+    } catch (err) {
+      onError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMicrosoftOAuthLoading(false);
+    }
+  };
+
+  return (
+    <div className="mt-5">
+      <div className="flex items-center gap-3" role="separator" aria-label="Alternative sign-in options">
+        <div className="h-px flex-1 bg-neutral-300 dark:bg-neutral-600" />
+        <span className="relative inline-flex min-h-[1rem] shrink-0 items-center justify-center text-xs font-medium text-neutral-600 dark:text-neutral-400">
+          <span
+            className={`whitespace-nowrap ${tabCrossfadeClass} ${
+              tab === "signin" ? "opacity-100" : "pointer-events-none absolute inset-0 opacity-0"
+            }`}
+          >
+            Or continue with
+          </span>
+          <span
+            className={`whitespace-nowrap ${tabCrossfadeClass} ${
+              tab === "signup" ? "opacity-100" : "pointer-events-none absolute inset-0 opacity-0"
+            }`}
+          >
+            Sign up with
+          </span>
+        </span>
+        <div className="h-px flex-1 bg-neutral-300 dark:bg-neutral-600" />
+      </div>
+
+      <div className="mt-3.5 flex flex-col gap-2 sm:flex-row sm:gap-2.5">
+        <button
+          type="button"
+          disabled
+          title="Coming soon"
+          className={`${oauthButtonClass} sm:flex-1`}
+        >
+          <IconGoogle className="shrink-0 text-neutral-800 dark:text-neutral-300" />
+          Google
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleMicrosoftOAuth()}
+          disabled={formLoading || microsoftOAuthLoading}
+          title={microsoftOAuthLoading ? "Redirecting…" : undefined}
+          className={`${oauthButtonClass} sm:flex-1`}
+        >
+          <IconMicrosoft className="shrink-0 text-neutral-800 dark:text-neutral-300" />
+          {microsoftOAuthLoading ? "Redirecting…" : "Microsoft"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function LoginClient() {
   const searchParams = useSearchParams();
   const next = searchParams.get("next") ?? "/";
@@ -70,6 +164,13 @@ export function LoginClient() {
   const resetFormState = () => {
     setError(null);
   };
+
+  useEffect(() => {
+    const oauthErr = searchParams.get("error");
+    if (oauthErr?.trim()) {
+      setError(decodeURIComponent(oauthErr));
+    }
+  }, [searchParams]);
 
   const redirectAfterAuth = () => {
     const path = next.startsWith("/") ? next : "/";
@@ -258,49 +359,15 @@ export function LoginClient() {
         </div>
       </form>
 
-      <div className="mt-5">
-        <div className="flex items-center gap-3" role="separator" aria-label="Alternative sign-in options">
-          <div className="h-px flex-1 bg-neutral-300 dark:bg-neutral-600" />
-          <span className="relative inline-flex min-h-[1rem] shrink-0 items-center justify-center text-xs font-medium text-neutral-600 dark:text-neutral-400">
-            <span
-              className={`whitespace-nowrap ${tabCrossfadeClass} ${
-                tab === "signin" ? "opacity-100" : "pointer-events-none absolute inset-0 opacity-0"
-              }`}
-            >
-              Or continue with
-            </span>
-            <span
-              className={`whitespace-nowrap ${tabCrossfadeClass} ${
-                tab === "signup" ? "opacity-100" : "pointer-events-none absolute inset-0 opacity-0"
-              }`}
-            >
-              Sign up with
-            </span>
-          </span>
-          <div className="h-px flex-1 bg-neutral-300 dark:bg-neutral-600" />
-        </div>
-
-        <div className="mt-3.5 flex flex-col gap-2 sm:flex-row sm:gap-2.5">
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className={`${oauthButtonClass} sm:flex-1`}
-          >
-            <IconGoogle className="shrink-0 text-neutral-800 dark:text-neutral-300" />
-            Google
-          </button>
-          <button
-            type="button"
-            disabled
-            title="Coming soon"
-            className={`${oauthButtonClass} sm:flex-1`}
-          >
-            <IconMicrosoft className="shrink-0 text-neutral-800 dark:text-neutral-300" />
-            Microsoft
-          </button>
-        </div>
-      </div>
+      {SHOW_SOCIAL_LOGIN ? (
+        <LoginSocialProviders
+          tab={tab}
+          formLoading={loading}
+          next={next}
+          onClearFormError={resetFormState}
+          onError={setError}
+        />
+      ) : null}
 
       <footer className="mt-6 border-t border-neutral-300/90 pt-4 dark:border-neutral-600/90">
         <nav aria-label="Legal" className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center">

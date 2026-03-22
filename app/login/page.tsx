@@ -6,10 +6,12 @@ const t =
 
 export default function LoginPage() {
   return (
-    <main className="relative flex min-h-full flex-col items-center justify-center px-4 py-8">
+    <main className="relative flex min-h-dvh flex-col px-4 py-8">
+      {/* Viewport-vertical centering with at least h-14 clearance below fixed TopNav (matches nav height). */}
+      <div className="min-h-14 flex-1 basis-0" aria-hidden />
       <div
         className={[
-          "relative w-full max-w-md overflow-hidden rounded-lg border border-solid border-[rgba(255,255,255,0.08)]",
+          "relative mx-auto w-full max-w-md shrink-0 overflow-hidden rounded-lg border border-solid border-[rgba(255,255,255,0.08)]",
           "shadow-[0_1px_0_rgba(0,0,0,0.06),0_8px_32px_-4px_rgba(0,0,0,0.09)]",
           "dark:shadow-[0_1px_0_rgba(0,0,0,0.35),0_8px_36px_-4px_rgba(0,0,0,0.55)]",
           t,
@@ -49,6 +51,7 @@ export default function LoginPage() {
           </Suspense>
         </div>
       </div>
+      <div className="min-h-0 flex-1 basis-0" aria-hidden />
       <div className="absolute bottom-4 left-0 right-0 text-xs text-neutral-400 dark:text-neutral-500 text-center px-4">
         © {new Date().getFullYear()} Visualify. All rights reserved.
       </div>
