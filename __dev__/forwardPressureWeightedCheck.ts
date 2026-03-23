@@ -31,7 +31,6 @@ function run(): number {
     timeToCriticalMitigated: 3,
     forecastConfidence: 85,
     confidenceBand: "high",
-    projectionProfileUsed: "neutral",
   };
 
   const lowConf: RiskMitigationForecast = {
@@ -57,10 +56,9 @@ function run(): number {
     timeToCriticalMitigated: 5,
     forecastConfidence: 25,
     confidenceBand: "low",
-    projectionProfileUsed: "neutral",
   };
 
-  const result = computePortfolioForwardPressure([highConf, lowConf], "neutral");
+  const result = computePortfolioForwardPressure([highConf, lowConf]);
   const raw = result.pctProjectedCritical;
   const weighted = result.forwardPressureWeighted?.pctProjectedCritical;
 
