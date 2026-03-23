@@ -225,8 +225,9 @@ function isMissingColumnError(error: unknown): boolean {
 }
 
 /**
- * Set a snapshot as the reporting version (one-way lock). Persists reporting_version, locked_at, locked_by, note, reporting_month_year.
- * reporting_month_year should be "YYYY-MM" (e.g. "2025-03").
+ * Set a snapshot as the reporting version (one-way lock).
+ * Prefers locked_* columns and falls back to legacy reporting_* columns when required.
+ * reportingMonthYear should be "YYYY-MM" (e.g. "2025-03").
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
