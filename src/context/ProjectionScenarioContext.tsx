@@ -8,37 +8,9 @@ import {
   useMemo,
   useState,
 } from "react";
-import type { ProjectionProfile } from "@/lib/projectionProfiles";
-import type { ScenarioLensMode } from "@/lib/instability/selectScenarioLens";
-
-const STORAGE_KEY = "riskai.projectionProfile";
-const LENS_MODE_KEY = "riskai.scenarioLensMode";
 const UI_MODE_KEY = "riskai.uiMode";
 
 export type UiMode = "MVP" | "Debug";
-
-function getInitialProfile(): ProjectionProfile {
-  if (typeof window === "undefined") return "neutral";
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "conservative" || stored === "neutral" || stored === "aggressive")
-      return stored;
-  } catch {
-    // ignore
-  }
-  return "neutral";
-}
-
-function getInitialLensMode(): ScenarioLensMode {
-  if (typeof window === "undefined") return "Manual";
-  try {
-    const stored = localStorage.getItem(LENS_MODE_KEY);
-    if (stored === "Manual" || stored === "Auto") return stored;
-  } catch {
-    // ignore
-  }
-  return "Manual";
-}
 
 function getInitialUiMode(): UiMode {
   if (typeof window === "undefined") return "MVP";
@@ -53,23 +25,7 @@ function getInitialUiMode(): UiMode {
   return "MVP";
 }
 
-const PROFILE_LABELS: Record<ProjectionProfile, string> = {
-  conservative: "Conservative",
-  neutral: "Neutral",
-  aggressive: "Aggressive",
-};
-
-export function getProfileLabel(profile: ProjectionProfile): string {
-  return PROFILE_LABELS[profile];
-}
-
 type ProjectionScenarioContextValue = {
-  profile: ProjectionProfile;
-  setProfile: (profile: ProjectionProfile) => void;
-  getProfileLabel: (profile: ProjectionProfile) => string;
-  /** Day 11 A4: Manual = use profile; Auto = use each risk's recommended scenario for display. */
-  lensMode: ScenarioLensMode;
-  setLensMode: (mode: ScenarioLensMode) => void;
   /** MVP = executive, clean; Debug = show lens debug, breakdowns, flags. */
   uiMode: UiMode;
   setUiMode: (mode: UiMode) => void;
@@ -83,8 +39,6 @@ export function ProjectionScenarioProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const [profile, setProfileState] = useState<ProjectionProfile>(() => getInitialProfile());
-  const [lensMode, setLensModeState] = useState<ScenarioLensMode>(() => getInitialLensMode());
   const [uiMode, setUiModeState] = useState<UiMode>(() => getInitialUiMode());
   const [mounted, setMounted] = useState(false);
 
@@ -95,37 +49,11 @@ export function ProjectionScenarioProvider({
   useEffect(() => {
     if (!mounted) return;
     try {
-      localStorage.setItem(STORAGE_KEY, profile);
-    } catch {
-      // ignore
-    }
-  }, [profile, mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    try {
-      localStorage.setItem(LENS_MODE_KEY, lensMode);
-    } catch {
-      // ignore
-    }
-  }, [lensMode, mounted]);
-
-  useEffect(() => {
-    if (!mounted) return;
-    try {
       localStorage.setItem(UI_MODE_KEY, uiMode);
     } catch {
       // ignore
     }
   }, [uiMode, mounted]);
-
-  const setProfile = useCallback((next: ProjectionProfile) => {
-    setProfileState(next);
-  }, []);
-
-  const setLensMode = useCallback((next: ScenarioLensMode) => {
-    setLensModeState(next);
-  }, []);
 
   const setUiMode = useCallback((next: UiMode) => {
     setUiModeState(next);
@@ -133,15 +61,10 @@ export function ProjectionScenarioProvider({
 
   const value = useMemo(
     () => ({
-      profile,
-      setProfile,
-      getProfileLabel: getProfileLabel,
-      lensMode,
-      setLensMode,
       uiMode,
       setUiMode,
     }),
-    [profile, setProfile, lensMode, setLensMode, uiMode, setUiMode]
+    [uiMode, setUiMode]
   );
 
   return (

@@ -14,6 +14,7 @@ import {
 import { listRisks, DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { useOptionalPageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
 import {
@@ -145,6 +146,12 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   effectiveProjectIdRef.current = effectiveProjectId;
 
   const projectPerms = useProjectPermissions();
+  const setPageHeaderExtras = useOptionalPageHeaderExtras()?.setExtras;
+  useEffect(() => {
+    if (!urlProjectId || !setPageHeaderExtras) return;
+    setPageHeaderExtras({ titleSuffix: "Simulation", end: null });
+    return () => setPageHeaderExtras(null);
+  }, [urlProjectId, setPageHeaderExtras]);
   const simulationReadOnly =
     Boolean(urlProjectId) &&
     (projectPerms == null || !projectPerms.canEditContent);
@@ -710,6 +717,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                       userId,
                       note: reportingNote,
                       reportingMonthYear,
+                      projectId: effectiveProjectId,
                     });
                     const row = await getLatestSnapshot(effectiveProjectId);
                     if (row?.id === snapshotId) setReportingSnapshotRow(row);

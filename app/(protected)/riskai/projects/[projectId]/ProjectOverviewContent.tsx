@@ -23,7 +23,7 @@ import { formatReportMonthLabel, type SimulationSnapshotRow } from "@/lib/db/sna
 import { formatCurrency } from "@/lib/formatCurrency";
 import { formatDurationDays } from "@/lib/formatDuration";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
-import { useProjectPageHeaderExtras } from "@/contexts/ProjectPageHeaderContext";
+import { usePageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 import { computeRag, type RagStatus } from "@/lib/dashboard/projectTileServerData";
@@ -340,7 +340,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   };
 
   const { setRisks } = useRiskRegister();
-  const { setExtras } = useProjectPageHeaderExtras();
+  const { setExtras } = usePageHeaderExtras();
   const [risks, setRisksLocal] = useState<Risk[]>([]);
   const [loadingRisks, setLoadingRisks] = useState(true);
 

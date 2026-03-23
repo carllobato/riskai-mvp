@@ -3,20 +3,17 @@
 import { useMemo, useEffect, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
 import { listRisks } from "@/lib/db/risks";
-import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { portfolioMomentumSummary } from "@/domain/risk/risk.logic";
-import { getLatestSnapshot, getRiskHistory } from "@/lib/riskSnapshotHistory";
 import {
   getLatestSnapshot as getLatestDbSnapshot,
+  getLatestLockedSnapshot as getLatestLockedDbSnapshot,
   formatReportMonthLabel,
   type SimulationSnapshotRow,
   type SimulationSnapshotRowDb,
 } from "@/lib/db/snapshots";
-import { computeScenarioComparison } from "@/lib/riskForecast";
 import { MitigationOptimisationPanel } from "@/components/outputs/MitigationOptimisationPanel";
 import { computePortfolioExposure } from "@/engine/forwardExposure";
 import type { PortfolioExposure } from "@/engine/forwardExposure";
-import { normalizeScenarioId, ENGINE_SCENARIO_IDS, type EngineScenarioId } from "@/lib/scenarioId";
 import { formatDurationDays } from "@/lib/formatDuration";
 import { percentileFromSorted } from "@/lib/simulationDisplayUtils";
 import {
@@ -36,13 +33,13 @@ import {
   formatProfileAuditLabel,
   formatTriggeredByLabel,
 } from "@/lib/profiles/profileDb";
+import { useOptionalPageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import { appliesToExcludesCost, appliesToExcludesTime } from "@/domain/risk/riskFieldSemantics";
 
-/** Forward exposure payload keyed by engine scenario IDs (conservative, neutral, aggressive). */
 type ForwardExposurePayload = {
   horizonMonths: number;
-  results: Record<EngineScenarioId, PortfolioExposure>;
+  result: PortfolioExposure;
 };
 
 function formatCost(value: number): string {
@@ -92,17 +89,25 @@ export type RunDataPageProps = {
  * 4. SIMULATION ASSUMPTIONS — Input quality checks for Monte Carlo readiness
  * 5. CONSISTENCY CHECKS — Cross-section reconciliation checks
  * 6. ANALYSIS — What risks drive the results? (Cost Drivers, Schedule Drivers)
- * 7. EXPOSURE — What exposure does the project carry? (Scenario Exposure)
+ * 7. EXPOSURE — What exposure does the project carry? (Baseline Exposure)
  * 8. FORWARD LOOKING — How might exposure evolve? (Forecasting)
  * 9. DECISION SUPPORT — What effect do mitigations have? (Mitigation Results, Mitigation Leverage)
  *
  * Every section supports validation of the data model and calculations; no decorative charts.
  */
 export default function RunDataPage({ projectId, projectName }: RunDataPageProps = {}) {
-  const { profile: scenarioProfile } = useProjectionScenario();
-  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount, riskForecastsById, forwardPressure, setRisks } = useRiskRegister();
+  const setPageHeaderExtras = useOptionalPageHeaderExtras()?.setExtras;
+  useEffect(() => {
+    if (!projectId || !setPageHeaderExtras) return;
+    setPageHeaderExtras({ titleSuffix: "Run Data", end: null });
+    return () => setPageHeaderExtras(null);
+  }, [projectId, setPageHeaderExtras]);
+  const { risks, simulation, runSimulation, clearSimulationHistory, hasDraftRisks, invalidRunnableCount, riskForecastsById, forwardPressure, setRisks, hydrateSimulationFromDbSnapshot } = useRiskRegister();
   const [runBlockedInvalidCount, setRunBlockedInvalidCount] = useState<number | null>(null);
   const [snapshotPersistWarning, setSnapshotPersistWarning] = useState<string | null>(null);
+  const [lockedRunLoadWarning, setLockedRunLoadWarning] = useState<string | null>(null);
+  const [loadingLockedRun, setLoadingLockedRun] = useState(false);
+  const [lockedRunPinned, setLockedRunPinned] = useState(false);
   const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
   const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
   const [reportingLockedByLabel, setReportingLockedByLabel] = useState<string | null>(null);
@@ -134,19 +139,11 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
     if (invalidRunnableCount === 0) setRunBlockedInvalidCount(null);
   }, [invalidRunnableCount]);
 
-  const selectedScenarioId: EngineScenarioId = normalizeScenarioId(scenarioProfile);
-  const scenarioComparison = useMemo(
-    () => computeScenarioComparison(
-      risks.map((r) => ({ id: r.id, mitigationStrength: r.mitigationStrength })),
-      getLatestSnapshot,
-      getRiskHistory
-    ),
-    [risks]
-  );
-  const meetingMedianTtc = scenarioComparison[selectedScenarioId]?.medianTtC ?? null;
-  const { current, scenarioSnapshots, neutral: neutralMc } = simulation;
+  const meetingMedianTtc = null;
+  const { current, neutral: neutralMc } = simulation;
   const isCurrentRunPersisted = current?.id && !current.id.startsWith("sim_");
   useEffect(() => {
+    if (lockedRunPinned) return;
     if (!projectId || !isCurrentRunPersisted || !current?.id) return;
     getLatestDbSnapshot(projectId)
       .then((row) => {
@@ -154,7 +151,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         else setReportingSnapshotRow(null);
       })
       .catch(() => setReportingSnapshotRow(null));
-  }, [projectId, current?.id, isCurrentRunPersisted]);
+  }, [projectId, current?.id, isCurrentRunPersisted, lockedRunPinned]);
   const reportingDbRow = reportingSnapshotRow as SimulationSnapshotRowDb | null;
 
   useEffect(() => {
@@ -179,8 +176,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
 
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
 
-  /** Neutral baseline snapshot: always used for Project Cost block so project cost is scenario-invariant. */
-  const snapshotNeutral = scenarioSnapshots?.neutral ?? current;
+  /** Neutral baseline snapshot: always used for Project Cost block. */
+  const snapshotNeutral = current;
   const baselineSummaryNeutral = snapshotNeutral
     ? {
         p20Cost: (snapshotNeutral as { p20Cost?: number }).p20Cost ?? snapshotNeutral.p50Cost ?? 0,
@@ -206,27 +203,24 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
     return current.risks.filter((r) => riskForecastsById[r.id]?.earlyWarning === true).length;
   }, [current, riskForecastsById]);
 
-  /** Forward exposure: one result per engine scenario (conservative, neutral, aggressive). */
+  /** Forward exposure: neutral baseline only. */
   const forwardExposure: ForwardExposurePayload = useMemo(() => {
     const horizonMonths = 12;
     const topN = Math.min(500, risks.length);
-    const results = {} as Record<EngineScenarioId, PortfolioExposure>;
-    for (const id of ENGINE_SCENARIO_IDS) {
-      results[id] = computePortfolioExposure(risks, id, horizonMonths, {
-        topN,
-        includeDebug: false,
-      });
-    }
-    return { horizonMonths, results };
+    const result = computePortfolioExposure(risks, "neutral", horizonMonths, {
+      topN,
+      includeDebug: false,
+    });
+    return { horizonMonths, result };
   }, [risks]);
 
-  /** Portfolio result for selected scenario (Forward Exposure tiles, chart, top drivers). */
-  const selectedResult = forwardExposure.results[selectedScenarioId];
+  /** Neutral baseline result. */
+  const selectedResult = forwardExposure.result;
 
-  /** Cost drivers: neutral scenario, only risks that were in the run and have cost impact (exclude time-only). */
+  /** Cost drivers: neutral baseline only, and only risks in the run with cost impact (exclude time-only). */
   const costDrivers = useMemo(() => {
     const runRiskIds = new Set((current?.risks ?? []).map((r) => r.id));
-    const allDrivers = forwardExposure.results.neutral?.topDrivers ?? [];
+    const allDrivers = forwardExposure.result?.topDrivers ?? [];
     let list = runRiskIds.size > 0 ? allDrivers.filter((d) => runRiskIds.has(d.riskId)) : allDrivers;
     list = list.filter((d) => {
       const risk = risks.find((r) => r.id === d.riskId);
@@ -234,7 +228,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
       if (appliesToExcludesCost(risk.appliesTo)) return false;
       return typeof risk.preMitigationCostML === "number" && risk.preMitigationCostML > 0;
     });
-    const total = forwardExposure.results.neutral?.total ?? 0;
+    const total = forwardExposure.result?.total ?? 0;
     return list.map((d, i) => {
       const risk = risks.find((r) => r.id === d.riskId);
       const contributionPct =
@@ -268,7 +262,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         delta,
       };
     });
-  }, [current?.risks, forwardExposure.results.neutral?.topDrivers, forwardExposure.results.neutral?.total, risks]);
+  }, [current?.risks, forwardExposure.result, risks]);
 
   /** Schedule drivers: from snapshot risks sorted by schedule impact (simMeanDays/expectedDays), all risks. */
   const scheduleDrivers = useMemo(() => {
@@ -416,7 +410,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
       cost,
       schedule,
       meta: {
-        scenarioName: "Baseline – Neutral",
+        baselineName: "Baseline – Neutral",
         iterationCount: current?.iterations ?? neutralMc?.iterationCount ?? null,
         costSampleSize: costSamples.length > 0 ? costSamples.length : null,
         timeSampleSize: timeSamples.length > 0 ? timeSamples.length : null,
@@ -894,6 +888,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
           type="button"
           onClick={async () => {
             setSnapshotPersistWarning(null);
+            setLockedRunPinned(false);
             const result = await runSimulation(10000, projectId ?? undefined);
             if (!result.ran && result.blockReason === "invalid") {
               setRunBlockedInvalidCount(result.invalidCount);
@@ -910,10 +905,42 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
         </button>
         <button
           type="button"
-          onClick={clearSimulationHistory}
+          onClick={() => {
+            setLockedRunPinned(false);
+            clearSimulationHistory();
+          }}
           className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
         >
           Clear History
+        </button>
+        <button
+          type="button"
+          onClick={async () => {
+            setLockedRunLoadWarning(null);
+            setLoadingLockedRun(true);
+            try {
+              const row = await getLatestLockedDbSnapshot(projectId ?? undefined);
+              if (!row) {
+                setLockedRunLoadWarning("No locked reporting run found for this project.");
+                return;
+              }
+              hydrateSimulationFromDbSnapshot(row);
+              setReportingSnapshotRow(row);
+              setLockedRunPinned(true);
+            } catch (e: unknown) {
+              const message =
+                e && typeof e === "object" && "message" in e && typeof (e as { message: unknown }).message === "string"
+                  ? (e as { message: string }).message
+                  : "Could not load the latest locked run.";
+              setLockedRunLoadWarning(message);
+            } finally {
+              setLoadingLockedRun(false);
+            }
+          }}
+          disabled={loadingLockedRun}
+          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
+        >
+          {loadingLockedRun ? "Loading locked run..." : "Load Last Locked Run"}
         </button>
         {hasDraftRisks && (
           <p className="text-sm text-amber-600 dark:text-amber-400" role="status">
@@ -935,13 +962,13 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
             Could not save run to the database: {snapshotPersistWarning}
           </p>
         )}
+        {lockedRunLoadWarning && (
+          <p className="text-sm text-amber-700 dark:text-amber-300 font-medium max-w-2xl" role="alert">
+            {lockedRunLoadWarning}
+          </p>
+        )}
       </div>
 
-      {selectedScenarioId !== "neutral" && (
-        <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400" role="status">
-          Scenario Overlay — baseline cost remains Neutral
-        </p>
-      )}
 
       {!current ? (
         <p className="mt-8 text-neutral-600 dark:text-neutral-400">
@@ -1291,7 +1318,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
             </h2>
             <div className="p-4">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-                <span>Scenario: {distributionPercentiles.meta.scenarioName}</span>
+                <span>Model: {distributionPercentiles.meta.baselineName}</span>
                 <span>Iterations: {distributionPercentiles.meta.iterationCount != null ? distributionPercentiles.meta.iterationCount.toLocaleString() : "Not available"}</span>
                 <span>Sample size: {distributionPercentiles.meta.costSampleSize != null ? distributionPercentiles.meta.costSampleSize.toLocaleString() : "Not available"}</span>
               </div>
@@ -1363,7 +1390,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
             </h2>
             <div className="p-4">
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-                <span>Scenario: {distributionPercentiles.meta.scenarioName}</span>
+                <span>Model: {distributionPercentiles.meta.baselineName}</span>
                 <span>Iterations: {distributionPercentiles.meta.iterationCount != null ? distributionPercentiles.meta.iterationCount.toLocaleString() : "Not available"}</span>
                 <span>Sample size: {distributionPercentiles.meta.timeSampleSize != null ? distributionPercentiles.meta.timeSampleSize.toLocaleString() : "Not available"}</span>
               </div>
@@ -1886,7 +1913,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     Cost Drivers
                   </h3>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">
-                    Contribution % = each row&apos;s share of total portfolio exposure (neutral scenario). Denominator = forward exposure engine neutral total.
+                    Contribution % = each row&apos;s share of total portfolio exposure (neutral baseline). Denominator = forward exposure engine neutral total.
                   </p>
                 </div>
                 <div className="overflow-x-auto rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)]">
@@ -2010,48 +2037,24 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
           </section>
 
           {/* ——— EXPOSURE: project-level summary from forward exposure engine ——— */}
-          {/* Scenario Exposure: answers "What exposure does the project currently carry?"
+          {/* Baseline Exposure: answers "What exposure does the project currently carry?"
               All values from computePortfolioExposure (forward exposure engine); total = sum of risk curves. */}
           <section className="mt-6 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden">
             <h2 className="text-base font-semibold text-neutral-800 dark:text-neutral-200 px-4 py-3 border-b border-neutral-200 dark:border-neutral-700 m-0">
-              Scenario Exposure
+              Baseline Exposure
             </h2>
             <div className="p-4">
-              {/* Core exposure metrics: neutral = expected, aggressive = downside, conservative = upside. */}
+              {/* Core exposure metrics from neutral baseline only. */}
               {(() => {
-                const expectedTotal = forwardExposure.results.neutral?.total ?? 0;
-                const downsideTotal = forwardExposure.results.aggressive?.total ?? 0;
-                const upsideTotal = forwardExposure.results.conservative?.total ?? 0;
-                const riskBufferRequired = Math.max(0, downsideTotal - expectedTotal);
+                const expectedTotal = forwardExposure.result?.total ?? 0;
                 return (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4 text-sm mb-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm mb-4">
                     <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
                       <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
                         Expected exposure
                       </div>
                       <div className="mt-0.5 text-base font-semibold tabular-nums">{formatCost(expectedTotal)}</div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">Neutral scenario total (forward exposure engine)</p>
-                    </div>
-                    <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
-                      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                        Downside exposure
-                      </div>
-                      <div className="mt-0.5 text-base font-semibold tabular-nums">{formatCost(downsideTotal)}</div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">Aggressive scenario total</p>
-                    </div>
-                    <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
-                      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                        Upside exposure
-                      </div>
-                      <div className="mt-0.5 text-base font-semibold tabular-nums">{formatCost(upsideTotal)}</div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">Conservative scenario total</p>
-                    </div>
-                    <div className="rounded border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] p-3">
-                      <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
-                        Risk buffer required
-                      </div>
-                      <div className="mt-0.5 text-base font-semibold tabular-nums">{formatCost(riskBufferRequired)}</div>
-                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">Downside − Expected</p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5 m-0">Neutral baseline total (forward exposure engine)</p>
                     </div>
                   </div>
                 );
@@ -2173,7 +2176,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                   <li>Risk burn-down — TBD</li>
                 </ul>
               </div>
-              {/* Forward pressure and early warning: from risk forecast / scenario comparison (validates risk trajectory). Separate data layer from exposure engine above. */}
+              {/* Forward pressure and early warning: from risk forecast engine (validates risk trajectory). Separate data layer from exposure engine above. */}
               <div>
                 <div className="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wide mb-2">
                   Pressure and trajectory

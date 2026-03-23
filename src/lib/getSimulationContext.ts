@@ -1,6 +1,6 @@
 /**
  * Server-side simulation context: same logical data as Outputs page
- * (risks + neutral snapshot = scenarioSnapshots?.neutral ?? current).
+ * (risks + neutral snapshot = current).
  * Populated by client via POST /api/simulation-context; read by mitigation-optimisation API.
  */
 import type { SimulationSnapshot } from "@/domain/simulation/simulation.types";
@@ -36,7 +36,7 @@ export function setSimulationContext(ctx: SimulationContext | null, source = "si
 
 /**
  * Returns risks and neutral snapshot the same way Outputs page does:
- * neutralSnapshot is the neutral scenario snapshot (no Monte Carlo rerun).
+ * neutralSnapshot is the neutral baseline snapshot (no Monte Carlo rerun).
  */
 export async function getSimulationContext(): Promise<SimulationContext> {
   const ctx = cached ?? { risks: [], neutralSnapshot: null };

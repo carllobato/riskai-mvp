@@ -3,7 +3,6 @@
  */
 
 import type { RiskMitigationForecast } from "@/domain/risk/risk-forecast.types";
-import type { ProjectionProfile } from "@/lib/projectionProfiles";
 
 export type PressureClass = "Low" | "Moderate" | "High" | "Severe";
 
@@ -14,8 +13,6 @@ export type PortfolioForwardPressure = {
   pctProjectedCritical: number;
   pctMitigationInsufficient: number;
   pressureClass: PressureClass;
-  /** Profile used for the projections that produced this aggregate (traceability). */
-  projectionProfileUsed?: ProjectionProfile;
   /** Confidence-weighted variant (same shape; counts/percentages downweighted by forecastConfidence). */
   forwardPressureWeighted?: PortfolioForwardPressure;
 };
@@ -51,11 +48,9 @@ function confidenceWeight(forecastConfidence: number | undefined): number {
  * Weighted: each risk's contribution multiplied by w = clamp(forecastConfidence/100, 0, 1);
  *   missing forecastConfidence → w = 0.5 (medium uncertainty).
  * Division-by-zero safe: when totalRisks is 0, percentages are 0 and pressureClass is Low.
- * When profile is provided, sets projectionProfileUsed on the result (traceability).
  */
 export function computePortfolioForwardPressure(
-  risksWithForecasts: RiskMitigationForecast[],
-  profile?: ProjectionProfile
+  risksWithForecasts: RiskMitigationForecast[]
 ): PortfolioForwardPressure {
   const totalRisks = risksWithForecasts.length;
   let projectedCriticalCount = 0;
@@ -88,7 +83,6 @@ export function computePortfolioForwardPressure(
     pctProjectedCritical: pctProjectedCriticalWeighted,
     pctMitigationInsufficient: pctMitigationInsufficientWeighted,
     pressureClass: pressureClassWeighted,
-    ...(profile != null && { projectionProfileUsed: profile }),
   };
 
   return {
@@ -98,7 +92,6 @@ export function computePortfolioForwardPressure(
     pctProjectedCritical,
     pctMitigationInsufficient,
     pressureClass,
-    ...(profile != null && { projectionProfileUsed: profile }),
     forwardPressureWeighted,
   };
 }

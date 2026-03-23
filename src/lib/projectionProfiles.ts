@@ -1,9 +1,5 @@
-/**
- * Projection scenario profiles: adjust only drift persistence and decay.
- * Neutral preserves current engine behavior; conservative fades sooner, aggressive persists longer.
- */
-
-export type ProjectionProfile = "conservative" | "neutral" | "aggressive";
+/** Neutral-only projection profile. */
+export type ProjectionProfile = "neutral";
 
 export type ProjectionParams = {
   momentumDecay: number;
@@ -36,16 +32,8 @@ function clampToSafeDecay(
 
 const PROJECTION_PROFILE_CONFIG: Record<ProjectionProfile, ProjectionParams> = {
   neutral: {
-    momentumDecay: NEUTRAL_MOMENTUM_DECAY,
-    confidenceDecay: NEUTRAL_CONFIDENCE_DECAY,
-  },
-  conservative: {
-    momentumDecay: clampToSafeDecay(0.78, NEUTRAL_MOMENTUM_DECAY, "momentumDecay", "conservative"),
-    confidenceDecay: clampToSafeDecay(0.88, NEUTRAL_CONFIDENCE_DECAY, "confidenceDecay", "conservative"),
-  },
-  aggressive: {
-    momentumDecay: clampToSafeDecay(0.91, NEUTRAL_MOMENTUM_DECAY, "momentumDecay", "aggressive"),
-    confidenceDecay: clampToSafeDecay(0.95, NEUTRAL_CONFIDENCE_DECAY, "confidenceDecay", "aggressive"),
+    momentumDecay: clampToSafeDecay(NEUTRAL_MOMENTUM_DECAY, NEUTRAL_MOMENTUM_DECAY, "momentumDecay", "neutral"),
+    confidenceDecay: clampToSafeDecay(NEUTRAL_CONFIDENCE_DECAY, NEUTRAL_CONFIDENCE_DECAY, "confidenceDecay", "neutral"),
   },
 };
 

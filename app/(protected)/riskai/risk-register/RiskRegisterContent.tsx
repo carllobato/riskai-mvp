@@ -24,6 +24,7 @@ import { AddNewRiskChoiceModal } from "@/components/risk-register/AddNewRiskChoi
 import { AIReviewDrawer } from "@/components/risk-register/AIReviewDrawer";
 import { RiskRegisterLookupProviders } from "@/components/risk-register/RiskRegisterLookupProviders";
 import { isRiskStatusArchived, RISK_STATUS_ARCHIVED_LOOKUP } from "@/domain/risk/riskFieldSemantics";
+import { useOptionalPageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
 const FOCUS_HIGHLIGHT_CLASS = "risk-focus-highlight";
@@ -72,7 +73,7 @@ function applyColumnFilters<T>(list: T[], filters: ColumnFilters, getValue: (ite
 export type RiskRegisterContentProps = { projectId?: string | null };
 
 export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterContentProps = {}) {
-  const { risks, simulation, addRisk, updateRisk, setRisks, archiveRisk, restoreArchivedRisk } =
+  const { risks, simulation, addRisk, updateRisk, setRisks, archiveRisk, restoreArchivedRisk, clearRisks } =
     useRiskRegister();
   const [saveToServerLoading, setSaveToServerLoading] = useState(false);
   const [saveToServerError, setSaveToServerError] = useState<string | null>(null);
@@ -108,6 +109,12 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
   const projectIdForDb = urlProjectId ?? DEFAULT_PROJECT_ID;
 
   const projectPermissions = useProjectPermissions();
+  const setPageHeaderExtras = useOptionalPageHeaderExtras()?.setExtras;
+  useEffect(() => {
+    if (!urlProjectId || !setPageHeaderExtras) return;
+    setPageHeaderExtras({ titleSuffix: "Risk Register", end: null });
+    return () => setPageHeaderExtras(null);
+  }, [urlProjectId, setPageHeaderExtras]);
   const contentReadOnly =
     Boolean(urlProjectId) &&
     (projectPermissions == null || !projectPermissions.canEditContent);
@@ -522,43 +529,75 @@ export function RiskRegisterContent({ projectId: urlProjectId }: RiskRegisterCon
         </div>
       ) : (
         <>
-          <div
-            className="flex flex-wrap gap-2 mb-4 border-b border-neutral-200 dark:border-neutral-700 pb-3"
-            role="tablist"
-            aria-label="Risk register view"
-          >
-            <button
-              type="button"
-              role="tab"
-              aria-selected={registerView === "active"}
-              onClick={() => {
-                setRegisterView("active");
-                setColumnFilters({});
-              }}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
-                registerView === "active"
-                  ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
-                  : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              }`}
-            >
-              Active register
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={registerView === "archived"}
-              onClick={() => {
-                setRegisterView("archived");
-                setColumnFilters({});
-              }}
-              className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
-                registerView === "archived"
-                  ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
-                  : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-              }`}
-            >
-              Archived
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-neutral-200 dark:border-neutral-700 pb-3">
+            <div className="flex flex-wrap gap-2" role="tablist" aria-label="Risk register view">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={registerView === "active"}
+                onClick={() => {
+                  setRegisterView("active");
+                  setColumnFilters({});
+                }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                  registerView === "active"
+                    ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
+                    : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+              >
+                Active register
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={registerView === "archived"}
+                onClick={() => {
+                  setRegisterView("archived");
+                  setColumnFilters({});
+                }}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-colors ${
+                  registerView === "archived"
+                    ? "border-neutral-800 dark:border-neutral-200 bg-neutral-100 dark:bg-neutral-800 text-[var(--foreground)]"
+                    : "border-transparent text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                }`}
+              >
+                Archived
+              </button>
+            </div>
+            {!contentReadOnly && (
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleSaveToServer()}
+                  disabled={saveToServerLoading}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {saveToServerLoading ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAddNewRiskChoiceModal(true)}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                >
+                  Generate AI Risk
+                </button>
+                <button
+                  type="button"
+                  onClick={handleAiReviewClick}
+                  disabled={aiReviewLoading}
+                  className="px-3 py-1.5 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-700 disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  AI Review
+                </button>
+                <button
+                  type="button"
+                  onClick={clearRisks}
+                  className="px-3 py-1.5 text-sm rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
           </div>
           {registerView === "active" &&
             risks.length > 0 &&

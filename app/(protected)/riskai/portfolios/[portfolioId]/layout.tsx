@@ -1,6 +1,8 @@
 import { supabaseServerClient } from "@/lib/supabase/server";
 import { PortfolioPageHeader } from "@/components/PortfolioPageHeader";
-import { NotFoundContent } from "../../../../not-found-content";
+import { PageHeaderExtrasProvider } from "@/contexts/PageHeaderExtrasContext";
+import { redirect } from "next/navigation";
+import { riskaiPath } from "@/lib/routes";
 
 export default async function PortfolioLayout({
   children,
@@ -19,13 +21,13 @@ export default async function PortfolioLayout({
     .single();
 
   if (error || !portfolio) {
-    return <NotFoundContent />;
+    redirect(riskaiPath("/not-found"));
   }
 
   return (
-    <>
+    <PageHeaderExtrasProvider>
       <PortfolioPageHeader portfolioId={portfolioId} portfolioName={portfolio.name} />
       {children}
-    </>
+    </PageHeaderExtrasProvider>
   );
 }

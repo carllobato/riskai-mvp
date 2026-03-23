@@ -10,9 +10,10 @@ import {
   SITE_ORIGIN,
 } from "@/lib/host";
 import { DASHBOARD_PATH } from "@/lib/routes";
+import { env } from "@/lib/env";
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
+const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL;
+const SUPABASE_ANON_KEY = env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
 function getHost(request: NextRequest): string {
   return request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
@@ -38,10 +39,6 @@ function isPublicPath(pathname: string, host: string): boolean {
 }
 
 export async function updateSession(request: NextRequest) {
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    return NextResponse.next();
-  }
-
   const { pathname, search } = request.nextUrl;
   const host = getHost(request);
 

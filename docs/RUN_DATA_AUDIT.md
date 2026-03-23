@@ -35,8 +35,8 @@
 
 Data is derived from:
 
-- **Store:** `useRiskRegister()` → `simulation.current`, `simulation.scenarioSnapshots`, `simulation.neutral`, `risks`, `forwardPressure`, `riskForecastsById`.
-- **Neutral snapshot:** `scenarioSnapshots?.neutral ?? current` → `SimulationSnapshot` (and optionally `simulation.neutral` for Monte Carlo detail).
+- **Store:** `useRiskRegister()` → `simulation.current`, `simulation.neutral`, `risks`, `forwardPressure`, `riskForecastsById`.
+- **Neutral snapshot:** `current` → `SimulationSnapshot` (and optionally `simulation.neutral` for Monte Carlo detail).
 
 ### Run metadata (partial)
 
@@ -83,7 +83,7 @@ Data is derived from:
 
 | Field | Source | Notes |
 |-------|--------|--------|
-| Histogram / chart source | `neutralMc?.costSamples`, `neutralMc?.timeSamples` | In store only; Run Data page does **not** render histogram/CDF. Monthly exposure chart uses `selectedResult?.monthlyTotal`, `aggressive?.monthlyTotal` (forward exposure). |
+| Histogram / chart source | `neutralMc?.costSamples`, `neutralMc?.timeSamples` | In store only; Run Data page does **not** render histogram/CDF. Monthly exposure chart uses `selectedResult?.monthlyTotal` (forward exposure). |
 
 ### Reporting controls
 
@@ -132,7 +132,7 @@ Data is derived from:
 - **Contingency and coverage ratio:** Only on Overview (from project context). Run Data does not show them; contract expects them on the run data source. Either surface on Run Data or formally define Run Data as "run outputs" and Overview as consumer that joins with project context.
 - **Top schedule risks:** Overview derives from risks (scheduleImpactDays etc.); Run Data has no "ranked schedule risks" from the run. Contract expects "top schedule risks" as run output; need a single definition and source.
 - **Histogram/CDF data:** Present in `simulation.neutral.costSamples` / `timeSamples` and used on Analysis; not shown on Run Data. Contract expects "histogram / chart source data" on Run Data; either expose here or document that Analysis is the consumer.
-- **Project Overview vs Run Data:** Overview uses `latestSnapshot` from DB + recomputed `computePortfolioExposure(risks, "neutral")`; Run Data uses in-memory `simulation.current` / `scenarioSnapshots` / `neutral`. Same run can appear differently (e.g. after reload Overview from DB, Run Data from store). Rationalise so one source of truth (e.g. run data from DB or from store) and others consume it.
+- **Project Overview vs Run Data:** Overview uses `latestSnapshot` from DB + recomputed `computePortfolioExposure(risks, "neutral")`; Run Data uses in-memory `simulation.current` / `neutral`. Same run can appear differently (e.g. after reload Overview from DB, Run Data from store). Rationalise so one source of truth (e.g. run data from DB or from store) and others consume it.
 - **createSnapshot payload:** Store passes `s.p20Cost` as `p10_cost`, `s.p20Time` as `p10_time` to DB. Naming is inconsistent (p20 in app, p10 in DB).
 
 ---
@@ -155,7 +155,7 @@ Data is derived from:
    - Empty states and helper text say "Run Data page" and "Run Data for exposure".
 
 5. **Run Data page content**  
-   - After running a simulation: Project Cost (P20/P50/P80/P90/Mean), Programme (P20/P50/P80/P90), Scenario Exposure, Forecast Summary, Mitigation panel.  
+   - After running a simulation: Project Cost (P20/P50/P80/P90/Mean), Programme (P20/P50/P80/P90), Baseline Exposure, Forecast Summary, Mitigation panel.  
    - No run id, status, contingency, coverage ratio, or report lock/official flags.  
    - No histogram/CDF; only monthly exposure chart and top 5 drivers.
 

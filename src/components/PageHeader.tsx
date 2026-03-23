@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { riskaiPath } from "@/lib/routes";
-import { useProjectPageHeaderExtras } from "@/contexts/ProjectPageHeaderContext";
+import { usePageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 
 const linkClass =
   "text-[var(--foreground)] hover:underline focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500 focus:ring-offset-2 focus:ring-offset-[var(--background)] rounded";
@@ -18,10 +18,10 @@ type PageHeaderProps = {
 };
 
 /**
- * Page header for project routes. Shows "Portfolio Name – Project Name" when the project
- * is linked to a portfolio, otherwise just "Project Name". Portfolio name links to portfolio
- * overview; project name links to project overview. Child routes may register an optional
- * title suffix and trailing content via `ProjectPageHeaderExtrasProvider`.
+ * Shell header for project routes. Breadcrumb-style title with `|` separators:
+ * `Portfolio | Project | page` when linked to a portfolio, otherwise `Project | page`.
+ * Portfolio and project segments are links; child routes register the page segment and optional
+ * trailing content via `PageHeaderExtrasProvider`.
  */
 export function PageHeader({
   projectId,
@@ -29,7 +29,7 @@ export function PageHeader({
   portfolioId,
   portfolioName,
 }: PageHeaderProps) {
-  const { extras } = useProjectPageHeaderExtras();
+  const { extras } = usePageHeaderExtras();
 
   return (
     <>

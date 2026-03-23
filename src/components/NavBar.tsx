@@ -27,8 +27,6 @@ function isKnownAppRoute(pathname: string | null): boolean {
   return false;
 }
 
-const isDev = process.env.NODE_ENV === "development";
-
 const CogIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
@@ -73,22 +71,19 @@ const HomeIcon = () => (
 /** When projectSlug is set, href is /projects/[id]/[projectSlug]; else use legacy href. */
 const ALL_NAV_ITEMS: {
   href: string;
-  projectSlug?: "project-home" | "risks" | "run-data" | "simulation";
+  projectSlug?: "project-home" | "risks" | "run-data" | "simulation" | "health";
   label: string;
   icon?: "cog" | "home";
   hideInMvp?: boolean;
 }[] = [
   { href: riskaiPath("/portfolios"), label: "Portfolios" },
   { href: riskaiPath("/projects"), label: "Projects" },
-  { href: riskaiPath("/project"), projectSlug: "project-home", label: "Project Home", icon: "home" },
-  { href: riskaiPath("/risk-register"), projectSlug: "risks", label: "Risk Register" },
+  { href: riskaiPath("/projects"), projectSlug: "project-home", label: "Project Home", icon: "home" },
+  { href: riskaiPath("/projects"), projectSlug: "risks", label: "Risk Register" },
   { href: riskaiPath("/matrix"), label: "Risk Matrix", hideInMvp: true },
   // TEMP: Run Data nav item for development audit – remove before production
-  { href: riskaiPath("/run-data"), projectSlug: "run-data", label: "Run Data" },
+  { href: riskaiPath("/dev/run-data"), projectSlug: "run-data", label: "Run Data" },
   { href: riskaiPath("/simulation"), projectSlug: "simulation", label: "Simulation" },
-  { href: riskaiPath("/analysis"), label: "Analysis", hideInMvp: true },
-  { href: riskaiPath("/day0"), label: "Day 0", hideInMvp: true },
-  ...(isDev ? [{ href: riskaiPath("/dev/health"), label: "Engine Health", hideInMvp: true }] : []),
 ];
 
 function isValidProjectId(id: string | null | undefined): id is string {

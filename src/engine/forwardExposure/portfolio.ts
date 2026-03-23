@@ -4,7 +4,7 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
-import type { Scenario } from "./types";
+import type { BaselineMode } from "./types";
 import type { PortfolioExposure, TopDriver, Concentration } from "./types";
 import { computeRiskExposureCurve } from "./curve";
 import { sanitizeRiskForExposure } from "./validate";
@@ -41,7 +41,7 @@ function computeConcentration(
  */
 export function computePortfolioExposure(
   risks: Risk[],
-  scenario: Scenario,
+  baselineMode: BaselineMode,
   horizonMonths: number,
   options?: { topN?: number; includeDebug?: boolean }
 ): PortfolioExposure {
@@ -57,7 +57,7 @@ export function computePortfolioExposure(
 
   const curves = risksToUse.map((risk) => ({
     risk,
-    curve: computeRiskExposureCurve(risk, scenario, horizonMonths, { includeDebug: false }),
+    curve: computeRiskExposureCurve(risk, baselineMode, horizonMonths, { includeDebug: false }),
   }));
 
   const monthlyTotal: number[] = Array(horizonMonths).fill(0);

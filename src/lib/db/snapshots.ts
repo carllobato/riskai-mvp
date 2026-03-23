@@ -19,10 +19,6 @@ export type SimulationSnapshotPayload = {
     cost_ml: number;
     time_ml: number;
   }>;
-  scenario_outputs?: {
-    conservative: Record<string, number | undefined>;
-    aggressive: Record<string, number | undefined>;
-  };
 };
 
 /** Fields passed to `createSnapshot` (matches insertable columns except DB-managed fields). */
@@ -87,53 +83,43 @@ export async function createSnapshot(
   projectId?: string
 ): Promise<SimulationSnapshotRow> {
   const pid = projectId ?? DEFAULT_PROJECT_ID;
-  const supabase = supabaseBrowserClient();
-  const TABLE = "riskai_simulation_snapshots" as const;
-
-  const iterationsInt = Math.max(0, Math.floor(Number(snapshot.iterations)));
-
-  const insertRow = {
-    project_id: pid,
-    iterations: iterationsInt,
-    cost_p20: sanitizeCostOrTimeScalar(snapshot.cost_p20),
-    cost_p50: sanitizeCostOrTimeScalar(snapshot.cost_p50),
-    cost_p80: sanitizeCostOrTimeScalar(snapshot.cost_p80),
-    cost_p90: sanitizeCostOrTimeScalar(snapshot.cost_p90),
-    cost_mean: sanitizeCostOrTimeScalar(snapshot.cost_mean),
-    cost_min: sanitizeCostOrTimeScalar(snapshot.cost_min),
-    cost_max: sanitizeCostOrTimeScalar(snapshot.cost_max),
-    time_p20: sanitizeCostOrTimeScalar(snapshot.time_p20),
-    time_p50: sanitizeCostOrTimeScalar(snapshot.time_p50),
-    time_p80: sanitizeCostOrTimeScalar(snapshot.time_p80),
-    time_p90: sanitizeCostOrTimeScalar(snapshot.time_p90),
-    time_mean: sanitizeCostOrTimeScalar(snapshot.time_mean),
-    time_min: sanitizeCostOrTimeScalar(snapshot.time_min),
-    time_max: sanitizeCostOrTimeScalar(snapshot.time_max),
-    risk_count: sanitizeRiskCount(snapshot.risk_count),
-    engine_version: snapshot.engine_version,
-    run_duration_ms: sanitizeRunDurationMs(snapshot.run_duration_ms),
-    payload: snapshot.payload as unknown as Record<string, unknown>,
+  const res = await fetch(`/api/projects/${encodeURIComponent(pid)}/snapshots`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({
+      ...snapshot,
+      // Preserve existing client-side normalization semantics.
+      iterations: Math.max(0, Math.floor(Number(snapshot.iterations))),
+      cost_p20: sanitizeCostOrTimeScalar(snapshot.cost_p20),
+      cost_p50: sanitizeCostOrTimeScalar(snapshot.cost_p50),
+      cost_p80: sanitizeCostOrTimeScalar(snapshot.cost_p80),
+      cost_p90: sanitizeCostOrTimeScalar(snapshot.cost_p90),
+      cost_mean: sanitizeCostOrTimeScalar(snapshot.cost_mean),
+      cost_min: sanitizeCostOrTimeScalar(snapshot.cost_min),
+      cost_max: sanitizeCostOrTimeScalar(snapshot.cost_max),
+      time_p20: sanitizeCostOrTimeScalar(snapshot.time_p20),
+      time_p50: sanitizeCostOrTimeScalar(snapshot.time_p50),
+      time_p80: sanitizeCostOrTimeScalar(snapshot.time_p80),
+      time_p90: sanitizeCostOrTimeScalar(snapshot.time_p90),
+      time_mean: sanitizeCostOrTimeScalar(snapshot.time_mean),
+      time_min: sanitizeCostOrTimeScalar(snapshot.time_min),
+      time_max: sanitizeCostOrTimeScalar(snapshot.time_max),
+      risk_count: sanitizeRiskCount(snapshot.risk_count),
+      run_duration_ms: sanitizeRunDurationMs(snapshot.run_duration_ms),
+      payload: snapshot.payload as unknown as Record<string, unknown>,
+    }),
+  });
+  const json = (await res.json().catch(() => ({}))) as {
+    snapshot?: SimulationSnapshotRow;
+    error?: string;
   };
-  const { data, error } = await supabase
-    .from(TABLE)
-    .insert(insertRow)
-    .select("id, project_id, iterations, created_at");
-
-  if (error) {
-    console.error("[snapshot insert error]", error);
-    throw error;
+  if (!res.ok || !json.snapshot) {
+    const message = json.error?.trim() || `Snapshot create failed (${res.status})`;
+    console.error("[snapshot insert error]", message);
+    throw new Error(message);
   }
-
-  const row = data?.[0];
-  if (!row) {
-    const err = new Error(
-      "Snapshot insert returned no row (check RLS and that riskai_simulation_snapshots exists)."
-    );
-    console.error("[snapshot insert error]", err);
-    throw err;
-  }
-
-  return row as SimulationSnapshotRow;
+  return json.snapshot;
 }
 
 /**
@@ -155,7 +141,30 @@ export async function getLatestSnapshot(projectId?: string) {
   if (error) {
     console.error("[snapshot fetch error]", error.message ?? error);
   }
+  return data;
+}
 
+/**
+ * Fetch the most recent snapshot marked as reporting-locked for the project.
+ * Uses maybeSingle() so 0 rows returns null without an error.
+ * @param projectId - Optional project UUID; when omitted uses default (legacy single-project).
+ */
+export async function getLatestLockedSnapshot(projectId?: string) {
+  const pid = projectId ?? DEFAULT_PROJECT_ID;
+  const supabase = supabaseBrowserClient();
+  const { data, error } = await supabase
+    .from("riskai_simulation_snapshots")
+    .select("*")
+    .eq("project_id", pid)
+    .eq("locked_for_reporting", true)
+    .order("locked_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("[snapshot fetch latest locked error]", error.message ?? error);
+  }
   return data;
 }
 
@@ -252,17 +261,6 @@ export function formatReportMonthLabel(reportMonth: string | null | undefined): 
  */
 export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow>;
 
-/** `reportingMonthYear` "YYYY-MM" → Postgres `date` first of month (YYYY-MM-01). */
-function reportMonthDateFromYearMonth(reportingMonthYear: string): string {
-  const trimmed = reportingMonthYear.trim();
-  if (!/^\d{4}-\d{2}$/.test(trimmed)) {
-    throw new Error(
-      `setSnapshotAsReportingVersion: invalid reportingMonthYear "${reportingMonthYear}" (expected YYYY-MM)`
-    );
-  }
-  return `${trimmed}-01`;
-}
-
 export type SetSnapshotAsReportingVersionResult = {
   id: string;
   locked_for_reporting: boolean;
@@ -278,7 +276,7 @@ export type SetSnapshotAsReportingVersionResult = {
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
-  params: { userId: string; note?: string; reportingMonthYear: string }
+  params: { userId: string; note?: string; reportingMonthYear: string; projectId?: string }
 ): Promise<SetSnapshotAsReportingVersionResult> {
   const userId = params.userId?.trim();
   if (!userId) {
@@ -286,44 +284,45 @@ export async function setSnapshotAsReportingVersion(
     console.error("[setSnapshotAsReportingVersion]", err);
     throw err;
   }
-
-  const reportMonth = reportMonthDateFromYearMonth(params.reportingMonthYear);
-  const payload = {
-    locked_for_reporting: true,
-    locked_at: new Date().toISOString(),
-    locked_by: userId,
-    lock_note: params.note?.trim() || null,
-    report_month: reportMonth,
-  };
-
-  console.log("[setSnapshotAsReportingVersion] before update", {
-    snapshotId,
-    userId,
-    reportMonth,
-    lockNote: payload.lock_note,
-  });
-
   const supabase = supabaseBrowserClient();
-  const { data, error } = await supabase
-    .from("riskai_simulation_snapshots")
-    .update(payload)
-    .eq("id", snapshotId)
-    .select("id, locked_for_reporting, locked_at, locked_by, lock_note, report_month")
-    .single();
-
-  if (error) {
-    console.error("[setSnapshotAsReportingVersion] Supabase error", error);
-    throw error;
+  const {
+    data: { user },
+    error: authErr,
+  } = await supabase.auth.getUser();
+  if (authErr || !user) {
+    const err = new Error(authErr?.message ?? "Not authenticated");
+    console.error("[setSnapshotAsReportingVersion]", err);
+    throw err;
   }
-
-  if (!data) {
+  const projectId = params.projectId?.trim() || undefined;
+  if (!projectId) {
     const err = new Error(
-      "setSnapshotAsReportingVersion: update returned no row (check id and RLS)."
+      "setSnapshotAsReportingVersion: projectId is required"
     );
     console.error("[setSnapshotAsReportingVersion]", err);
     throw err;
   }
 
-  console.log("[setSnapshotAsReportingVersion] success", data);
-  return data as SetSnapshotAsReportingVersionResult;
+  const res = await fetch(
+    `/api/projects/${encodeURIComponent(projectId)}/snapshots/${encodeURIComponent(snapshotId)}/lock-reporting`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({
+        note: params.note?.trim() || null,
+        reportingMonthYear: params.reportingMonthYear,
+      }),
+    }
+  );
+  const json = (await res.json().catch(() => ({}))) as {
+    snapshot?: SetSnapshotAsReportingVersionResult;
+    error?: string;
+  };
+  if (!res.ok || !json.snapshot) {
+    const message = json.error?.trim() || `Set reporting version failed (${res.status})`;
+    console.error("[setSnapshotAsReportingVersion] API error", message);
+    throw new Error(message);
+  }
+  return json.snapshot;
 }

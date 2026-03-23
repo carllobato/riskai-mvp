@@ -3,24 +3,24 @@
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
-import type { Scenario } from "./types";
+import type { BaselineMode } from "./types";
 import type { RiskExposureCurve } from "./types";
-import { applyScenario, effectiveMultiplier, SCENARIO_MULTIPLIERS } from "./scenario";
+import { applyBaseline } from "./baseline";
 import { buildTimeWeights } from "./timeWeights";
 import { computeMitigationAdjustment } from "./mitigation";
 
 /**
- * Computes monthly exposure curve for one risk under a scenario.
+ * Computes monthly exposure curve for one risk under the neutral baseline.
  * monthlyExposure[i] = adjustedProb * adjustedImpact * timeWeight[i] * probMultiplier[i] * impactMultiplier[i].
- * When options.__introspect is true, debug includes scenario multipliers and raw vs adjusted params (dev-only).
+ * When options.__introspect is true, debug includes raw and adjusted params (dev-only).
  */
 export function computeRiskExposureCurve(
   risk: Risk,
-  scenario: Scenario,
+  baselineMode: BaselineMode,
   horizonMonths: number,
   options?: { includeDebug?: boolean; __introspect?: boolean }
 ): RiskExposureCurve {
-  const adjustedParams = applyScenario(risk, scenario);
+  const adjustedParams = applyBaseline(risk, baselineMode);
   const timeWeights = buildTimeWeights(risk, horizonMonths);
 
   const monthlyExposure: number[] = [];
@@ -54,16 +54,7 @@ export function computeRiskExposureCurve(
       mitigationByMonth,
     };
     if (options?.__introspect) {
-      const m = SCENARIO_MULTIPLIERS[scenario]!;
-      const riskSens = risk.sensitivity ?? 0.5;
-      (result.debug as Record<string, unknown>).rawMultipliers = m;
-      (result.debug as Record<string, unknown>).effectiveMultipliers = {
-        probability: effectiveMultiplier(m.probability, riskSens),
-        impact: effectiveMultiplier(m.impact, riskSens),
-        persistence: effectiveMultiplier(m.persistence, riskSens),
-        sensitivity: effectiveMultiplier(m.sensitivity, riskSens),
-      };
-      (result.debug as Record<string, unknown>).scenarioMultipliers = m;
+      (result.debug as Record<string, unknown>).baselineMode = baselineMode;
       (result.debug as Record<string, unknown>).rawParams = {
         probability: risk.probability,
         preMitigationCostML: risk.preMitigationCostML,

@@ -8,19 +8,14 @@ import type {
   MonteCarloNeutralSnapshot,
 } from "@/domain/simulation/simulation.types";
 import type { Risk } from "@/domain/risk/risk.schema";
-import type { ProjectionProfile } from "@/lib/projectionProfiles";
 import { getEffectiveRiskInputs } from "@/domain/simulation/monteCarlo";
-import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
 import { isRiskStatusArchived, isRiskStatusClosed } from "@/domain/risk/riskFieldSemantics";
-
-export type ScenarioSnapshotsMap = Partial<Record<ProjectionProfile, SimulationSnapshot>>;
 
 export type AnalysisSelectorState = {
   risks: Risk[];
   simulation: {
     current?: SimulationSnapshot;
     history: SimulationSnapshot[];
-    scenarioSnapshots?: ScenarioSnapshotsMap;
     neutral?: MonteCarloNeutralSnapshot;
   };
 };
@@ -40,9 +35,9 @@ export type NeutralSummary = {
   riskCount: number;
 };
 
-/** Neutral snapshot: scenarioSnapshots.neutral ?? current (same as Outputs). */
+/** Neutral snapshot from current run. */
 function getNeutralSnapshot(state: AnalysisSelectorState): SimulationSnapshot | undefined {
-  return state.simulation.scenarioSnapshots?.neutral ?? state.simulation.current;
+  return state.simulation.current;
 }
 
 /**
@@ -177,12 +172,10 @@ export function getModelStatus(state: AnalysisSelectorState): ModelStatusResult 
 /** Engine health key/value for Debug view. */
 export function getEngineHealth(state: AnalysisSelectorState): Record<string, string> {
   const snap = getNeutralSnapshot(state);
-  const scenarioSnapshots = state.simulation.scenarioSnapshots;
-  const count = scenarioSnapshots ? Object.keys(scenarioSnapshots).length : 0;
   const neutral = state.simulation.neutral;
   return {
     lastRunAt: neutral != null ? String(neutral.lastRunAt) : (snap?.timestampIso ?? "—"),
-    snapshotCount: String(count || (state.simulation.current ? 1 : 0)),
+    snapshotCount: String(state.simulation.current ? 1 : 0),
     hasNeutralSnapshot: snap ? "true" : "false",
     riskCount: String(state.risks.length),
     optimisationAPI: "unknown",
@@ -220,8 +213,7 @@ export type AnalysisAudit = {
  */
 export function getAnalysisAudit(state: AnalysisSelectorState): AnalysisAudit | null {
   const neutral = state.simulation.neutral;
-  const neutralRisks = state.risks.map((r) => applyScenarioToRiskInputs(r, "neutral"));
-  const effectiveList = neutralRisks
+  const effectiveList = state.risks
     .map((r) => ({ risk: r, inp: getEffectiveRiskInputs(r) }))
     .filter((x): x is { risk: Risk; inp: NonNullable<ReturnType<typeof getEffectiveRiskInputs>> } => x.inp != null);
 

@@ -1,3 +1,4 @@
+import { RegisterPageHeaderTitle } from "@/components/RegisterPageHeaderTitle";
 import { PortfolioOverviewContent } from "./PortfolioOverviewContent";
 
 /**
@@ -5,5 +6,10 @@ import { PortfolioOverviewContent } from "./PortfolioOverviewContent";
  * Uses mock data for UI scaffolding; wire to live data later.
  */
 export default function PortfolioOverviewPage() {
-  return <PortfolioOverviewContent />;
+  return (
+    <>
+      <RegisterPageHeaderTitle titleSuffix="Overview" />
+      <PortfolioOverviewContent />
+    </>
+  );
 }

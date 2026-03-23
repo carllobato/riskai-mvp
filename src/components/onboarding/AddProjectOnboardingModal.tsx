@@ -45,32 +45,22 @@ export function AddProjectOnboardingModal({
       return;
     }
     setLoading(true);
-    const supabase = supabaseBrowserClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      setError(userError?.message ?? "Not signed in.");
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ name: trimmed, portfolioId }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      project?: { id: string; name: string };
+      error?: string;
+    };
+    if (!res.ok || !json.project) {
+      setError(json.error?.trim() || (res.status === 401 ? "Not signed in." : "Could not create project."));
       setLoading(false);
       return;
     }
-    const { data: inserted, error: insertError } = await supabase
-      .from("projects")
-      .insert({
-        owner_user_id: user.id,
-        name: trimmed,
-        portfolio_id: portfolioId,
-      })
-      .select("id, name")
-      .single();
-
-    if (insertError) {
-      setError(insertError.message);
-      setLoading(false);
-      return;
-    }
-    const row = inserted as { id: string; name: string } | null;
+    const row = json.project;
     if (!row?.id) {
       setError("Project created but could not continue.");
       setLoading(false);

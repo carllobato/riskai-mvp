@@ -51,7 +51,7 @@ export default async function DashboardPage() {
     typeof rawFirst === "string" && rawFirst.trim() ? rawFirst.trim() : null;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
+    <div className="w-full px-4 py-10 sm:px-6">
       {devBypass && !user ? (
         <p className="mb-6 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
           <span className="font-medium">Dev preview:</span> no Supabase session. Remove{" "}
@@ -84,7 +84,7 @@ export default async function DashboardPage() {
               <li key={p.id}>
                 <Link
                   href={riskaiPath(`/portfolios/${p.id}`)}
-                  className="block rounded-md border border-neutral-200 bg-[var(--background)] px-4 py-3 text-[var(--foreground)] transition-colors hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  className="group flex h-14 items-center justify-between gap-3 rounded-lg border border-neutral-200/55 bg-[var(--background)] px-[1.125rem] text-[var(--foreground)] shadow-[0_1px_2px_rgba(0,0,0,0.03)] outline-none transition-[transform,box-shadow,border-color] duration-200 ease-out hover:-translate-y-px hover:border-neutral-200/80 hover:shadow-[0_3px_12px_rgba(0,0,0,0.055)] dark:border-neutral-700/50 dark:shadow-[0_1px_2px_rgba(0,0,0,0.2)] dark:hover:border-neutral-700/75 dark:hover:shadow-[0_4px_16px_rgba(0,0,0,0.28)] focus-visible:ring-2 focus-visible:ring-neutral-400/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--background)]"
                 >
                   <span className="font-medium">{p.name || p.id}</span>
                   <span className="ml-2 text-sm text-neutral-500 dark:text-neutral-400">Open portfolio →</span>

@@ -3,5 +3,5 @@
  * Engine-specific types live in @/engine/forwardExposure.
  */
 
-/** Placeholder: key used to identify projection scenario in APIs. */
-export type ProjectionScenarioKey = "conservative" | "neutral" | "aggressive";
+/** Neutral-only projection key used in APIs. */
+export type ProjectionScenarioKey = "neutral";

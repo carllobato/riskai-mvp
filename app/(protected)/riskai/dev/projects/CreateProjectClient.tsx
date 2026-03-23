@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabaseBrowserClient } from "@/lib/supabase/browser";
 
 type PortfolioRow = { id: string; name: string };
 
@@ -50,23 +49,21 @@ export default function CreateProjectClient() {
       return;
     }
     setLoading(true);
-    const supabase = supabaseBrowserClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      setMessage({ type: "error", text: userError?.message ?? "Not signed in." });
-      setLoading(false);
-      return;
-    }
-    const { error } = await supabase.from("projects").insert({
-      owner_user_id: user.id,
-      name,
-      portfolio_id: selectedPortfolioId,
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ name, portfolioId: selectedPortfolioId }),
     });
-    if (error) {
-      setMessage({ type: "error", text: error.message });
+    const json = (await res.json().catch(() => ({}))) as {
+      project?: { id: string };
+      error?: string;
+    };
+    if (!res.ok || !json.project) {
+      setMessage({
+        type: "error",
+        text: json.error?.trim() || (res.status === 401 ? "Not signed in." : "Could not create project."),
+      });
       setLoading(false);
       return;
     }

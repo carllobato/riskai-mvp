@@ -70,8 +70,15 @@ const ProjectsListIcon = () => (
 
 const FileIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0" aria-hidden>
-    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
+    <rect x="5" y="2" width="14" height="20" rx="2" />
+    <path d="M8 6h8" />
+    <path d="M8 10h.01" />
+    <path d="M12 10h.01" />
+    <path d="M16 10h.01" />
+    <path d="M8 14h.01" />
+    <path d="M12 14h.01" />
+    <path d="M16 14h.01" />
+    <path d="M8 18h8" />
   </svg>
 );
 
@@ -89,13 +96,15 @@ const SimulationIcon = () => (
   </svg>
 );
 
-const AnalysisIcon = () => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0" aria-hidden>
-    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z" />
-    <path d="M14 2v6h6" />
-    <path d="M16 13H8" />
-    <path d="M16 17H8" />
-    <path d="M10 9H8" />
+const EngineIcon = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+    <rect x="5" y="8" width="14" height="8" rx="2" />
+    <path d="M3 10h2" />
+    <path d="M3 14h2" />
+    <path d="M19 10h2" />
+    <path d="M19 14h2" />
+    <path d="M10 8V5h4v3" />
+    <path d="M12 12h.01" />
   </svg>
 );
 
@@ -207,8 +216,10 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const risksActive = projectBase != null && pathname.startsWith(`${projectBase}/risks`);
   const simulationActive =
     projectNavBase != null && pathname.startsWith(`${projectNavBase}/simulation`);
-  const analysisActive =
-    pathname === `${RISKAI_BASE}/analysis` || pathname.startsWith(`${RISKAI_BASE}/analysis/`);
+  const healthActive =
+    (projectNavBase != null && pathname.startsWith(`${projectNavBase}/engine-health`)) ||
+    pathname === `${RISKAI_BASE}/dev/engine-health` ||
+    pathname.startsWith(`${RISKAI_BASE}/dev/engine-health/`);
   const projectSettingsActive =
     projectNavBase != null && pathname.startsWith(`${projectNavBase}/settings`);
 
@@ -377,17 +388,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 </li>
                 <li>
                   <Link
-                    href={`${projectNavBase}/run-data`}
-                    className={linkClass(runDataActive)}
-                    title={visuallyCollapsed ? "Run Data" : undefined}
-                    onClick={onMobileClose}
-                  >
-                    <FileIcon />
-                    <span className={navLabelClass}>Run Data</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link
                     href={`${projectNavBase}/simulation`}
                     className={linkClass(simulationActive)}
                     title={visuallyCollapsed ? "Simulation" : undefined}
@@ -395,17 +395,6 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                   >
                     <SimulationIcon />
                     <span className={navLabelClass}>Simulation</span>
-                  </Link>
-                </li>
-                <li>
-                  <Link
-                    href={riskaiPath("/analysis")}
-                    className={linkClass(analysisActive)}
-                    title={visuallyCollapsed ? "Analysis" : undefined}
-                    onClick={onMobileClose}
-                  >
-                    <AnalysisIcon />
-                    <span className={navLabelClass}>Analysis</span>
                   </Link>
                 </li>
                 <li>
@@ -422,6 +411,36 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
               </ul>
             </>
           ) : null}
+
+          {(
+            <>
+              {sectionHeader("De-Bug", false)}
+              <ul className="space-y-0.5">
+                <li>
+                  <Link
+                    href={projectNavBase ? `${projectNavBase}/run-data` : riskaiPath("/dev/run-data")}
+                    className={linkClass(runDataActive)}
+                    title={visuallyCollapsed ? "Run Data" : undefined}
+                    onClick={onMobileClose}
+                  >
+                    <FileIcon />
+                    <span className={navLabelClass}>Run Data</span>
+                  </Link>
+                </li>
+                <li>
+                  <Link
+                    href={projectNavBase ? `${projectNavBase}/engine-health` : riskaiPath("/dev/engine-health")}
+                    className={linkClass(healthActive)}
+                    title={visuallyCollapsed ? "Engine Health" : undefined}
+                    onClick={onMobileClose}
+                  >
+                    <EngineIcon />
+                    <span className={navLabelClass}>Engine Health</span>
+                  </Link>
+                </li>
+              </ul>
+            </>
+          )}
         </nav>
 
         <div className="flex min-h-12 shrink-0 items-center border-t border-neutral-200 px-2 py-1.5 dark:border-neutral-800">

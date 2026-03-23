@@ -6,8 +6,7 @@
     "dev": "next dev",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "eslint",
-    "check:forwardExposure": "tsx __dev__/forwardExposureCheck.ts"
+    "lint": "eslint"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",

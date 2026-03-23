@@ -136,8 +136,8 @@
 ### 7. Run Data — `/projects/[projectId]/run-data`
 - **Route:** `app/(protected)/projects/[projectId]/run-data/page.tsx` (server) → `RunDataPage` (from `run-data/page.tsx`) with `projectId` and `projectName` passed.
 - **Purpose:** Full diagnostic report for a simulation run (inputs, distribution, integrity, assumptions, consistency, drivers, exposure, forecasting, mitigation).
-- **Current contents:** Long single page with narrative sections: Run Metadata, Risk Register Snapshot, Cost/Schedule Distribution, Simulation Integrity (sample size, skew, kurtosis), Simulation Assumptions, Consistency Checks, Cost/Schedule Drivers, Scenario Exposure, Forward-looking, Mitigation Results / Leverage. “Run Data” title; when under project route, project context is clear.
-- **Data loaded:** Client: `listRisks(projectId)` when `projectId` present, store `simulation` and risks, `getLatestSnapshot` / `getLatestDbSnapshot`, scenario comparison, exposure, etc.
+- **Current contents:** Long single page with narrative sections: Run Metadata, Risk Register Snapshot, Cost/Schedule Distribution, Simulation Integrity (sample size, skew, kurtosis), Simulation Assumptions, Consistency Checks, Cost/Schedule Drivers, Baseline Exposure, Forward-looking, Mitigation Results / Leverage. “Run Data” title; when under project route, project context is clear.
+- **Data loaded:** Client: `listRisks(projectId)` when `projectId` present, store `simulation` and risks, `getLatestSnapshot` / `getLatestDbSnapshot`, neutral risk forecast metrics, exposure, etc.
 - **User actions:** Read and validate run; no primary “run” here (run is on Simulation page).
 - **Status:** **Working** — production-useful diagnostic/report. Project-scoped when accessed via `/projects/[id]/run-data`.
 

@@ -2,7 +2,6 @@
 
 import { useMemo, useState } from "react";
 import { useRiskRegister } from "@/store/risk-register.store";
-import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import {
   selectPortfolioDecisionSummary,
   selectTopCriticalRisks,
@@ -14,8 +13,6 @@ import {
 import { selectLatestSnapshotRiskIntelligence } from "@/lib/simulationSelectors";
 import { getScoreBand } from "@/lib/decisionScoreBand";
 import { getForwardSignals } from "@/lib/forwardSignals";
-import { getProfileLabel } from "@/context/ProjectionScenarioContext";
-import { selectScenarioForRisk, profileToScenarioName } from "@/lib/instability/selectScenarioLens";
 import { calculateInstabilityDrivers } from "@/lib/instability/portfolioDrivers";
 import { getBand } from "@/config/riskThresholds";
 import type { RankedRiskRow } from "@/store/selectors";
@@ -47,9 +44,7 @@ function scoreBadgeClass(score: number): string {
 }
 
 export function DecisionPanel() {
-  const { profile: scenarioProfile, lensMode } = useProjectionScenario();
   const { risks, simulation, riskForecastsById, forwardPressure } = useRiskRegister();
-  const manualScenario = profileToScenarioName(scenarioProfile);
   const [sortBy, setSortBy] = useState<DecisionSort>("score");
 
   const state = useMemo(() => ({ simulation }), [simulation]);
@@ -128,8 +123,8 @@ export function DecisionPanel() {
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 m-0">
           Decision-grade ranking from behavioural metrics.
         </p>
-        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 m-0" title="Forecast scenario adjusts drift persistence and decay for projections.">
-          Forecast Scenario: {getProfileLabel(scenarioProfile)}
+        <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400 m-0" title="Neutral baseline projection.">
+          Forecast Model: Neutral Baseline
         </p>
         <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500 m-0">
           Forecast Confidence: Based on history depth, momentum stability, and volatility.
@@ -284,12 +279,7 @@ export function DecisionPanel() {
               const showUp = typeof delta === "number" && delta > SCORE_DELTA_SHOW_THRESHOLD;
               const showDown = typeof delta === "number" && delta < -SCORE_DELTA_SHOW_THRESHOLD;
               const forecast = riskForecastsById[row.riskId];
-              const scenarioToUse = selectScenarioForRisk(
-                { instability: forecast?.instability },
-                lensMode,
-                manualScenario
-              );
-              const signals = getForwardSignals(row.riskId, riskForecastsById, scenarioToUse);
+              const signals = getForwardSignals(row.riskId, riskForecastsById);
               const showConfidence = index < 3 && forecast != null && typeof forecast.forecastConfidence === "number";
               const confScore = forecast?.forecastConfidence;
               const confBand = forecast?.confidenceBand ?? (typeof confScore === "number" ? (confScore < 40 ? "low" : confScore < 70 ? "medium" : "high") : null);

@@ -29,6 +29,7 @@ import { DEFAULT_PROJECT_ID } from "@/lib/db/risks";
 import { RiskDetailModal } from "@/components/risk-register/RiskDetailModal";
 import { RiskRegisterLookupProviders } from "@/components/risk-register/RiskRegisterLookupProviders";
 import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
+import { useOptionalPageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 import { useProjectPermissions } from "@/contexts/ProjectPermissionsContext";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
 import { SettingsPermissionNotice } from "@/components/settings/SettingsPermissionNotice";
@@ -143,6 +144,12 @@ export type ProjectInformationPageProps = { projectId?: string | null };
 
 export default function ProjectInformationPage({ projectId }: ProjectInformationPageProps = {}) {
   const projectPermissions = useProjectPermissions();
+  const setPageHeaderExtras = useOptionalPageHeaderExtras()?.setExtras;
+  useEffect(() => {
+    if (!projectId || !setPageHeaderExtras) return;
+    setPageHeaderExtras({ titleSuffix: "Project Settings", end: null });
+    return () => setPageHeaderExtras(null);
+  }, [projectId, setPageHeaderExtras]);
   const settingsReadOnly =
     Boolean(projectId) &&
     (projectPermissions == null || !projectPermissions.canEditProjectMetadata);
@@ -311,7 +318,7 @@ export default function ProjectInformationPage({ projectId }: ProjectInformation
   const lockedField = settingsReadOnly ? ` ${settingsFieldLockedClass}` : "";
 
   return (
-    <main className="max-w-2xl mx-auto px-4 sm:px-6 py-10">
+    <main className="w-full px-4 sm:px-6 py-10">
       <h1 className="text-2xl font-semibold text-[var(--foreground)] mb-1">
         Project Home
       </h1>

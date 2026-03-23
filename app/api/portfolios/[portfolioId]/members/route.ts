@@ -14,6 +14,7 @@ import type {
 } from "@/types/portfolioMembers";
 import { firstRpcTableRow } from "@/lib/supabase/rpcTableFirstRow";
 import { supabaseServerClient } from "@/lib/supabase/server";
+import { env } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -24,9 +25,7 @@ function isRole(v: unknown): v is PortfolioMemberRole {
 }
 
 function portfolioInviteDebugEnabled() {
-  return (
-    process.env.NODE_ENV === "development" || process.env.PORTFOLIO_INVITE_DEBUG === "1"
-  );
+  return process.env.NODE_ENV === "development" || env.PORTFOLIO_INVITE_DEBUG;
 }
 
 function portfolioInviteTraceResponse(body: unknown, status: number) {

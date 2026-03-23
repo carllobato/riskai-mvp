@@ -4,7 +4,7 @@
 
 - **Cost and Programme percentiles**: Produced by the Monte Carlo engine in `src/domain/simulation/monteCarlo.ts`. The Analysis page reads from `state.simulation.neutral` (cost/time samples and `summary` with p50/p80/p90 for both cost and time).
 - **Neutral snapshot**: Filled when the user runs a simulation from the Risk Register. The store runs `runMonteCarloSimulation` with risks that have been passed through `applyScenarioToRiskInputs(risk, "neutral")` for scenario consistency. The same run produces `costSamples`, `timeSamples`, and `summary` (mean, p50, p80, p90, min, max for cost and time).
-- **Selectors**: `getNeutralSummary`, `getNeutralSamples`, `getNeutralTimeSamples`, `getNeutralTimeSummary` in `src/store/selectors/analysis.selectors.ts` read from `state.simulation.neutral` and/or `state.simulation.scenarioSnapshots?.neutral ?? state.simulation.current`.
+- **Selectors**: `getNeutralSummary`, `getNeutralSamples`, `getNeutralTimeSamples`, `getNeutralTimeSummary` in `src/store/selectors/analysis.selectors.ts` read from `state.simulation.neutral` and `state.simulation.current`.
 
 ## 2. Pre / post / fallback
 

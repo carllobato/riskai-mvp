@@ -1,15 +1,14 @@
 /**
  * Forward exposure engine — pure deterministic functions.
- * Day 12: mitigation adjustment, scenario, time weights, risk curve, portfolio exposure.
+ * Day 12: mitigation adjustment, baseline mode, time weights, risk curve, portfolio exposure.
  */
 
 export type {
   PressureClass,
-  Scenario,
-  ScenarioName,
+  BaselineMode,
   ForwardExposureSummary,
   MitigationAdjustment,
-  AdjustedRiskParams,
+  AdjustedBaselineParams,
   RiskExposureCurve,
   ExposureByCategory,
   TopDriver,
@@ -18,7 +17,7 @@ export type {
 } from "./types";
 
 export { computeMitigationAdjustment } from "./mitigation";
-export { applyScenario } from "./scenario";
+export { applyBaseline } from "./baseline";
 export { buildTimeWeights } from "./timeWeights";
 export { computeRiskExposureCurve } from "./curve";
 export { computePortfolioExposure } from "./portfolio";

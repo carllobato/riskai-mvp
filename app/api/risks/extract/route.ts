@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import OpenAI from "openai";
 import { requireUser } from "@/lib/auth/requireUser";
 import { RiskDraftResponseSchema } from "@/domain/risk/risk.schema";
+import { env } from "@/lib/env";
 
 const EXTRACT_SYSTEM = `You are a risk analyst. Extract risk items from the user's document.
 
@@ -36,16 +37,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "documentText is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured" },
-        { status: 500 }
-      );
-    }
-
     const openai = new OpenAI({
-      apiKey,
+      apiKey: env.OPENAI_API_KEY,
       fetch: globalThis.fetch,
       timeout: 60_000,
     });

@@ -1,16 +1,13 @@
 /**
  * Forward exposure engine — types.
- * Day 12: projection, scenario, and portfolio exposure.
+ * Day 12: projection, baseline mode, and portfolio exposure.
  */
 
 /** Placeholder: pressure class for portfolio forward exposure. */
 export type PressureClass = "Low" | "Moderate" | "High" | "Severe";
 
-/** Scenario for exposure (aligned with ProjectionProfile). */
-export type Scenario = "conservative" | "neutral" | "aggressive";
-
-/** Placeholder: scenario name for projection lens. */
-export type ScenarioName = "Conservative" | "Neutral" | "Aggressive";
+/** Neutral-only baseline mode for exposure engine. */
+export type BaselineMode = "neutral";
 
 /** Placeholder: summary of forward exposure at portfolio level. */
 export type ForwardExposureSummary = {
@@ -25,8 +22,8 @@ export type MitigationAdjustment = {
   impactMultiplier: number;
 };
 
-/** Risk params after applyScenario (adjusted for scenario). */
-export type AdjustedRiskParams = {
+/** Risk params after applyBaseline (adjusted for baseline mode). */
+export type AdjustedBaselineParams = {
   probability: number;
   baseCostImpact: number;
   escalationPersistence: number;
@@ -38,7 +35,7 @@ export type RiskExposureCurve = {
   monthlyExposure: number[];
   total: number;
   debug?: {
-    adjustedParams: AdjustedRiskParams;
+    adjustedParams: AdjustedBaselineParams;
     timeWeights: number[];
     mitigationByMonth: MitigationAdjustment[];
   };

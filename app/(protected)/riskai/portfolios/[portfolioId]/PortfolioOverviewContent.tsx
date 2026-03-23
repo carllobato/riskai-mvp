@@ -19,7 +19,7 @@ export function PortfolioOverviewContent() {
   const data: PortfolioSummary = MOCK_PORTFOLIO_SUMMARY;
 
   return (
-    <main className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+    <main className="w-full px-4 sm:px-6 py-8">
       {/* Section A — Portfolio KPI Summary */}
       <section className="mb-8" aria-labelledby="portfolio-kpi-heading">
         <h2 id="portfolio-kpi-heading" className="sr-only">

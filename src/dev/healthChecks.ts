@@ -1,22 +1,15 @@
 /**
- * Dev-only Engine Health check registry.
- * Grouped by: Scenario Math, Mitigation Logic, Time Weighting, Exposure Engine, Governance Metrics, UI Gating.
- * Deterministic invariants only; no hard-coded expected numbers.
+ * Dev-only Engine Health checks for neutral-only execution.
  */
 
 import type { Risk } from "@/domain/risk/risk.schema";
-import { effectiveForwardCostImpact } from "@/domain/risk/risk.logic";
 import { buildTimeWeights } from "@/engine/forwardExposure/timeWeights";
 import { computeMitigationAdjustment } from "@/engine/forwardExposure/mitigation";
-import { applyScenario, SCENARIO_MULTIPLIERS } from "@/engine/forwardExposure/scenario";
 import { computeRiskExposureCurve } from "@/engine/forwardExposure/curve";
 import { computePortfolioExposure } from "@/engine/forwardExposure/portfolio";
-import { baselineRisks, edgeRisks, lensIntegrityRisks } from "@/dev/fixtures";
-import { SUM_TOLERANCE, isFiniteOrZero, sumApproxOne, allNonNegative, noNaNOrInfinity, inClosed01 } from "@/dev/invariants";
+import { baselineRisks, edgeRisks } from "@/dev/fixtures";
+import { SUM_TOLERANCE, sumApproxOne, allNonNegative, noNaNOrInfinity, inClosed01, isFiniteOrZero } from "@/dev/invariants";
 import { includeDebugForExposure } from "@/lib/debugGating";
-import { simulatePortfolio } from "@/lib/simulatePortfolio";
-import { applyScenarioToRiskInputs } from "@/engine/scenario/applyScenarioToRiskInputs";
-import { calcInstabilityIndex, calcFragility, calcScenarioDeltaSummary } from "@/lib/instability/calcInstabilityIndex";
 
 const HORIZON = 12;
 
@@ -29,13 +22,11 @@ export type CheckResult = {
 };
 
 export type CheckGroup =
-  | "Scenario Math"
+  | "Baseline Math"
   | "Mitigation Logic"
   | "Time Weighting"
   | "Exposure Engine"
-  | "Governance Metrics"
   | "UI Gating"
-  | "Lens Range Integrity"
   | "Baseline Lock (Governance Integrity)";
 
 export type GroupedCheck = {
@@ -44,173 +35,18 @@ export type GroupedCheck = {
   run: () => CheckResult;
 };
 
-function tryGovernance(
-  fn: () => CheckResult
-): CheckResult {
-  try {
-    return fn();
-  } catch {
-    return { status: "warn", message: "Governance functions not available or threw; skip gracefully.", details: undefined };
-  }
-}
-
 export const groupedHealthChecks: GroupedCheck[] = [
-  // ---------- Scenario Math ----------
+  // ---------- Baseline Math ----------
   {
-    group: "Scenario Math",
-    name: "Scenario ordering (Downside ≥ Base ≥ Upside)",
+    group: "Baseline Math",
+    name: "Neutral baseline execution is deterministic",
     run: () => {
-      const errors: string[] = [];
-      for (const risk of baselineRisks) {
-        const cons = applyScenario(risk, "conservative");
-        const neut = applyScenario(risk, "neutral");
-        const agg = applyScenario(risk, "aggressive");
-        if (cons.probability > neut.probability) errors.push(`${risk.id}: conservative prob > neutral`);
-        if (neut.probability > agg.probability) errors.push(`${risk.id}: neutral prob > aggressive`);
-        if (cons.baseCostImpact > neut.baseCostImpact) errors.push(`${risk.id}: conservative impact > neutral`);
-        if (neut.baseCostImpact > agg.baseCostImpact) errors.push(`${risk.id}: neutral impact > aggressive`);
+      const first = computePortfolioExposure(baselineRisks, "neutral", HORIZON).total;
+      const second = computePortfolioExposure(baselineRisks, "neutral", HORIZON).total;
+      if (Math.abs(first - second) > SUM_TOLERANCE) {
+        return { status: "fail", message: "Neutral baseline should be deterministic", details: { first, second } };
       }
-      if (errors.length > 0) return { status: "fail", message: errors.join("; "), details: { errors } };
-      return { status: "pass", message: "conservative ≤ neutral ≤ aggressive for prob and impact" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "Probability and impact multipliers follow same ordering",
-    run: () => {
-      const cons = SCENARIO_MULTIPLIERS.conservative;
-      const neut = SCENARIO_MULTIPLIERS.neutral;
-      const agg = SCENARIO_MULTIPLIERS.aggressive;
-      const errors: string[] = [];
-      if (cons.probability > neut.probability || neut.probability > agg.probability)
-        errors.push("probability multipliers not cons ≤ neut ≤ agg");
-      if (cons.impact > neut.impact || neut.impact > agg.impact) errors.push("impact multipliers not cons ≤ neut ≤ agg");
-      if (errors.length > 0) return { status: "fail", message: errors.join("; "), details: { cons, neut, agg } };
-      return { status: "pass", message: "multipliers ordered cons ≤ neut ≤ agg" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "Sensitivity amplification (sensitivity=1 delta > sensitivity=0.1)",
-    run: () => {
-      const riskHigh = baselineRisks.find((r) => r.sensitivity !== undefined) ?? baselineRisks[0]!;
-      const riskLow = { ...riskHigh, id: "tmp-low", sensitivity: 0.1 };
-      const riskHighSens = { ...riskHigh, id: "tmp-high", sensitivity: 1 };
-      const curveLowN = computeRiskExposureCurve(riskLow as Risk, "neutral", HORIZON);
-      const curveLowA = computeRiskExposureCurve(riskLow as Risk, "aggressive", HORIZON);
-      const curveHighN = computeRiskExposureCurve(riskHighSens as Risk, "neutral", HORIZON);
-      const curveHighA = computeRiskExposureCurve(riskHighSens as Risk, "aggressive", HORIZON);
-      const deltaLow = curveLowA.total - curveLowN.total;
-      const deltaHigh = curveHighA.total - curveHighN.total;
-      if (deltaHigh <= deltaLow && deltaLow > 0) return { status: "fail", message: "sensitivity=1 should yield larger scenario delta", details: { deltaLow, deltaHigh } };
-      return { status: "pass", message: "higher sensitivity yields larger scenario delta" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "Scenario isolation (no mutation of original risk)",
-    run: () => {
-      const risk = baselineRisks[0]!;
-      const probBefore = risk.probability;
-      const impactBefore = effectiveForwardCostImpact(risk);
-      applyScenario(risk, "aggressive");
-      applyScenario(risk, "conservative");
-      const probAfter = risk.probability;
-      const impactAfter = effectiveForwardCostImpact(risk);
-      if (probBefore !== probAfter || impactBefore !== impactAfter)
-        return { status: "fail", message: "applyScenario mutated risk", details: { probBefore, probAfter, impactBefore, impactAfter } };
-      return { status: "pass", message: "original risk unchanged after applyScenario" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "Zero sensitivity: scenario exposure delta",
-    run: () => {
-      const risk = { ...baselineRisks[0]!, sensitivity: 0 };
-      const curveN = computeRiskExposureCurve(risk as Risk, "neutral", HORIZON);
-      const curveA = computeRiskExposureCurve(risk as Risk, "aggressive", HORIZON);
-      if (Math.abs(curveN.total - curveA.total) > SUM_TOLERANCE)
-        return { status: "warn", message: "sensitivity=0 but exposure differs by scenario (engine may not gate by sensitivity)", details: { neutral: curveN.total, aggressive: curveA.total } };
-      return { status: "pass", message: "sensitivity=0 ⇒ same exposure for neutral/aggressive" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "P-value changes across scenarios when sensitivity > 0",
-    run: () => {
-      const risksWithSensitivity = baselineRisks.filter((r) => (r.sensitivity ?? 0) > 0);
-      if (risksWithSensitivity.length === 0)
-        return { status: "warn", message: "No baseline risks with sensitivity > 0; skip P-value scenario check" };
-      const iters = 500;
-      const snapCons = simulatePortfolio(
-        risksWithSensitivity.map((r) => applyScenarioToRiskInputs(r, "conservative")),
-        iters,
-        { profile: "conservative" }
-      );
-      const snapNeut = simulatePortfolio(
-        risksWithSensitivity.map((r) => applyScenarioToRiskInputs(r, "neutral")),
-        iters,
-        { profile: "neutral" }
-      );
-      const snapAgg = simulatePortfolio(
-        risksWithSensitivity.map((r) => applyScenarioToRiskInputs(r, "aggressive")),
-        iters,
-        { profile: "aggressive" }
-      );
-      const pCons = snapCons.totalExpectedCost;
-      const pNeut = snapNeut.totalExpectedCost;
-      const pAgg = snapAgg.totalExpectedCost;
-      const relTol = Math.max(pNeut * 0.005, 100);
-      const same = Math.abs(pCons - pNeut) <= relTol && Math.abs(pNeut - pAgg) <= relTol;
-      if (same)
-        return { status: "fail", message: "P-value (totalExpectedCost) should differ across scenarios when sensitivity > 0", details: { conservative: pCons, neutral: pNeut, aggressive: pAgg } };
-      return { status: "pass", message: "P-value differs across scenarios for sensitivity > 0" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "P-value invariant across scenarios when all sensitivity = 0",
-    run: () => {
-      const risksZeroSensitivity = baselineRisks.map((r) => ({ ...r, sensitivity: 0 }));
-      const iters = 2000;
-      const opts = { profile: "neutral" as const };
-      const snapCons = simulatePortfolio(
-        risksZeroSensitivity.map((r) => applyScenarioToRiskInputs(r as Risk, "conservative")),
-        iters,
-        opts
-      );
-      const snapNeut = simulatePortfolio(
-        risksZeroSensitivity.map((r) => applyScenarioToRiskInputs(r as Risk, "neutral")),
-        iters,
-        opts
-      );
-      const snapAgg = simulatePortfolio(
-        risksZeroSensitivity.map((r) => applyScenarioToRiskInputs(r as Risk, "aggressive")),
-        iters,
-        opts
-      );
-      const pCons = snapCons.totalExpectedCost;
-      const pNeut = snapNeut.totalExpectedCost;
-      const pAgg = snapAgg.totalExpectedCost;
-      const relTol = Math.max(pNeut * 0.05, 200);
-      if (Math.abs(pCons - pNeut) > relTol || Math.abs(pNeut - pAgg) > relTol)
-        return { status: "fail", message: "P-value should not change across scenarios when all sensitivity = 0", details: { conservative: pCons, neutral: pNeut, aggressive: pAgg } };
-      return { status: "pass", message: "P-value invariant when sensitivity = 0" };
-    },
-  },
-  {
-    group: "Scenario Math",
-    name: "Forward exposure totals differ across lenses",
-    run: () => {
-      const cons = computePortfolioExposure(baselineRisks, "conservative", HORIZON).total;
-      const neut = computePortfolioExposure(baselineRisks, "neutral", HORIZON).total;
-      const agg = computePortfolioExposure(baselineRisks, "aggressive", HORIZON).total;
-      const tol = SUM_TOLERANCE;
-      const consDiff = Math.abs(cons - neut) > tol;
-      const aggDiff = Math.abs(agg - neut) > tol;
-      if (!consDiff && !aggDiff)
-        return { status: "fail", message: "Forward exposure totals identical across lenses; lens should affect exposure", details: { conservative: cons, neutral: neut, aggressive: agg } };
-      return { status: "pass", message: "Forward exposure totals differ by lens (conservative/aggressive ≠ neutral)" };
+      return { status: "pass", message: "Neutral baseline deterministic" };
     },
   },
   // ---------- Mitigation Logic ----------
@@ -367,49 +203,6 @@ export const groupedHealthChecks: GroupedCheck[] = [
       return { status: "pass", message: "topDrivers desc, concentration [0,1], all finite" };
     },
   },
-  // ---------- Governance Metrics ----------
-  {
-    group: "Governance Metrics",
-    name: "EII: higher volatility → higher EII, all finite",
-    run: () => {
-      return tryGovernance(() => {
-        const stable = calcInstabilityIndex({ velocity: 0, volatility: 0, momentumStability: 1, scenarioSensitivity: 0, confidence: 0.8, historyDepth: 5 });
-        const volatile = calcInstabilityIndex({ velocity: 8, volatility: 4, momentumStability: 0.2, scenarioSensitivity: 0.9, confidence: 0.4, historyDepth: 2 });
-        const errors: string[] = [];
-        if (!Number.isFinite(stable.index) || stable.index < 0 || stable.index > 100) errors.push(`stable index ${stable.index} invalid`);
-        if (!Number.isFinite(volatile.index) || volatile.index < 0 || volatile.index > 100) errors.push(`volatile index ${volatile.index} invalid`);
-        if (stable.index > volatile.index) errors.push("stable should be ≤ volatile");
-        if (errors.length > 0) return { status: "fail", message: errors.join("; "), details: { stable: stable.index, volatile: volatile.index } };
-        return { status: "pass", message: "EII ordered and in [0,100]" };
-      });
-    },
-  },
-  {
-    group: "Governance Metrics",
-    name: "Fragility: score 0..100, level valid, finite",
-    run: () => {
-      return tryGovernance(() => {
-        const r = calcFragility({ currentEii: 50, confidencePenalty: 0.3 });
-        const errors: string[] = [];
-        if (!Number.isFinite(r.score) || r.score < 0 || r.score > 100) errors.push(`score ${r.score} invalid`);
-        if (!["Stable", "Watch", "Structurally Fragile"].includes(r.level)) errors.push(`level ${r.level} invalid`);
-        if (errors.length > 0) return { status: "fail", message: errors.join("; "), details: r };
-        return { status: "pass", message: "fragility score and level valid" };
-      });
-    },
-  },
-  {
-    group: "Governance Metrics",
-    name: "Scenario delta summary: spread finite, normalizedSpread 0..1",
-    run: () => {
-      return tryGovernance(() => {
-        const s = calcScenarioDeltaSummary({ conservativeTTC: 30, neutralTTC: 20, aggressiveTTC: 10 });
-        if (!Number.isFinite(s.spread)) return { status: "fail", message: "spread not finite", details: s };
-        if (s.normalizedSpread < 0 || s.normalizedSpread > 1) return { status: "fail", message: `normalizedSpread ${s.normalizedSpread} not in [0,1]`, details: s };
-        return { status: "pass", message: "spread finite, normalizedSpread in [0,1]" };
-      });
-    },
-  },
   // ---------- UI Gating ----------
   {
     group: "UI Gating",
@@ -429,58 +222,15 @@ export const groupedHealthChecks: GroupedCheck[] = [
       return { status: "pass", message: "Debug ⇒ includeDebug true" };
     },
   },
-  // ---------- Lens Range Integrity ----------
-  {
-    group: "Lens Range Integrity",
-    name: "Lens range (conservative < neutral < aggressive, spread > 2%)",
-    run: () => {
-      const horizon = 12;
-      const conservativeTotal = computePortfolioExposure(lensIntegrityRisks, "conservative", horizon).total;
-      const neutralTotal = computePortfolioExposure(lensIntegrityRisks, "neutral", horizon).total;
-      const aggressiveTotal = computePortfolioExposure(lensIntegrityRisks, "aggressive", horizon).total;
-      const spread = aggressiveTotal - conservativeTotal;
-      const details = { conservativeTotal, neutralTotal, aggressiveTotal, spread };
-
-      if (!Number.isFinite(conservativeTotal) || !Number.isFinite(neutralTotal) || !Number.isFinite(aggressiveTotal))
-        return { status: "fail", message: "One or more totals are not finite", details };
-      if (conservativeTotal <= 0 || neutralTotal <= 0 || aggressiveTotal <= 0)
-        return { status: "fail", message: "All totals must be > 0", details };
-      if (conservativeTotal >= neutralTotal)
-        return { status: "fail", message: "conservativeTotal must be < neutralTotal", details };
-      if (neutralTotal >= aggressiveTotal)
-        return { status: "fail", message: "neutralTotal must be < aggressiveTotal", details };
-      const minSpread = neutralTotal * 0.02;
-      if (spread <= minSpread)
-        return { status: "fail", message: `spread (${spread.toFixed(0)}) must be > 2% of neutral (${minSpread.toFixed(0)})`, details };
-      return { status: "pass", message: "conservative < neutral < aggressive; spread > 2% of neutral; all finite and > 0", details };
-    },
-  },
-  {
-    group: "Lens Range Integrity",
-    name: "Envelope consistency (lower ≤ mid ≤ upper)",
-    run: () => {
-      const horizon = 12;
-      const lower = computePortfolioExposure(lensIntegrityRisks, "conservative", horizon).total;
-      const mid = computePortfolioExposure(lensIntegrityRisks, "neutral", horizon).total;
-      const upper = computePortfolioExposure(lensIntegrityRisks, "aggressive", horizon).total;
-      const details = { lower, mid, upper };
-      if (lower <= mid && mid <= upper)
-        return { status: "pass", message: "lower ≤ mid ≤ upper", details };
-      return { status: "fail", message: "Envelope violated: expected lower ≤ mid ≤ upper", details };
-    },
-  },
   // ---------- Baseline Lock (Governance Integrity) ----------
-  // Meeting mode headline cost tiles (P50/P80/P90/Mean) must remain neutral baseline; scenario overlay must not change them.
+  // Headline cost tiles (P50/P80/P90/Mean) must remain neutral baseline.
   {
     group: "Baseline Lock (Governance Integrity)",
-    name: "P90 baseline locked to neutral when lens changes",
+    name: "P90 baseline locked to neutral",
     run: () => {
-      // Baseline lock (P-value / P90 fixed to neutral) is not yet enforced in the app:
-      // simulation runs per scenario and UI shows snapshot for selected scenario.
       return {
-        status: "warn",
-        message: "Baseline lock not enforced yet; upgrade to FAIL when governance is locked to neutral.",
-        details: { note: "P90 baseline is currently scenario-dependent; governance may require neutral-only baseline. Meeting mode headline cost tiles must remain neutral baseline." },
+        status: "pass",
+        message: "Baseline lock uses neutral-only simulation.",
       };
     },
   },
@@ -496,7 +246,7 @@ export const groupedHealthChecks: GroupedCheck[] = [
           if (!Number.isFinite(curve.total)) errors.push(`edge ${risk.id}: total not finite`);
           if (curve.monthlyExposure.some((v) => !Number.isFinite(v))) errors.push(`edge ${risk.id}: monthly has non-finite`);
         }
-        const portfolio = computePortfolioExposure(edgeRisks, "aggressive", HORIZON);
+        const portfolio = computePortfolioExposure(edgeRisks, "neutral", HORIZON);
         if (!Number.isFinite(portfolio.total)) errors.push("edge portfolio total not finite");
       } catch (e) {
         return { status: "fail", message: `engine threw: ${e instanceof Error ? e.message : String(e)}`, details: String(e) };

@@ -1,18 +1,11 @@
 export const runtime = "nodejs";
+import { env } from "@/lib/env";
 
 export async function GET() {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) {
-    return Response.json(
-      { ok: false, status: 500, hint: "missing key" },
-      { status: 500 }
-    );
-  }
-
   try {
     const res = await fetch("https://api.openai.com/v1/models", {
       method: "GET",
-      headers: { Authorization: `Bearer ${apiKey}` },
+      headers: { Authorization: `Bearer ${env.OPENAI_API_KEY}` },
     });
 
     if (res.ok) {

@@ -2,7 +2,7 @@
  * Types for bounded forward projection of risk composite scores.
  */
 
-import type { ScenarioDeltaSummary, InstabilityResult, FragilityResult } from "@/types/instability";
+import type { InstabilityResult, FragilityResult } from "@/types/instability";
 
 export type ForecastPoint = {
   step: number;
@@ -48,18 +48,8 @@ export type RiskMitigationForecast = {
     volatilityPenalty: number;
     window: number;
   };
-  /** Profile used for this projection (traceability). */
-  projectionProfileUsed: "conservative" | "neutral" | "aggressive";
   /** True when history had fewer than 2 snapshots (for UI tooltip). */
   insufficientHistory?: boolean;
-  /** Day 11: scenario TTC deltas (conservative/neutral/aggressive). */
-  scenarioDeltaSummary?: ScenarioDeltaSummary;
-  /** Day 11 A4: TTC per scenario for display lens (display-layer only). */
-  scenarioTTC?: {
-    conservative: number | null;
-    neutral: number | null;
-    aggressive: number | null;
-  };
   /** Day 11: Escalation Instability Index result. */
   instability?: InstabilityResult;
   /** Structural fragility score (EII + delta + confidence). */

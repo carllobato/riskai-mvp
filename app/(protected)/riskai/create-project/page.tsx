@@ -3,7 +3,6 @@
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import { riskaiPath } from "@/lib/routes";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
@@ -62,32 +61,25 @@ function CreateProjectForm() {
       return;
     }
     setLoading(true);
-    const supabase = supabaseBrowserClient();
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      setMessage({ type: "error", text: userError?.message ?? "Not signed in." });
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ name, portfolioId: selectedPortfolioId }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      project?: { id: string };
+      error?: string;
+    };
+    if (!res.ok || !json.project) {
+      setMessage({
+        type: "error",
+        text: json.error?.trim() || (res.status === 401 ? "Not signed in." : "Could not create project."),
+      });
       setLoading(false);
       return;
     }
-    const { data: inserted, error } = await supabase
-      .from("projects")
-      .insert({
-        owner_user_id: user.id,
-        name,
-        portfolio_id: selectedPortfolioId,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      setMessage({ type: "error", text: error.message });
-      setLoading(false);
-      return;
-    }
-    const projectId = (inserted as { id: string } | null)?.id;
+    const projectId = json.project.id;
     if (projectId) {
       try {
         window.localStorage.setItem(ACTIVE_PROJECT_KEY, projectId);

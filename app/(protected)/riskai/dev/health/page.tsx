@@ -3,6 +3,7 @@
 import { Fragment, useCallback, useEffect, useState } from "react";
 import { runAllChecks, type CheckStatus, type CheckGroup } from "@/dev/healthChecks";
 import { buildIntrospectionPayload } from "@/dev/engineIntrospection";
+import { useOptionalPageHeaderExtras } from "@/contexts/PageHeaderExtrasContext";
 
 type CheckResultRow = {
   group: CheckGroup;
@@ -13,13 +14,11 @@ type CheckResultRow = {
 };
 
 const GROUPS: CheckGroup[] = [
-  "Scenario Math",
+  "Baseline Math",
   "Mitigation Logic",
   "Time Weighting",
   "Exposure Engine",
-  "Governance Metrics",
   "UI Gating",
-  "Lens Range Integrity",
   "Baseline Lock (Governance Integrity)",
 ];
 
@@ -54,7 +53,12 @@ function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) 
   );
 }
 
-export default function DevHealthPage() {
+export type DevHealthPageProps = {
+  projectId?: string | null;
+};
+
+export default function DevHealthPage({ projectId }: DevHealthPageProps = {}) {
+  const setPageHeaderExtras = useOptionalPageHeaderExtras()?.setExtras;
   const [runResult, setRunResult] = useState<{ results: CheckResultRow[]; durationMs: number } | null>(null);
   const [strictMode, setStrictMode] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -74,6 +78,12 @@ export default function DevHealthPage() {
   useEffect(() => {
     runChecks();
   }, [runChecks]);
+
+  useEffect(() => {
+    if (!projectId || !setPageHeaderExtras) return;
+    setPageHeaderExtras({ titleSuffix: "Engine Health", end: null });
+    return () => setPageHeaderExtras(null);
+  }, [projectId, setPageHeaderExtras]);
 
   if (!isDev) {
     return (
@@ -135,12 +145,7 @@ export default function DevHealthPage() {
   };
 
   return (
-    <main className="p-6 max-w-5xl">
-      <h1 className="text-2xl font-semibold m-0 mb-2">Engine Health</h1>
-      <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6">
-        Deterministic validation harness: scenario math, mitigation, time weighting, exposure engine, governance, UI gating, lens range integrity, baseline lock.
-      </p>
-
+    <main className="p-6 w-full">
       {results.length > 0 && (
         <>
           <div className={`rounded-lg border px-4 py-3 mb-4 ${bannerBg} ${bannerText}`}>
@@ -155,6 +160,9 @@ export default function DevHealthPage() {
               </span>
             </div>
           </div>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400 mb-6">
+            Deterministic validation harness: baseline math, mitigation, time weighting, exposure engine, UI gating, and baseline lock.
+          </p>
 
           {durationMs > PERF_WARN_MS && (
             <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 mb-4 text-amber-800 dark:text-amber-200 text-sm">

@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { getLoginPathForHost } from "@/lib/host";
+import { env } from "@/lib/env";
 
 function safeNextPath(raw: string | null): string {
   if (!raw || !raw.startsWith("/") || raw.startsWith("//")) {
@@ -41,14 +42,8 @@ export async function GET(request: NextRequest) {
     return authErrorRedirect(request, "missing_code");
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
-  if (!supabaseUrl || !anonKey) {
-    return authErrorRedirect(request, "config");
-  }
-
   const cookieStore = await cookies();
-  const supabase = createServerClient(supabaseUrl, anonKey, {
+  const supabase = createServerClient(env.NEXT_PUBLIC_SUPABASE_URL, env.NEXT_PUBLIC_SUPABASE_ANON_KEY, {
     cookies: {
       getAll() {
         return cookieStore.getAll();

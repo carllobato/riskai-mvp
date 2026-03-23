@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { requireUser } from "@/lib/auth/requireUser";
 import { IntelligentExtractDraftSchema } from "@/domain/risk/risk.schema";
 import { checkAiRateLimit, buildRateLimit429Payload } from "@/server/ai/rate-limit";
+import { env } from "@/lib/env";
 
 const EXTRACT_SYSTEM = `You are an expert risk analyst for a decision intelligence platform. Your job is to turn free-text risk descriptions into a fully populated, structured risk record. You must EXTRACT explicit values and INFER missing values from context. Never leave fields blank when reasonable inference can be made.
 
@@ -177,16 +178,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "documentText is required" }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured" },
-        { status: 500 }
-      );
-    }
-
     const openai = new OpenAI({
-      apiKey,
+      apiKey: env.OPENAI_API_KEY,
       fetch: globalThis.fetch,
       timeout: 60_000,
     });

@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
 import { PageHeader } from "@/components/PageHeader";
-import { ProjectPageHeaderExtrasProvider } from "@/contexts/ProjectPageHeaderContext";
+import { PageHeaderExtrasProvider } from "@/contexts/PageHeaderExtrasContext";
 import { ProjectPermissionsProvider } from "@/contexts/ProjectPermissionsContext";
 import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
@@ -35,7 +35,7 @@ export default async function ProjectLayout({
       // eslint-disable-next-line no-console
       console.log("[projects] access denied or not found", { projectId });
     }
-    redirect(riskaiPath("/project-not-found"));
+    redirect(riskaiPath("/not-found"));
   }
 
   const { project, permissions } = access;
@@ -67,7 +67,7 @@ export default async function ProjectLayout({
 
   return (
     <ProjectPermissionsProvider permissions={permissions}>
-      <ProjectPageHeaderExtrasProvider>
+      <PageHeaderExtrasProvider>
         <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
         <PageHeader
           projectId={projectId}
@@ -76,7 +76,7 @@ export default async function ProjectLayout({
           portfolioName={portfolioName}
         />
         {children}
-      </ProjectPageHeaderExtrasProvider>
+      </PageHeaderExtrasProvider>
     </ProjectPermissionsProvider>
   );
 }

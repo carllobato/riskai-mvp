@@ -4,7 +4,7 @@
 
 ### Request inputs
 - **POST body (optional):** `spendSteps` (default `[0, 25_000, 50_000, 100_000, 200_000]`), `budgetCap`, `benefitMetric` (default `"p80CostReduction"`).
-- **Data:** Risks and neutral snapshot loaded server-side via `getSimulationContext()`. Context is populated by the client when the store syncs after a simulation run (`POST /api/simulation-context`). `neutralSnapshot = scenarioSnapshots?.neutral ?? current` (same as run-data Cost Distribution source).
+- **Data:** Risks and neutral snapshot loaded server-side via `getSimulationContext()`. Context is populated by the client when the store syncs after a simulation run (`POST /api/simulation-context`). `neutralSnapshot = current` (same as run-data Cost Distribution source).
 
 ### Engine
 - **Module:** `@/engine/mitigationOptimisation`
@@ -50,11 +50,11 @@
 
 | Metric | Source | Formula | Validation result |
 |--------|--------|---------|-------------------|
-| **Monthly exposure table** | `selectedResult.monthlyTotal` | `computePortfolioExposure(risks, selectedScenarioId, horizonMonths)` → `portfolio.monthlyTotal`; each cell = sum of risk curves’ `monthlyExposure[m]` for that month | **VALID** — Real engine output. |
+| **Monthly exposure table** | `selectedResult.monthlyTotal` | `computePortfolioExposure(risks, "neutral", horizonMonths)` → `portfolio.monthlyTotal`; each cell = sum of risk curves’ `monthlyExposure[m]` for that month | **VALID** — Real engine output. |
 | **Peak exposure period** | Page-derived from `selectedResult.monthlyTotal` | `peakIdx = argmax(monthlyTotal)`; display “Month {peakIdx + 1}” (1-based) | **VALID** — Matches spec. |
 | **Peak value** | Same array | `peakVal = monthlyTotal[peakIdx]`; displayed with `formatCost(peakVal)` | **VALID** — Matches table. |
 
-**Units:** Forward exposure curves are **cost only** (`baseCostImpact` × probability × time weight × mitigation). So “Exposure over time” = **cost exposure** by month. Label should state “cost” to align with Scenario Exposure and Mitigation Results.
+**Units:** Forward exposure curves are **cost only** (`baseCostImpact` × probability × time weight × mitigation). So “Exposure over time” = **cost exposure** by month. Label should state “cost” to align with Baseline Exposure and Mitigation Results.
 
 ### Risk trajectory engine (pressure / TTC / early warning)
 
@@ -65,11 +65,11 @@
 | **Projected critical** | Same | `forwardPressure.projectedCriticalCount` = count of risks with `baselineForecast.projectedCritical === true` (current band ≠ critical but projection crosses critical in horizon) | **VALID** — Count. |
 | **Escalating** | `momentumSummary` | `portfolioMomentumSummary(risks).escalatingCount`; from `risk.logic`: count where `detectTrajectoryState(risk) === "ESCALATING"` | **VALID** — Momentum layer. |
 | **Early warning** | `riskForecastsById` | Count of risks where `riskForecastsById[r.id].earlyWarning === true`; `earlyWarning` from `computeEarlyWarning({ eiiIndex, timeToCritical, confidence })` (EII ≥ 60 with non-imminent TTC, or EII ≥ 50 and confidence &lt; 0.45) | **VALID** — Instability/EII layer. |
-| **Median TTC** | `scenarioComparison` | `computeScenarioComparison(risks, getLatestSnapshot, getRiskHistory)` → per profile `medianTtC = median(riskForecastsById[*].baselineForecast.timeToCritical)`; page uses `scenarioComparison[selectedScenarioId].medianTtC` | **VALID** — Scenario comparison layer. |
+| **Median TTC** | Risk forecasts (`riskForecastsById`) | Median of `riskForecastsById[*].baselineForecast.timeToCritical` on neutral model | **VALID** — Neutral baseline trajectory layer. |
 
 ### Boundary
 - **Exposure engine:** monthly totals, peak period, peak value (all **cost** exposure from `computePortfolioExposure`).
-- **Risk trajectory engine:** pressure, projected critical, escalating, early warning, median TTC (from risk forecast / momentum / scenario comparison).
+- **Risk trajectory engine:** pressure, projected critical, escalating, early warning, median TTC (from risk forecast / momentum).
 - The page groups them as “Exposure over time” + peak vs “Pressure and trajectory”. Adding a short subheading or sentence that exposure is from the forward exposure engine and pressure/trajectory from the risk forecast engine would make the boundary explicit.
 
 ### Rounding
@@ -99,7 +99,7 @@ No incorrect arithmetic or wrong data sources; only clarity and labelling.
    - Optionally: Clarify that “Benefit per $” is for the first spend band; “Best ROI band” may be a different band.
 
 2. **Forecasting**
-   - Under “Exposure over time”, add “(cost exposure)” or “Cost exposure by month” so units match Scenario Exposure.
+   - Under “Exposure over time”, add “(cost exposure)” or “Cost exposure by month” so units match Baseline Exposure.
 
 3. **Forecasting boundary**
    - Add a one-line note before “Pressure and trajectory”: e.g. “The metrics below are from the risk forecast / trajectory engine (composite score projection, EII, TTC), not from the exposure engine.”
@@ -115,4 +115,4 @@ No incorrect arithmetic or wrong data sources; only clarity and labelling.
 ## 5. Final confidence rating
 
 - **Mitigation Leverage:** **High** — Baseline is Monte Carlo P80; benefit and ROI formulas are well-defined and implemented as documented; cost-only scope is clear; ranking and bands are consistent with engine. Only minor label/copy improvements recommended.
-- **Forecasting:** **High** — Exposure block is from forward exposure engine; peak is correct; pressure/trajectory block is from risk forecast/momentum/scenario comparison. Units (cost) and engine boundary can be made explicit with short copy edits.
+- **Forecasting:** **High** — Exposure block is from forward exposure engine; peak is correct; pressure/trajectory block is from risk forecast/momentum. Units (cost) and engine boundary can be made explicit with short copy edits.

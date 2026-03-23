@@ -88,6 +88,7 @@ export default function RiskMatrixPage() {
   const router = useRouter();
   const { uiMode } = useProjectionScenario();
   const { risks } = useRiskRegister();
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const activeRisks = useMemo(
     () => risks.filter((r) => !isRiskStatusArchived(r.status)),
     [risks]
@@ -100,6 +101,18 @@ export default function RiskMatrixPage() {
   useEffect(() => {
     if (uiMode === "MVP") router.replace("/");
   }, [uiMode, router]);
+
+  useEffect(() => {
+    try {
+      const raw =
+        typeof window !== "undefined" ? window.localStorage.getItem("activeProjectId") : null;
+      const id =
+        typeof raw === "string" && raw !== "undefined" && raw.trim().length > 0 ? raw.trim() : null;
+      setActiveProjectId(id);
+    } catch {
+      setActiveProjectId(null);
+    }
+  }, []);
 
   const { plottableCount, unplottableCount, risksByCell } = useMemo(() => {
     if (uiMode === "MVP") {
@@ -279,10 +292,15 @@ export default function RiskMatrixPage() {
                       {visibleRisks.map((risk) => {
                         const r = mode === "Inherent" ? risk.inherentRating : risk.residualRating;
                         const s = LEVEL_STYLES[r.level];
+                        const riskHref = activeProjectId
+                          ? riskaiPath(
+                              `/projects/${activeProjectId}/risks?focusRiskId=${encodeURIComponent(risk.id)}`
+                            )
+                          : riskaiPath("/projects");
                         return (
                           <Link
                             key={risk.id}
-                            href={`${riskaiPath("/risk-register")}?focusRiskId=${encodeURIComponent(risk.id)}`}
+                            href={riskHref}
                             className="shrink-0 truncate rounded px-1.5 py-0.5 text-[10px] font-medium no-underline transition-opacity hover:opacity-90"
                             style={{
                               backgroundColor: s.bg,

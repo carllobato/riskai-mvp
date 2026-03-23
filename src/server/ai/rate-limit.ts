@@ -1,5 +1,6 @@
 import { Ratelimit } from "@upstash/ratelimit";
 import { Redis } from "@upstash/redis";
+import { env } from "@/lib/env";
 
 export type AiRateLimitResult =
   | {
@@ -41,14 +42,8 @@ export function buildRateLimit429Payload(rate: {
 
 const redis = Redis.fromEnv();
 
-const limitMax = typeof process.env.AI_RATE_LIMIT_MAX !== "undefined"
-  ? parseInt(process.env.AI_RATE_LIMIT_MAX, 10)
-  : 10;
-const limitWindowSec = typeof process.env.AI_RATE_LIMIT_WINDOW_SEC !== "undefined"
-  ? parseInt(process.env.AI_RATE_LIMIT_WINDOW_SEC, 10)
-  : 600;
-const safeLimit = Number.isFinite(limitMax) && limitMax > 0 ? limitMax : 10;
-const safeWindow = Number.isFinite(limitWindowSec) && limitWindowSec > 0 ? limitWindowSec : 600;
+const safeLimit = env.AI_RATE_LIMIT_MAX ?? 10;
+const safeWindow = env.AI_RATE_LIMIT_WINDOW_SEC ?? 600;
 
 const aiRatelimit = new Ratelimit({
   redis,

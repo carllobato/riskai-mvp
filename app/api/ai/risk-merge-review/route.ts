@@ -9,6 +9,7 @@ import type { Risk } from "@/domain/risk/risk.schema";
 import { probabilityScaleToDisplayPct } from "@/domain/risk/risk.logic";
 import { RiskMergeReviewResponseSchema } from "@/domain/risk/risk-merge.types";
 import { checkAiRateLimit, buildRateLimit429Payload } from "@/server/ai/rate-limit";
+import { env } from "@/lib/env";
 
 const MIN_MERGE_CONFIDENCE = 0.65;
 
@@ -17,7 +18,7 @@ Your task is to:
 Identify materially similar risks
 Classify the relationship
 Propose a mathematically defensible merged draft
-You must prioritise quantitative integrity over aggressive consolidation.
+You must prioritise quantitative integrity over over-merged consolidation.
 
 1. Similarity Assessment (Root Cause Based)
 Only consider risks similar if they share:
@@ -55,7 +56,7 @@ You must NOT inflate or dilute exposure.
 Follow the rules below exactly.
 A) duplicate
 Probability:
-• Use the higher value (conservative)
+• Use the higher value (safety-first)
 Cost:
 • DO NOT sum
 • Use the higher ML value
@@ -65,7 +66,7 @@ Time:
 • Use the higher ML value
 B) overlap
 Probability:
-• Use the higher value or slightly conservative refinement
+• Use the higher value or slightly safety-first refinement
 Cost:
 • Do NOT mechanically sum
 • Choose a defensible consolidated ML
@@ -270,16 +271,8 @@ export async function POST(req: Request) {
       if (parsed.success) risks.push(parsed.data);
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json(
-        { error: "OPENAI_API_KEY is not configured" },
-        { status: 500 }
-      );
-    }
-
     const openai = new OpenAI({
-      apiKey,
+      apiKey: env.OPENAI_API_KEY,
       fetch: globalThis.fetch,
       timeout: 90_000,
     });

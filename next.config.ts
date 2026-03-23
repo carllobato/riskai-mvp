@@ -34,16 +34,6 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: "/analysis/:path*",
-        destination: "/riskai/analysis/:path*",
-        permanent: true,
-      },
-      {
-        source: "/analysis",
-        destination: "/riskai/analysis",
-        permanent: true,
-      },
-      {
         source: "/matrix/:path*",
         destination: "/riskai/matrix/:path*",
         permanent: true,
@@ -79,63 +69,33 @@ const nextConfig: NextConfig = {
         permanent: true,
       },
       {
-        source: "/outputs/:path*",
-        destination: "/riskai/outputs/:path*",
-        permanent: true,
-      },
-      {
-        source: "/outputs",
-        destination: "/riskai/outputs",
-        permanent: true,
-      },
-      {
         source: "/run-data/:path*",
-        destination: "/riskai/run-data/:path*",
+        destination: "/riskai/dev/run-data/:path*",
         permanent: true,
       },
       {
         source: "/run-data",
-        destination: "/riskai/run-data",
+        destination: "/riskai/dev/run-data",
         permanent: true,
       },
       {
-        source: "/risk-register/:path*",
-        destination: "/riskai/risk-register/:path*",
+        source: "/riskai/run-data/:path*",
+        destination: "/riskai/dev/run-data/:path*",
         permanent: true,
       },
       {
-        source: "/risk-register",
-        destination: "/riskai/risk-register",
-        permanent: true,
-      },
-      {
-        source: "/project/:path*",
-        destination: "/riskai/project/:path*",
-        permanent: true,
-      },
-      {
-        source: "/project",
-        destination: "/riskai/project",
+        source: "/riskai/run-data",
+        destination: "/riskai/dev/run-data",
         permanent: true,
       },
       {
         source: "/project-not-found/:path*",
-        destination: "/riskai/project-not-found/:path*",
+        destination: "/riskai/not-found/:path*",
         permanent: true,
       },
       {
         source: "/project-not-found",
-        destination: "/riskai/project-not-found",
-        permanent: true,
-      },
-      {
-        source: "/day0/:path*",
-        destination: "/riskai/day0/:path*",
-        permanent: true,
-      },
-      {
-        source: "/day0",
-        destination: "/riskai/day0",
+        destination: "/riskai/not-found",
         permanent: true,
       },
       {

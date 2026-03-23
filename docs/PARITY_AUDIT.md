@@ -2,7 +2,7 @@
 
 ## Methodology (parity mode)
 
-- **Snapshot**: Use **neutral** only (`state.simulation.neutral` for summary percentiles; `state.simulation.scenarioSnapshots?.neutral ?? state.simulation.current` for legacy snapshot).
+- **Snapshot**: Use **neutral** only (`state.simulation.neutral` for summary percentiles; `state.simulation.current` for snapshot values).
 - **Risks**: Exclude **Closed** risks from all calculations.
 - **Inputs**: Use **post-mitigation** when present, else **pre-mitigation** (per risk, per field).
 - **Percentiles**: Must come from **summary.pXXCost** / **summary.pXXTime** (Monte Carlo combined distribution), not mean/expected.
@@ -16,7 +16,7 @@
 
 | Section / Tile label | Field | Selector / path | Source snapshot | Formatter |
 |----------------------|--------|------------------|------------------|-----------|
-| Project Cost (Baseline – Neutral) · P20 | p20Cost | `baselineSummaryNeutral.p20Cost` ← `snapshotNeutral.p20Cost` | neutral (`scenarioSnapshots?.neutral ?? current`) | `formatCost` (USD) |
+| Project Cost (Baseline – Neutral) · P20 | p20Cost | `baselineSummaryNeutral.p20Cost` ← `snapshotNeutral.p20Cost` | neutral (`current`) | `formatCost` (USD) |
 | Project Cost (Baseline – Neutral) · P50 | p50Cost | `baselineSummaryNeutral.p50Cost` ← `snapshotNeutral.p50Cost` | neutral | `formatCost` (USD) |
 | Project Cost (Baseline – Neutral) · P80 | p80Cost | `baselineSummaryNeutral.p80Cost` ← `snapshotNeutral.p80Cost` | neutral | `formatCost` (USD) |
 | Project Cost (Baseline – Neutral) · P90 | p90Cost | `baselineSummaryNeutral.p90Cost` ← `snapshotNeutral.p90Cost` | neutral | `formatCost` (USD) |
@@ -25,9 +25,9 @@
 | Programme (Baseline – Neutral) · P50 | p50Time | `neutralMc.summary.p50Time` | `state.simulation.neutral.summary` | `formatDurationDays` |
 | Programme (Baseline – Neutral) · P80 | p80Time | `neutralMc.summary.p80Time` | `state.simulation.neutral.summary` | `formatDurationDays` |
 | Programme (Baseline – Neutral) · P90 | p90Time | `neutralMc.summary.p90Time` | `state.simulation.neutral.summary` | `formatDurationDays` |
-| Scenario Exposure (tiles/chart) | total, monthlyTotal, topDrivers | `forwardExposure.results[selectedScenarioId]` | **selected scenario** (intentional: not parity) | `formatCost` (USD) |
+| Baseline Exposure (tiles/chart) | total, monthlyTotal, topDrivers | `forwardExposure.result` | **neutral baseline** | `formatCost` (USD) |
 
-**Note**: In MVP mode, Project Cost and Programme use **neutral** only; Scenario Exposure uses the **selected scenario** and is explicitly separate.
+**Note**: Project Cost, Programme, and Baseline Exposure all use the neutral baseline.
 
 ### Analysis page (`app/analysis/page.tsx`)
 
@@ -51,7 +51,7 @@
 
 ## Findings and fixes
 
-1. **Cost percentiles source**: Both pages now use the same lineage. Snapshot is built from `buildSimulationSnapshotFromResult(mcResult, …)`, which sets `p20Cost`, `p50Cost`, `p80Cost`, `p90Cost` from `result.summary`. So `scenarioSnapshots.neutral` and `state.simulation.neutral.summary` are in sync for a given run.
+1. **Cost percentiles source**: Both pages now use the same lineage. Snapshot is built from `buildSimulationSnapshotFromResult(mcResult, …)`, which sets `p20Cost`, `p50Cost`, `p80Cost`, `p90Cost` from `result.summary`. `state.simulation.current` and `state.simulation.neutral.summary` are in sync for a given run.
 2. **Schedule percentiles**: Analysis already used `neutral.summary.pXXTime`. Outputs MVP did not show schedule; **Programme (Baseline – Neutral)** row was added to Outputs using `state.simulation.neutral.summary` (P20/P50/P80/P90) so both pages show the same programme values.
 3. **P20 cost**: Added to Monte Carlo `summary` and `SimulationSnapshot`; both pages now show P20 cost in parity mode.
 4. **P90 cost on Analysis**: Analysis now has a **Baseline P90 (Neutral)** tile; cost tiles are P20/P50/P80/P90 + Mean on both pages.
@@ -62,8 +62,7 @@
 
 ## Intentional differences (labelled)
 
-- **Scenario Exposure (Outputs)**: Uses **selected scenario** (conservative / neutral / aggressive). Labelled as "Scenario Overlay — baseline cost remains Neutral" when not neutral. Not parity with Analysis; Analysis shows only neutral.
-- **Forward Exposure / Top drivers**: Scenario-specific; no parity requirement.
+- **Forward Exposure / Top drivers**: Neutral baseline only.
 
 ---
 

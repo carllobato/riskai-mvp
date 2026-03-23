@@ -2,16 +2,11 @@
  * Adapter: per-risk forward projection signals for UI (no forecast recomputation).
  * Uses existing riskForecastsById from store; returns defaults when data is missing.
  * Includes display normalization for already-critical risks.
- * Day 11 A4: optional scenarioName for lens display (scenario-specific TTC).
  */
 
 import type { RiskMitigationForecast } from "@/domain/risk/risk-forecast.types";
 import type { EscalationBand } from "@/config/riskThresholds";
 import { getBand } from "@/config/riskThresholds";
-import {
-  type ScenarioName,
-  getTTCForScenario,
-} from "@/lib/instability/selectScenarioLens";
 
 /**
  * True if the risk is already in the critical band (score >= 80 or band === 'critical').
@@ -71,8 +66,6 @@ export type ForwardSignals = {
   confidenceBand?: "low" | "medium" | "high";
   /** True when history had fewer than 2 snapshots. */
   insufficientHistory?: boolean;
-  /** Day 11 A4: true when scenario-specific metric fell back to Neutral (missing scenario output). */
-  fallbackToNeutral?: boolean;
 };
 
 const DEFAULTS: ForwardSignals = {
@@ -96,34 +89,17 @@ function projectedPeakBandFromForecast(forecast: RiskMitigationForecast): Escala
 /**
  * Returns forward projection signals for a risk from precomputed forecasts.
  * If no forecast exists for the risk, returns hasForecast=false and safe defaults.
- * When scenarioName is provided (Day 11 A4 lens), uses scenarioTTC for that scenario;
- * if that scenario's output is missing, falls back to Neutral, then baseline.
  */
 export function getForwardSignals(
   riskId: string,
-  riskForecastsById: Record<string, RiskMitigationForecast>,
-  scenarioName?: ScenarioName
+  riskForecastsById: Record<string, RiskMitigationForecast>
 ): ForwardSignals {
   const forecast = riskForecastsById[riskId];
   if (!forecast) return DEFAULTS;
 
   const baseline = forecast.baselineForecast;
-  let timeToCritical = baseline.timeToCritical ?? null;
-  let projectedCritical = baseline.projectedCritical ?? false;
-  let fallbackToNeutral = false;
-
-  if (scenarioName && forecast.scenarioTTC) {
-    const block = getTTCForScenario(forecast.scenarioTTC, scenarioName);
-    const neutralBlock = getTTCForScenario(forecast.scenarioTTC, "Neutral");
-    fallbackToNeutral = block.fallbackToNeutral;
-    const ttc: number | null = !block.fallbackToNeutral
-      ? block.ttc
-      : !neutralBlock.fallbackToNeutral
-        ? neutralBlock.ttc
-        : null;
-    timeToCritical = ttc;
-    projectedCritical = ttc !== null;
-  }
+  const timeToCritical = baseline.timeToCritical ?? null;
+  const projectedCritical = baseline.projectedCritical ?? false;
 
   return {
     projectedCritical,
@@ -134,6 +110,5 @@ export function getForwardSignals(
     forecastConfidence: forecast.forecastConfidence,
     confidenceBand: forecast.confidenceBand,
     insufficientHistory: forecast.insufficientHistory,
-    ...(fallbackToNeutral && { fallbackToNeutral: true }),
   };
 }

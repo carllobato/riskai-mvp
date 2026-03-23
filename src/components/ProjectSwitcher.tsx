@@ -3,11 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { fetchProjectsClient, type ProjectRow } from "@/lib/projects";
-import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import { riskaiPath } from "@/lib/routes";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
-const SUBPAGES = ["project-home", "risks", "run-data", "simulation"] as const;
+const SUBPAGES = ["project-home", "risks", "run-data", "simulation", "health"] as const;
 type Subpage = (typeof SUBPAGES)[number];
 
 function parseProjectRoute(pathname: string): { projectId: string; subpage: Subpage } | null {
@@ -130,28 +129,22 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
         return;
       }
       setNewProjectLoading(true);
-      const supabase = supabaseBrowserClient();
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
-      if (userError || !user) {
-        setNewProjectError("Not signed in.");
+      const res = await fetch("/api/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ name }),
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        project?: { id: string };
+        error?: string;
+      };
+      if (!res.ok || !json.project) {
+        setNewProjectError(json.error?.trim() || (res.status === 401 ? "Not signed in." : "Could not create project."));
         setNewProjectLoading(false);
         return;
       }
-      const { data: inserted, error } = await supabase
-        .from("projects")
-        .insert({ owner_user_id: user.id, name })
-        .select("id")
-        .single();
-
-      if (error) {
-        setNewProjectError(error.message);
-        setNewProjectLoading(false);
-        return;
-      }
-      const newId = (inserted as { id: string } | null)?.id;
+      const newId = json.project.id;
       if (!newId) {
         setNewProjectError("Project created but could not get id.");
         setNewProjectLoading(false);

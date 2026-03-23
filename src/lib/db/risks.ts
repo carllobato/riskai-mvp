@@ -1,9 +1,7 @@
-import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { RiskRow } from "@/types/risk";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { buildRating } from "@/domain/risk/risk.logic";
 import { costToConsequenceScale, timeDaysToConsequenceScale } from "@/domain/risk/risk.logic";
-import { RISK_STATUS_ARCHIVED_LOOKUP } from "@/domain/risk/riskFieldSemantics";
 
 /** Default project UUID used when no projectId is provided (legacy single-project flow). */
 export const DEFAULT_PROJECT_ID = "a8995152-7065-4f79-ab8a-015b6ab0a3ec";
@@ -142,18 +140,17 @@ function riskToRow(risk: Risk, projectId: string): RiskInsertRow {
  */
 export async function listRisks(projectId?: string): Promise<Risk[]> {
   const pid = projectId ?? DEFAULT_PROJECT_ID;
-  const supabase = supabaseBrowserClient();
-  const { data, error } = await supabase
-    .from("risks")
-    .select(RISK_DB_SELECT_COLUMNS)
-    .eq("project_id", pid)
-    .order("created_at", { ascending: true });
-
-  if (error) {
-    console.error("[risks] listRisks", error);
-    throw new Error(error.message ?? "Failed to load risks from database");
+  const res = await fetch(`/api/projects/${encodeURIComponent(pid)}/risks`, {
+    method: "GET",
+    cache: "no-store",
+  });
+  const json = (await res.json().catch(() => ({}))) as { risks?: RiskRow[]; error?: string };
+  if (!res.ok) {
+    const message = json.error?.trim() || `Failed to load risks (${res.status})`;
+    console.error("[risks] listRisks", message);
+    throw new Error(message);
   }
-  const rows = (data ?? []) as RiskRow[];
+  const rows = (json.risks ?? []) as RiskRow[];
   if (typeof console !== "undefined" && console.log) {
     console.log("[risks] listRisks select fields", RISK_DB_SELECT_COLUMNS);
     if (rows[0]) console.log("[risks] listRisks sample row keys", Object.keys(rows[0]).sort().join(","));
@@ -163,99 +160,31 @@ export async function listRisks(projectId?: string): Promise<Risk[]> {
 
 /**
  * Sync risks for the active project: upsert the given list; any DB rows for the project not in
- * the list are soft-deleted (status set to {@link RISK_STATUS_ARCHIVED_LOOKUP}), never hard-deleted.
+ * the list are soft-deleted (archived) by the server route, never hard-deleted.
  * Returns the saved risks (with DB-assigned ids for rows that had non-UUID ids) so the
  * client can merge local-only fields by position and avoid losing data for newly created risks.
  * @param projectId - Optional project UUID; when omitted uses default (legacy single-project).
  */
 export async function replaceRisks(risks: Risk[], projectId?: string): Promise<Risk[]> {
   const pid = projectId ?? DEFAULT_PROJECT_ID;
-  const supabase = supabaseBrowserClient();
-
-  const { data: existingRows, error: listErr } = await supabase
-    .from("risks")
-    .select("id")
-    .eq("project_id", pid);
-
-  if (listErr) {
-    console.error("[risks] replaceRisks list existing", listErr);
-    throw new Error(listErr.message ?? "Failed to list risks before save");
-  }
-
   const rows = risks.map((r) => riskToRow(r, pid));
-  const clientIds = new Set(rows.map((r) => r.id));
-  const existingIds = ((existingRows ?? []) as { id: string }[]).map((r) => r.id);
-  const orphanIds = existingIds.filter((id) => !clientIds.has(id));
-
-  if (rows.length > 0) {
-    if (typeof console !== "undefined" && console.log) {
-      console.log("[risks] replaceRisks upsert payload (per row keys)", Object.keys(rows[0] ?? {}).sort().join(","));
-      console.log("[risks] replaceRisks upsert payload sample", JSON.stringify(rows[0] ?? null));
-    }
-
-    const { data: upsertedRows, error: upsertError } = await supabase
-      .from("risks")
-      .upsert(rows, { onConflict: "id" })
-      .select(RISK_DB_SELECT_COLUMNS);
-
-    if (upsertError) {
-      console.error("[risks] replaceRisks upsert", upsertError);
-      throw new Error(upsertError.message ?? "Failed to save risks");
-    }
-
-    const upserted = (upsertedRows ?? []) as RiskRow[];
-    if (upserted.length !== rows.length) {
-      throw new Error(
-        `Failed to save risks: expected ${rows.length} rows back, got ${upserted.length}. Some rows may have been rejected by constraints.`
-      );
-    }
-    const byId = new Map(upserted.map((r) => [r.id, r]));
-    const ordered = rows.map((row) => {
-      const matched = byId.get(row.id);
-      if (!matched) {
-        throw new Error(`Failed to save risks: upsert response missing row for id ${row.id}.`);
-      }
-      return rowToRisk(matched);
-    });
-
-    if (orphanIds.length > 0) {
-      const now = new Date().toISOString();
-      const { error: archErr } = await supabase
-        .from("risks")
-        .update({ status: RISK_STATUS_ARCHIVED_LOOKUP, updated_at: now })
-        .in("id", orphanIds)
-        .eq("project_id", pid);
-
-      if (archErr) {
-        console.error("[risks] replaceRisks archive orphans", archErr);
-        throw new Error(archErr.message ?? "Failed to archive removed risks");
-      }
-      console.log("[risks] replaceRisks archived orphans (not in client payload)", {
-        count: orphanIds.length,
-        projectId: pid,
-      });
-    }
-
-    return ordered;
+  if (typeof console !== "undefined" && console.log && rows.length > 0) {
+    console.log("[risks] replaceRisks upsert payload (per row keys)", Object.keys(rows[0] ?? {}).sort().join(","));
+    console.log("[risks] replaceRisks upsert payload sample", JSON.stringify(rows[0] ?? null));
   }
 
-  if (orphanIds.length > 0) {
-    const now = new Date().toISOString();
-    const { error: archErr } = await supabase
-      .from("risks")
-      .update({ status: RISK_STATUS_ARCHIVED_LOOKUP, updated_at: now })
-      .in("id", orphanIds)
-      .eq("project_id", pid);
-
-    if (archErr) {
-      console.error("[risks] replaceRisks archive all (empty payload)", archErr);
-      throw new Error(archErr.message ?? "Failed to archive risks");
-    }
-    console.log("[risks] replaceRisks empty client list: archived all project risks", {
-      count: orphanIds.length,
-      projectId: pid,
-    });
+  const res = await fetch(`/api/projects/${encodeURIComponent(pid)}/risks`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ risks: rows }),
+  });
+  const json = (await res.json().catch(() => ({}))) as { risks?: RiskRow[]; error?: string };
+  if (!res.ok) {
+    const message = json.error?.trim() || `Failed to save risks (${res.status})`;
+    console.error("[risks] replaceRisks", message);
+    throw new Error(message);
   }
-
-  return [];
+  const savedRows = (json.risks ?? []) as RiskRow[];
+  return savedRows.map(rowToRisk);
 }

@@ -5,13 +5,20 @@
 
 import { computeRiskExposureCurve } from "@/engine/forwardExposure/curve";
 import { computePortfolioExposure } from "@/engine/forwardExposure/portfolio";
-import { SCENARIO_MULTIPLIERS } from "@/engine/forwardExposure/scenario";
 import { baselineRisks } from "@/dev/fixtures";
 
 const HORIZON = 12;
+const BASELINE_MULTIPLIERS = {
+  neutral: {
+    probability: 1,
+    impact: 1,
+    persistence: 1,
+    sensitivity: 1,
+  },
+} as const;
 
 export type IntrospectionPayload = {
-  scenarioMultipliers: typeof SCENARIO_MULTIPLIERS;
+  baselineMultipliers: typeof BASELINE_MULTIPLIERS;
   sampleRiskId: string;
   sampleCurve: {
     rawParams: unknown;
@@ -40,7 +47,7 @@ export function buildIntrospectionPayload(): IntrospectionPayload {
   const debug = curve.debug as Record<string, unknown> | undefined;
 
   return {
-    scenarioMultipliers: SCENARIO_MULTIPLIERS,
+    baselineMultipliers: BASELINE_MULTIPLIERS,
     sampleRiskId: risk.id,
     sampleCurve: {
       rawParams: debug?.rawParams,
