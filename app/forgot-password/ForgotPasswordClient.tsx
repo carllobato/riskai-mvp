@@ -31,7 +31,7 @@ export function ForgotPasswordClient() {
     try {
       const origin = window.location.origin;
       const { error: err } = await supabaseBrowserClient().auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${origin}/login`,
+        redirectTo: `${origin}/`,
       });
       if (err) {
         setError(err.message);

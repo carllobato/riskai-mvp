@@ -6,36 +6,25 @@ import { usePathname } from "next/navigation";
 import { useTheme } from "@/context/ThemeContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
+import {
+  DASHBOARD_PATH,
+  portfolioIdFromAppPathname,
+  projectIdFromAppPathname,
+  riskaiPath,
+  RISKAI_BASE,
+} from "@/lib/routes";
 
-const LOGIN_URL = "/login?next=" + encodeURIComponent("/");
+const LOGIN_URL = "/?next=" + encodeURIComponent(DASHBOARD_PATH);
 
 /** True if pathname is a known app route (not a 404). */
 function isKnownAppRoute(pathname: string | null): boolean {
   if (!pathname || typeof pathname !== "string") return false;
-  if (pathname === "/") return true;
+  if (pathname === "/" || pathname.startsWith("/privacy") || pathname.startsWith("/terms")) return true;
+  if (pathname === DASHBOARD_PATH || pathname.startsWith(`${DASHBOARD_PATH}/`)) return true;
+  if (pathname === RISKAI_BASE || pathname.startsWith(`${RISKAI_BASE}/`)) return true;
   if (pathname.startsWith("/login")) return true;
-  if (pathname.startsWith("/projects")) return true;
-  if (pathname.startsWith("/portfolios")) return true;
-  if (pathname.startsWith("/create-project")) return true;
-  if (pathname.startsWith("/project-not-found")) return true;
   if (pathname === "/404") return true;
-  if (pathname === "/settings") return true;
-  if (pathname.startsWith("/dev")) return true;
   return false;
-}
-
-function getPortfolioIdFromPathname(pathname: string | null): string | null {
-  if (!pathname || !pathname.startsWith("/portfolios/")) return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "portfolios" || !segments[1]) return null;
-  return segments[1];
-}
-
-function getProjectIdFromPathname(pathname: string | null): string | null {
-  if (!pathname || !pathname.startsWith("/projects/")) return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "projects" || !segments[1]) return null;
-  return segments[1];
 }
 
 const CogIcon = () => (
@@ -134,21 +123,21 @@ const DashboardIcon = () => (
 );
 
 const GLOBAL_NAV: { href: string; label: string; icon: "home" }[] = [
-  { href: "/", label: "Home", icon: "home" },
+  { href: DASHBOARD_PATH, label: "Home", icon: "home" },
 ];
 
 const PORTFOLIO_NAV = (portfolioId: string) => [
-  { href: `/portfolios/${portfolioId}`, label: "Portfolio Overview", icon: "portfolio" as const },
-  { href: `/portfolios/${portfolioId}/projects`, label: "Projects", icon: "projects" as const },
-  { href: `/portfolios/${portfolioId}/settings`, label: "Portfolio Settings", icon: "cog" as const },
+  { href: riskaiPath(`/portfolios/${portfolioId}`), label: "Portfolio Overview", icon: "portfolio" as const },
+  { href: riskaiPath(`/portfolios/${portfolioId}/projects`), label: "Projects", icon: "projects" as const },
+  { href: riskaiPath(`/portfolios/${portfolioId}/settings`), label: "Portfolio Settings", icon: "cog" as const },
 ];
 
 const PROJECT_NAV = (projectId: string) => [
-  { href: `/projects/${projectId}`, label: "Project Overview", icon: "dashboard" as const },
-  { href: `/projects/${projectId}/risks`, label: "Risks", icon: "risk" as const },
-  { href: `/projects/${projectId}/simulation`, label: "Simulation", icon: "simulation" as const },
-  { href: `/projects/${projectId}/run-data`, label: "Run Data", icon: "file" as const },
-  { href: `/projects/${projectId}/settings`, label: "Project Settings", icon: "cog" as const },
+  { href: riskaiPath(`/projects/${projectId}`), label: "Project Overview", icon: "dashboard" as const },
+  { href: riskaiPath(`/projects/${projectId}/risks`), label: "Risks", icon: "risk" as const },
+  { href: riskaiPath(`/projects/${projectId}/simulation`), label: "Simulation", icon: "simulation" as const },
+  { href: riskaiPath(`/projects/${projectId}/run-data`), label: "Run Data", icon: "file" as const },
+  { href: riskaiPath(`/projects/${projectId}/settings`), label: "Project Settings", icon: "cog" as const },
 ];
 
 const linkClassName = (isActive: boolean) =>
@@ -190,10 +179,10 @@ export function AppSidebar() {
 
   const isLoggedIn = user !== null && user !== "loading";
   const useFullPageLinks = !isKnownAppRoute(pathname);
-  const portfolioIdFromUrl = getPortfolioIdFromPathname(pathname);
-  const projectId = getProjectIdFromPathname(pathname);
+  const portfolioIdFromUrl = portfolioIdFromAppPathname(pathname);
+  const projectId = projectIdFromAppPathname(pathname);
   const [portfolioIdForProject, setPortfolioIdForProject] = useState<string | null>(null);
-  const homeHref = isLoggedIn ? "/" : LOGIN_URL;
+  const homeHref = isLoggedIn ? DASHBOARD_PATH : LOGIN_URL;
 
   // When viewing a project, fetch its portfolio_id so we can show portfolio nav (Projects, Settings) in the sidebar
   useEffect(() => {
@@ -258,7 +247,7 @@ export function AppSidebar() {
         <div className={sectionLabelClassName}>App</div>
         <ul className="space-y-0.5">
           {GLOBAL_NAV.map((item) => {
-            const href = item.href === "/" ? homeHref : item.href;
+            const href = item.href === DASHBOARD_PATH ? homeHref : item.href;
             const isActive = pathname === item.href;
             const icon = <PortfolioIcon />;
             return (
@@ -344,7 +333,7 @@ export function AppSidebar() {
         {isLoggedIn ? (
           <>
             <Link
-              href="/settings"
+              href={riskaiPath("/settings")}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-[var(--foreground)] no-underline"
             >
               <CogIcon />
@@ -354,7 +343,7 @@ export function AppSidebar() {
               type="button"
               onClick={async () => {
                 await supabaseBrowserClient().auth.signOut();
-                window.location.href = "/login";
+                window.location.href = "/";
               }}
               className="flex items-center gap-2 w-full px-3 py-2 rounded-md text-sm text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-[var(--foreground)] text-left"
             >

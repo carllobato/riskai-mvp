@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ProjectTilePayload } from "@/lib/dashboard/projectTileServerData";
+import { riskaiPath } from "@/lib/routes";
 
 function ragDotClass(status: ProjectTilePayload["ragStatus"]): string {
   switch (status) {
@@ -60,8 +61,8 @@ export type NewProjectTileProps = {
 export function NewProjectTile({ portfolioId = null }: NewProjectTileProps) {
   const href =
     portfolioId != null && portfolioId !== ""
-      ? `/create-project?portfolioId=${encodeURIComponent(portfolioId)}`
-      : "/create-project";
+      ? `${riskaiPath("/create-project")}?portfolioId=${encodeURIComponent(portfolioId)}`
+      : riskaiPath("/create-project");
 
   return (
     <Link
@@ -91,7 +92,7 @@ export function ProjectTile({ payload }: ProjectTileProps) {
 
   return (
     <Link
-      href={`/projects/${id}`}
+      href={riskaiPath(`/projects/${id}`)}
       className={PROJECT_TILE_LINK_CLASSES}
       aria-label={`Open project ${title}. ${ragAriaFragment(ragStatus)}`}
     >

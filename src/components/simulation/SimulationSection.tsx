@@ -34,6 +34,7 @@ import {
   type TimeSummary,
 } from "@/lib/simulationDisplayUtils";
 import { formatDurationDays } from "@/lib/formatDuration";
+import { riskaiPath } from "@/lib/routes";
 import type { SimulationRiskSnapshot } from "@/domain/simulation/simulation.types";
 
 const CHART_HEIGHT = 300;
@@ -1134,7 +1135,7 @@ export function SimulationSection(props: SimulationSectionProps) {
                 ) : contingencyValueDollars != null && isDebug ? (
                   <>
                     Contingency adjustment to achieve{" "}
-                    <Link href={settingsHref ?? "/projects"} className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
+                    <Link href={settingsHref ?? riskaiPath("/projects")} className="underline hover:text-neutral-700 dark:hover:text-neutral-300">
                       Target P-Value ({targetPLabel})
                     </Link>
                   </>

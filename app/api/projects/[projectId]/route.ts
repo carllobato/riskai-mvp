@@ -92,8 +92,8 @@ export async function PATCH(
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  revalidatePath(`/projects/${projectId}`);
-  revalidatePath(`/projects/${projectId}/settings`);
+  revalidatePath(`/riskai/projects/${projectId}`);
+  revalidatePath(`/riskai/projects/${projectId}/settings`);
 
   return NextResponse.json({ id: projectId, name });
 }

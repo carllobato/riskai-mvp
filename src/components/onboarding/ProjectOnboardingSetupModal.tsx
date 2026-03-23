@@ -5,6 +5,7 @@ import Link from "next/link";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import { OnboardingMetaKey } from "@/lib/onboarding/types";
 import { OnboardingStepActions } from "./OnboardingStepActions";
+import { riskaiPath } from "@/lib/routes";
 
 type Props = {
   open: boolean;
@@ -73,7 +74,7 @@ export function ProjectOnboardingSetupModal({
   async function handleSignOut() {
     setSigningOut(true);
     await supabaseBrowserClient().auth.signOut();
-    window.location.href = "/login";
+    window.location.href = "/";
   }
 
   const busy = saving || signingOut;
@@ -99,7 +100,7 @@ export function ProjectOnboardingSetupModal({
           Confirm the display name for this project. You can add budgets, schedule, and risk appetite
           later in{" "}
           <Link
-            href={`/projects/${projectId}/settings`}
+            href={riskaiPath(`/projects/${projectId}/settings`)}
             className="font-medium text-neutral-800 underline-offset-2 hover:underline dark:text-neutral-200"
           >
             project settings

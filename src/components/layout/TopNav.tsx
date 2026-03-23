@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { riskaiPath } from "@/lib/routes";
 import { useTheme } from "@/context/ThemeContext";
 import type { User } from "@supabase/supabase-js";
 
@@ -89,7 +90,7 @@ export function TopNav({ onMenuClick, onAccountMenuOpen, variant = "default" }: 
   const handleSignOut = async () => {
     setMenuOpen(false);
     await supabaseBrowserClient().auth.signOut();
-    window.location.href = "/login";
+    window.location.href = "/";
   };
 
   const headerSurface =
@@ -175,7 +176,7 @@ export function TopNav({ onMenuClick, onAccountMenuOpen, variant = "default" }: 
                 className="absolute right-0 top-full z-[100] mt-1 min-w-[200px] overflow-hidden rounded-xl border border-neutral-200 bg-white py-1 shadow-lg dark:border-neutral-700 dark:bg-neutral-900"
               >
                 <Link
-                  href="/settings"
+                  href={riskaiPath("/settings")}
                   role="menuitem"
                   className="block cursor-pointer px-4 py-2.5 text-sm text-neutral-800 no-underline hover:bg-neutral-50 dark:text-neutral-200 dark:hover:bg-neutral-800"
                   onClick={() => setMenuOpen(false)}

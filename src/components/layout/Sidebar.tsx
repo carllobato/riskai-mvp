@@ -4,22 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import {
+  DASHBOARD_PATH,
+  portfolioIdFromAppPathname,
+  projectIdFromAppPathname,
+  riskaiPath,
+  RISKAI_BASE,
+} from "@/lib/routes";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
-
-function getPortfolioIdFromPathname(pathname: string | null): string | null {
-  if (!pathname || !pathname.startsWith("/portfolios/")) return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "portfolios" || !segments[1]) return null;
-  return segments[1];
-}
-
-function getProjectIdFromPathname(pathname: string | null): string | null {
-  if (!pathname || !pathname.startsWith("/projects/")) return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "projects" || !segments[1]) return null;
-  return segments[1];
-}
 
 const PanelLeftIcon = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0" aria-hidden>
@@ -137,8 +130,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   );
 
   const visuallyCollapsed = collapsed && !hoverPeek;
-  const portfolioIdFromUrl = getPortfolioIdFromPathname(pathname);
-  const projectIdFromUrl = getProjectIdFromPathname(pathname);
+  const portfolioIdFromUrl = portfolioIdFromAppPathname(pathname);
+  const projectIdFromUrl = projectIdFromAppPathname(pathname);
   const projectIdFromUrlRef = useRef(projectIdFromUrl);
   projectIdFromUrlRef.current = projectIdFromUrl;
   const [portfolioIdForProject, setPortfolioIdForProject] = useState<string | null>(null);
@@ -190,21 +183,22 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     portfolioIdFromUrl != null || portfolioIdForProject != null;
 
   /** Project nav: only while viewing a project URL (`/projects/[id]/…`). */
-  const projectIdInUrl = getProjectIdFromPathname(pathname);
+  const projectIdInUrl = projectIdFromAppPathname(pathname);
   const showProjectNav = projectIdInUrl != null;
-  const projectNavBase = projectIdInUrl ? `/projects/${projectIdInUrl}` : null;
+  const projectNavBase = projectIdInUrl ? riskaiPath(`/projects/${projectIdInUrl}`) : null;
 
-  const portfolioOverviewHref = portfolioId ? `/portfolios/${portfolioId}` : "/portfolios";
-  const projectBase = projectId ? `/projects/${projectId}` : null;
+  const portfolioOverviewHref = portfolioId ? riskaiPath(`/portfolios/${portfolioId}`) : riskaiPath("/portfolios");
+  const projectBase = projectId ? riskaiPath(`/projects/${projectId}`) : null;
 
-  const dashboardActive = pathname === "/";
+  const dashboardActive = pathname === DASHBOARD_PATH;
   const portfolioOverviewActive =
     portfolioId != null &&
-    (pathname === `/portfolios/${portfolioId}` || pathname === `/portfolios/${portfolioId}/`);
+    (pathname === `${RISKAI_BASE}/portfolios/${portfolioId}` ||
+      pathname === `${RISKAI_BASE}/portfolios/${portfolioId}/`);
   const portfolioProjectsActive =
-    portfolioId != null && pathname.startsWith(`/portfolios/${portfolioId}/projects`);
+    portfolioId != null && pathname.startsWith(`${RISKAI_BASE}/portfolios/${portfolioId}/projects`);
   const portfolioSettingsActive =
-    portfolioId != null && pathname.startsWith(`/portfolios/${portfolioId}/settings`);
+    portfolioId != null && pathname.startsWith(`${RISKAI_BASE}/portfolios/${portfolioId}/settings`);
 
   const projectOverviewActive =
     projectBase != null &&
@@ -213,7 +207,8 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
   const risksActive = projectBase != null && pathname.startsWith(`${projectBase}/risks`);
   const simulationActive =
     projectNavBase != null && pathname.startsWith(`${projectNavBase}/simulation`);
-  const analysisActive = pathname === "/analysis" || pathname.startsWith("/analysis/");
+  const analysisActive =
+    pathname === `${RISKAI_BASE}/analysis` || pathname.startsWith(`${RISKAI_BASE}/analysis/`);
   const projectSettingsActive =
     projectNavBase != null && pathname.startsWith(`${projectNavBase}/settings`);
 
@@ -306,7 +301,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
           {sectionHeader("Main", true)}
           <ul className="space-y-0.5">
             <li>
-              <Link href="/" className={linkClass(dashboardActive)} title={visuallyCollapsed ? "Dashboard" : undefined} onClick={onMobileClose}>
+              <Link href={DASHBOARD_PATH} className={linkClass(dashboardActive)} title={visuallyCollapsed ? "Dashboard" : undefined} onClick={onMobileClose}>
                 <LayoutGridIcon />
                 <span className={navLabelClass}>Dashboard</span>
               </Link>
@@ -330,7 +325,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 </li>
                 <li>
                   <Link
-                    href={`/portfolios/${portfolioId}/projects`}
+                    href={riskaiPath(`/portfolios/${portfolioId}/projects`)}
                     className={linkClass(portfolioProjectsActive)}
                     title={visuallyCollapsed ? "Projects" : undefined}
                     onClick={onMobileClose}
@@ -341,7 +336,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 </li>
                 <li>
                   <Link
-                    href={`/portfolios/${portfolioId}/settings`}
+                    href={riskaiPath(`/portfolios/${portfolioId}/settings`)}
                     className={linkClass(portfolioSettingsActive)}
                     title={visuallyCollapsed ? "Portfolio Settings" : undefined}
                     onClick={onMobileClose}
@@ -404,7 +399,7 @@ export function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 </li>
                 <li>
                   <Link
-                    href="/analysis"
+                    href={riskaiPath("/analysis")}
                     className={linkClass(analysisActive)}
                     title={visuallyCollapsed ? "Analysis" : undefined}
                     onClick={onMobileClose}

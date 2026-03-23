@@ -98,7 +98,7 @@ export function PortfolioSetupModal({
   async function handleSignOut() {
     setSigningOut(true);
     await supabaseBrowserClient().auth.signOut();
-    window.location.href = "/login";
+    window.location.href = "/";
   }
 
   const busy = loading || skipping || signingOut;

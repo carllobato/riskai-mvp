@@ -6,8 +6,9 @@ import { useRouter } from "next/navigation";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { ProjectRow } from "@/lib/projects";
 import { fetchProjectsClient } from "@/lib/projects";
+import { riskaiPath } from "@/lib/routes";
 
-const PROJECTS_PATH = "/projects";
+const PROJECTS_PATH = riskaiPath("/projects");
 
 export function ProjectListPageClient() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export function ProjectListPageClient() {
 
       if (cancelled) return;
       if (!user) {
-        router.replace("/login?next=" + encodeURIComponent("/"));
+        router.replace("/?next=" + encodeURIComponent(PROJECTS_PATH));
         return;
       }
 
@@ -79,7 +80,7 @@ export function ProjectListPageClient() {
             You don't have any projects yet.
           </p>
           <Link
-            href="/create-project"
+            href={riskaiPath("/create-project")}
             className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-900/50"
           >
             Create your first project
@@ -91,7 +92,7 @@ export function ProjectListPageClient() {
             {projects.map((p) => (
               <li key={p.id}>
                 <Link
-                  href={`/projects/${p.id}`}
+                  href={riskaiPath(`/projects/${p.id}`)}
                   className="block px-4 py-3 rounded-md border border-neutral-200 dark:border-neutral-700 bg-[var(--background)] text-[var(--foreground)] hover:bg-neutral-50 dark:hover:bg-neutral-800 transition-colors"
                 >
                   <span className="font-medium">{p.name || p.id}</span>
@@ -100,7 +101,7 @@ export function ProjectListPageClient() {
             ))}
           </ul>
           <Link
-            href="/create-project"
+            href={riskaiPath("/create-project")}
             className="inline-flex px-4 py-2 text-sm font-medium rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] hover:bg-neutral-100 dark:hover:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
           >
             + New project

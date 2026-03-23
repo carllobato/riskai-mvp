@@ -7,28 +7,23 @@ import { useTheme } from "@/context/ThemeContext";
 import { useProjectionScenario } from "@/context/ProjectionScenarioContext";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import type { User } from "@supabase/supabase-js";
-const LOGIN_URL = "/login?next=" + encodeURIComponent("/");
+import {
+  DASHBOARD_PATH,
+  projectIdFromAppPathname,
+  riskaiPath,
+  RISKAI_BASE,
+} from "@/lib/routes";
 
-function projectIdFromPathname(pathname: string | null): string | null {
-  if (!pathname || typeof pathname !== "string") return null;
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "projects" || !segments[1]) return null;
-  return segments[1];
-}
+const LOGIN_URL = "/?next=" + encodeURIComponent(DASHBOARD_PATH);
 
 /** True if pathname is a known app route (not a 404). */
 function isKnownAppRoute(pathname: string | null): boolean {
   if (!pathname || typeof pathname !== "string") return false;
-  if (pathname === "/") return true;
-  if (pathname.startsWith("/login")) return true;
-  if (pathname.startsWith("/projects")) return true;
-  if (pathname.startsWith("/portfolios")) return true;
-  if (pathname.startsWith("/create-project")) return true;
-  if (pathname.startsWith("/project-not-found")) return true;
+  if (pathname === "/" || pathname.startsWith("/privacy") || pathname.startsWith("/terms")) return true;
+  if (pathname === DASHBOARD_PATH || pathname.startsWith(`${DASHBOARD_PATH}/`)) return true;
+  if (pathname === RISKAI_BASE || pathname.startsWith(`${RISKAI_BASE}/`)) return true;
+  if (pathname.startsWith("/login") || pathname === "/") return true;
   if (pathname === "/404") return true;
-  if (pathname === "/settings") return true;
-  if (pathname === "/run-data") return true;
-  if (pathname.startsWith("/dev")) return true;
   return false;
 }
 
@@ -83,17 +78,17 @@ const ALL_NAV_ITEMS: {
   icon?: "cog" | "home";
   hideInMvp?: boolean;
 }[] = [
-  { href: "/portfolios", label: "Portfolios" },
-  { href: "/projects", label: "Projects" },
-  { href: "/project", projectSlug: "project-home", label: "Project Home", icon: "home" },
-  { href: "/risk-register", projectSlug: "risks", label: "Risk Register" },
-  { href: "/matrix", label: "Risk Matrix", hideInMvp: true },
+  { href: riskaiPath("/portfolios"), label: "Portfolios" },
+  { href: riskaiPath("/projects"), label: "Projects" },
+  { href: riskaiPath("/project"), projectSlug: "project-home", label: "Project Home", icon: "home" },
+  { href: riskaiPath("/risk-register"), projectSlug: "risks", label: "Risk Register" },
+  { href: riskaiPath("/matrix"), label: "Risk Matrix", hideInMvp: true },
   // TEMP: Run Data nav item for development audit – remove before production
-  { href: "/run-data", projectSlug: "run-data", label: "Run Data" },
-  { href: "/simulation", projectSlug: "simulation", label: "Simulation" },
-  { href: "/analysis", label: "Analysis", hideInMvp: true },
-  { href: "/day0", label: "Day 0", hideInMvp: true },
-  ...(isDev ? [{ href: "/dev/health", label: "Engine Health", hideInMvp: true }] : []),
+  { href: riskaiPath("/run-data"), projectSlug: "run-data", label: "Run Data" },
+  { href: riskaiPath("/simulation"), projectSlug: "simulation", label: "Simulation" },
+  { href: riskaiPath("/analysis"), label: "Analysis", hideInMvp: true },
+  { href: riskaiPath("/day0"), label: "Day 0", hideInMvp: true },
+  ...(isDev ? [{ href: riskaiPath("/dev/health"), label: "Engine Health", hideInMvp: true }] : []),
 ];
 
 function isValidProjectId(id: string | null | undefined): id is string {
@@ -108,16 +103,16 @@ function navHref(
 ): string {
   if (!isLoggedIn) return LOGIN_URL;
   if (item.projectSlug && isValidProjectId(projectId)) {
-    if (item.projectSlug === "project-home") return "/projects/" + projectId;
-    return "/projects/" + projectId + "/" + item.projectSlug;
+    if (item.projectSlug === "project-home") return riskaiPath("/projects/" + projectId);
+    return riskaiPath("/projects/" + projectId + "/" + item.projectSlug);
   }
-  if (item.projectSlug) return "/projects";
+  if (item.projectSlug) return riskaiPath("/projects");
   return item.href;
 }
 
 export function NavBar() {
   const pathname = usePathname();
-  const currentProjectId = projectIdFromPathname(pathname);
+  const currentProjectId = projectIdFromAppPathname(pathname);
   const [user, setUser] = useState<User | null | "loading">("loading");
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const { theme, toggleTheme } = useTheme();
@@ -145,7 +140,7 @@ export function NavBar() {
   const isUnknownRoute = !isKnownAppRoute(pathname);
   const projectIdForNav = currentProjectId;
   // Logo: project list when logged in, login when logged out.
-  const homeHref = isLoggedIn ? "/projects" : LOGIN_URL;
+  const homeHref = isLoggedIn ? DASHBOARD_PATH : LOGIN_URL;
 
   // On 404, use full-page links so leaving the page remounts the app and restores the nav.
   const useFullPageLinks = isUnknownRoute;
@@ -254,7 +249,7 @@ export function NavBar() {
               {isLoggedIn ? (
                 <>
                   <Link
-                    href="/settings"
+                    href={riskaiPath("/settings")}
                     role="menuitem"
                     onClick={() => setUserMenuOpen(false)}
                     className="block px-4 py-2 text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 no-underline"
@@ -267,7 +262,7 @@ export function NavBar() {
                     onClick={async () => {
                       setUserMenuOpen(false);
                       await supabaseBrowserClient().auth.signOut();
-                      window.location.href = "/login";
+                      window.location.href = "/";
                     }}
                     className="block w-full px-4 py-2 text-left text-sm text-neutral-700 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800"
                   >

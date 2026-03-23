@@ -11,6 +11,7 @@ import { PortfolioOnboardingDetailModal } from "./PortfolioOnboardingDetailModal
 import { PortfolioSetupModal } from "./PortfolioSetupModal";
 import { ProfileSetupModal } from "./ProfileSetupModal";
 import { ProjectOnboardingSetupModal } from "./ProjectOnboardingSetupModal";
+import { riskaiPath } from "@/lib/routes";
 
 type PortfolioRow = { id: string; name: string };
 
@@ -131,8 +132,9 @@ export function OnboardingHost() {
         setShowPortfolioDetailModal(false);
         setShowAddProjectModal(false);
         setShowProjectSetupModal(false);
+        const settingsAppPath = riskaiPath("/settings");
         const onSettingsRoute =
-          pathname === "/settings" || (pathname?.startsWith("/settings/") ?? false);
+          pathname === settingsAppPath || (pathname?.startsWith(`${settingsAppPath}/`) ?? false);
         setInitialFirstName(
           typeof profileRow?.first_name === "string"
             ? profileRow.first_name

@@ -1,14 +1,40 @@
 import { createServerClient } from "@supabase/ssr";
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
+import {
+  APP_ORIGIN,
+  isAppAreaPath,
+  isAppHost,
+  isLocalhost,
+  isWebsiteHost,
+  SITE_ORIGIN,
+} from "@/lib/host";
+import { DASHBOARD_PATH } from "@/lib/routes";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
 const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim();
 
-const PUBLIC_PATHS = ["/login", "/auth/callback"];
+function getHost(request: NextRequest): string {
+  return request.headers.get("x-forwarded-host") ?? request.headers.get("host") ?? "";
+}
 
-function isPublicPath(pathname: string): boolean {
-  return PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+function isPublicPath(pathname: string, host: string): boolean {
+  if (isAppHost(host)) {
+    return (
+      pathname === "/" ||
+      pathname === "/login" ||
+      pathname.startsWith("/auth/callback") ||
+      pathname.startsWith("/forgot-password")
+    );
+  }
+  return (
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname.startsWith("/privacy") ||
+    pathname.startsWith("/terms") ||
+    pathname.startsWith("/auth/callback") ||
+    pathname.startsWith("/forgot-password")
+  );
 }
 
 export async function updateSession(request: NextRequest) {
@@ -16,14 +42,31 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.next();
   }
 
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
+  const host = getHost(request);
+
+  // Website host: send app routes to the app origin
+  if (isWebsiteHost(host) && isAppAreaPath(pathname)) {
+    return NextResponse.redirect(new URL(pathname + search, APP_ORIGIN));
+  }
+
+  // App host: canonical legal pages live on the website (skip in local dev)
+  if (isAppHost(host) && !isLocalhost(host) && (pathname === "/privacy" || pathname === "/terms")) {
+    return NextResponse.redirect(new URL(pathname + search, SITE_ORIGIN));
+  }
+
+  // App host: /login is an alias for / (login UI lives at /)
+  if (isAppHost(host) && pathname === "/login") {
+    const url = request.nextUrl.clone();
+    url.pathname = "/";
+    return NextResponse.redirect(url);
+  }
 
   // API routes: no redirect; handlers use requireUser() and return 401 JSON
   if (pathname.startsWith("/api")) {
     return NextResponse.next({ request });
   }
 
-  // Pass pathname to server so (protected) layout can use it for ?next=
   const headers = new Headers(request.headers);
   headers.set("x-pathname", pathname);
   const requestWithPath = new Request(request.url, {
@@ -54,14 +97,16 @@ export async function updateSession(request: NextRequest) {
       data: { user },
     } = await supabase.auth.getUser();
 
-    if (isPublicPath(pathname)) {
+    if (isPublicPath(pathname, host)) {
       if (user && pathname === "/login") {
-        return NextResponse.redirect(new URL("/", request.url));
+        if (isWebsiteHost(host)) {
+          return NextResponse.redirect(new URL(DASHBOARD_PATH, APP_ORIGIN));
+        }
+        return NextResponse.redirect(new URL(DASHBOARD_PATH, request.url));
       }
       return response;
     }
 
-    // Page auth is enforced by app/(protected)/layout.tsx; do not redirect here
     return response;
   } catch {
     return response;

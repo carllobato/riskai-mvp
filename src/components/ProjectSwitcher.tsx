@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { fetchProjectsClient, type ProjectRow } from "@/lib/projects";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { riskaiPath } from "@/lib/routes";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
 const SUBPAGES = ["project-home", "risks", "run-data", "simulation"] as const;
@@ -12,9 +13,9 @@ type Subpage = (typeof SUBPAGES)[number];
 function parseProjectRoute(pathname: string): { projectId: string; subpage: Subpage } | null {
   if (typeof pathname !== "string") return null;
   const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "projects" || !segments[1]) return null;
-  const projectId = segments[1];
-  const third = segments[2];
+  if (segments[0] !== "riskai" || segments[1] !== "projects" || !segments[2]) return null;
+  const projectId = segments[2];
+  const third = segments[3];
   const subpage: Subpage = third && SUBPAGES.includes(third as Subpage) ? (third as Subpage) : "project-home";
   return { projectId, subpage };
 }
@@ -110,7 +111,10 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
       }
       setActiveFromStorage(id);
       setDropdownOpen(false);
-      const path = targetSubpage === "project-home" ? "/projects/" + id : "/projects/" + id + "/" + targetSubpage;
+      const path =
+        targetSubpage === "project-home"
+          ? riskaiPath("/projects/" + id)
+          : riskaiPath("/projects/" + id + "/" + targetSubpage);
       router.replace(path);
     },
     [targetSubpage, router]
@@ -162,7 +166,7 @@ export function ProjectSwitcher({ currentProjectId: currentProjectIdFromUrl }: P
       setNewProjectName("");
       setNewProjectLoading(false);
       await loadProjects();
-      router.replace(`/projects/${newId}`);
+      router.replace(riskaiPath(`/projects/${newId}`));
     },
     [newProjectName, loadProjects, router]
   );

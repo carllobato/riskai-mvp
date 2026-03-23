@@ -5,6 +5,7 @@ import { LegalDocumentLink } from "@/components/legal/LegalDocumentLink";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
+import { DASHBOARD_PATH } from "@/lib/routes";
 
 type Tab = "signin" | "signup";
 
@@ -152,7 +153,7 @@ function LoginSocialProviders({
 
 export function LoginClient() {
   const searchParams = useSearchParams();
-  const next = searchParams.get("next") ?? "/";
+  const next = searchParams.get("next") ?? DASHBOARD_PATH;
 
   const [tab, setTab] = useState<Tab>("signin");
   const [email, setEmail] = useState("");
@@ -173,7 +174,7 @@ export function LoginClient() {
   }, [searchParams]);
 
   const redirectAfterAuth = () => {
-    const path = next.startsWith("/") ? next : "/";
+    const path = next.startsWith("/") && !next.startsWith("//") ? next : DASHBOARD_PATH;
     window.location.href = path;
   };
 
