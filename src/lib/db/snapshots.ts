@@ -204,15 +204,20 @@ export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow> & {
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
-  params: { note: string; lockedBy: string; reportingMonthYear: string }
+  params: { note: string; lockedByUserId: string; reportingMonthYear: string }
 ): Promise<void> {
+  const lockedByUserId = params.lockedByUserId?.trim();
+  if (!lockedByUserId) {
+    throw new Error("Cannot lock reporting snapshot without an authenticated user ID.");
+  }
+
   const supabase = supabaseBrowserClient();
   const { error } = await supabase
     .from("riskai_simulation_snapshots")
     .update({
       reporting_version: true,
       reporting_locked_at: new Date().toISOString(),
-      reporting_locked_by: params.lockedBy || null,
+      reporting_locked_by: lockedByUserId,
       reporting_note: params.note?.trim() || null,
       reporting_month_year: params.reportingMonthYear?.trim() || null,
     })

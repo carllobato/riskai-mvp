@@ -154,6 +154,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   const [reportingNote, setReportingNote] = useState("");
   const [reportingMonthYear, setReportingMonthYear] = useState(() => toMonthYearKey(new Date()));
   const [setReportingSaving, setSetReportingSaving] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
 
   const reportingMonthYearOptions = useMemo(() => getReportingMonthYearOptions(), []);
@@ -174,13 +175,18 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
       .getUser()
       .then(async ({ data: { user } }) => {
         if (!user) {
+          setCurrentUserId(null);
           setTriggeredBy(null);
           return;
         }
+        setCurrentUserId(user.id);
         const profile = await fetchPublicProfile(supabase, user.id);
         setTriggeredBy(formatTriggeredByLabel(user, profile));
       })
-      .catch(() => setTriggeredBy(null));
+      .catch(() => {
+        setCurrentUserId(null);
+        setTriggeredBy(null);
+      });
   }, []);
   const setupRedirectPath = urlProjectId ? `/projects/${urlProjectId}` : "/";
 
@@ -683,15 +689,15 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
               </button>
               <button
                 type="button"
-                disabled={setReportingSaving}
+                disabled={setReportingSaving || !currentUserId}
                 onClick={async () => {
                   const currentId = simulation.current?.id;
-                  if (!currentId || !effectiveProjectId) return;
+                  if (!currentId || !effectiveProjectId || !currentUserId) return;
                   setSetReportingSaving(true);
                   try {
                     await setSnapshotAsReportingVersion(currentId, {
                       note: reportingNote,
-                      lockedBy: triggeredBy ?? "Unknown",
+                      lockedByUserId: currentUserId,
                       reportingMonthYear,
                     });
                     const row = await getLatestSnapshot(effectiveProjectId);
