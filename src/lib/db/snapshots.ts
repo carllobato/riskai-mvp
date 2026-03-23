@@ -191,34 +191,52 @@ export type SimulationSnapshotRow = {
  * Base shape is {@link SimulationSnapshotRow}; this type is for typed access only.
  */
 export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow> & {
-  reporting_version?: boolean;
-  reporting_locked_at?: string | null;
-  reporting_locked_by?: string | null;
-  reporting_note?: string | null;
-  reporting_month_year?: string | null;
+  locked_for_reporting?: boolean;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  lock_note?: string | null;
+  report_month?: string | null;
 };
 
 /**
- * Set a snapshot as the reporting version (one-way lock). Persists reporting_version, locked_at, locked_by, note, reporting_month_year.
- * reporting_month_year should be "YYYY-MM" (e.g. "2025-03").
+ * Build the canonical report month string (YYYY-MM-01) from a lock/report date.
+ */
+function deriveReportMonth(dateLike?: string | Date): string {
+  const source = dateLike ? new Date(dateLike) : new Date();
+  if (Number.isNaN(source.getTime())) {
+    const now = new Date();
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  }
+  return `${source.getUTCFullYear()}-${String(source.getUTCMonth() + 1).padStart(2, "0")}-01`;
+}
+
+/**
+ * Set a snapshot as the reporting version (one-way lock). Persists locked_for_reporting, locked_at,
+ * locked_by, lock_note and report_month.
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
-  params: { note: string; lockedBy: string; reportingMonthYear: string }
+  params: { note: string; lockedBy: string; reportDate?: string | Date }
 ): Promise<void> {
   const supabase = supabaseBrowserClient();
+  const reportMonth = deriveReportMonth(params.reportDate);
   const { error } = await supabase
     .from("riskai_simulation_snapshots")
     .update({
-      reporting_version: true,
-      reporting_locked_at: new Date().toISOString(),
-      reporting_locked_by: params.lockedBy || null,
-      reporting_note: params.note?.trim() || null,
-      reporting_month_year: params.reportingMonthYear?.trim() || null,
+      locked_for_reporting: true,
+      locked_at: new Date().toISOString(),
+      locked_by: params.lockedBy || null,
+      lock_note: params.note?.trim() || null,
+      report_month: reportMonth,
     })
     .eq("id", snapshotId);
 
   if (error) {
+    if (error.code === "23505") {
+      throw new Error(
+        "A reporting run is already locked for this project and reporting month."
+      );
+    }
     console.error("[setSnapshotAsReportingVersion]", error);
     throw error;
   }

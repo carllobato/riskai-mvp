@@ -49,12 +49,18 @@ function formatCost(value: number): string {
   }).format(value);
 }
 
-/** Format reporting_month_year (YYYY-MM) as "March 2025". */
-function formatReportingMonthYear(ym: string | null | undefined): string {
-  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
-  const [y, m] = ym.split("-").map(Number);
-  const date = new Date(y, m - 1, 1);
-  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+/** Format report_month (YYYY-MM-01 or YYYY-MM) as "March 2025". */
+function formatReportingMonthYear(value: string | null | undefined): string {
+  if (!value) return "—";
+  const ymMatch = /^(\d{4})-(\d{2})$/.exec(value);
+  if (ymMatch) {
+    const y = Number(ymMatch[1]);
+    const m = Number(ymMatch[2]);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 /** Format ISO timestamp for Run Metadata: "15 Mar 2026 — 09:08:37". */
@@ -1036,7 +1042,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting version</dt>
                       <dd className="mt-0.5">
-                        {reportingDbRow?.reporting_version ? (
+                        {reportingDbRow?.locked_for_reporting ? (
                           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200">
                             Yes
                           </span>
@@ -1062,8 +1068,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting month / year</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_month_year ? (
-                          formatReportingMonthYear(reportingDbRow.reporting_month_year)
+                        {reportingDbRow?.report_month ? (
+                          formatReportingMonthYear(reportingDbRow.report_month)
                         ) : (
                           <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
                         )}
@@ -1072,7 +1078,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked by</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_locked_by?.trim() || (
+                        {reportingDbRow?.locked_by?.trim() || (
                           <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
                         )}
                       </dd>
@@ -1080,8 +1086,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked on</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_locked_at ? (
-                          formatRunTimestamp(reportingDbRow.reporting_locked_at)
+                        {reportingDbRow?.locked_at ? (
+                          formatRunTimestamp(reportingDbRow.locked_at)
                         ) : (
                           <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
                         )}
@@ -1090,7 +1096,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting note</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_note?.trim() || (
+                        {reportingDbRow?.lock_note?.trim() || (
                           <span className="text-neutral-500 dark:text-neutral-400">Not available</span>
                         )}
                       </dd>

@@ -95,6 +95,16 @@ function toMonthYearKey(d: Date): string {
   return `${y}-${m}`;
 }
 
+/** Convert YYYY-MM into an ISO month anchor date (YYYY-MM-01T00:00:00.000Z). */
+function monthYearToIsoMonthDate(ym: string): string {
+  const match = /^(\d{4})-(\d{2})$/.exec(ym);
+  if (!match) return new Date().toISOString();
+  const y = Number(match[1]);
+  const m = Number(match[2]);
+  const d = new Date(Date.UTC(y, Math.max(0, Math.min(11, m - 1)), 1, 0, 0, 0, 0));
+  return d.toISOString();
+}
+
 /** Format YYYY-MM as "March 2025". */
 function formatReportingMonthYear(ym: string | null | undefined): string {
   if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
@@ -154,6 +164,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
   const [reportingNote, setReportingNote] = useState("");
   const [reportingMonthYear, setReportingMonthYear] = useState(() => toMonthYearKey(new Date()));
   const [setReportingSaving, setSetReportingSaving] = useState(false);
+  const [setReportingError, setSetReportingError] = useState<string | null>(null);
   const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
 
   const reportingMonthYearOptions = useMemo(() => getReportingMonthYearOptions(), []);
@@ -436,10 +447,14 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         {showResults &&
           isCurrentRunPersisted &&
           effectiveProjectId &&
-          !reportingDbRow?.reporting_version && (
+          !reportingDbRow?.locked_for_reporting && (
           <button
             type="button"
-            onClick={() => !simulationReadOnly && setSetReportingModalOpen(true)}
+            onClick={() => {
+              if (simulationReadOnly) return;
+              setSetReportingError(null);
+              setSetReportingModalOpen(true);
+            }}
             disabled={simulationReadOnly}
             className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 px-4 py-2 text-sm font-medium hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors disabled:opacity-50 disabled:pointer-events-none"
           >
@@ -598,7 +613,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
           role="dialog"
           aria-modal="true"
           aria-labelledby="set-reporting-version-dialog-title"
-          onClick={(e) => e.target === e.currentTarget && (setSetReportingModalOpen(false), setReportingNote(""), setReportingMonthYear(toMonthYearKey(new Date())))}
+          onClick={(e) => e.target === e.currentTarget && (setSetReportingModalOpen(false), setReportingNote(""), setReportingMonthYear(toMonthYearKey(new Date())), setSetReportingError(null))}
         >
           <div
             style={{ width: "90vw", maxWidth: 400 }}
@@ -611,7 +626,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
               </h2>
               <button
                 type="button"
-                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); }}
+                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); setSetReportingError(null); }}
                 className="p-2 rounded-md border border-transparent text-neutral-600 dark:text-neutral-400 hover:text-[var(--foreground)] hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
                 aria-label="Close"
               >
@@ -672,11 +687,16 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                   className="w-full rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] px-3 py-2 text-sm text-[var(--foreground)] placeholder:text-neutral-500 dark:placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
                 />
               </div>
+              {setReportingError && (
+                <p className="m-0 text-sm text-red-700 dark:text-red-300" role="alert">
+                  {setReportingError}
+                </p>
+              )}
             </div>
             <div className="flex justify-end gap-2 shrink-0 px-4 sm:px-6 py-4 border-t border-neutral-200 dark:border-neutral-700">
               <button
                 type="button"
-                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); }}
+                onClick={() => { setSetReportingModalOpen(false); setReportingNote(""); setReportingMonthYear(toMonthYearKey(new Date())); setSetReportingError(null); }}
                 className="px-4 py-2 rounded-md border border-neutral-300 dark:border-neutral-600 bg-[var(--background)] text-[var(--foreground)] text-sm font-medium hover:bg-neutral-100 dark:hover:bg-neutral-800 focus:outline-none focus:ring-2 focus:ring-neutral-400 dark:focus:ring-neutral-500"
               >
                 Cancel
@@ -688,19 +708,24 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                   const currentId = simulation.current?.id;
                   if (!currentId || !effectiveProjectId) return;
                   setSetReportingSaving(true);
+                  setSetReportingError(null);
                   try {
                     await setSnapshotAsReportingVersion(currentId, {
                       note: reportingNote,
                       lockedBy: triggeredBy ?? "Unknown",
-                      reportingMonthYear,
+                      reportDate: monthYearToIsoMonthDate(reportingMonthYear),
                     });
                     const row = await getLatestSnapshot(effectiveProjectId);
                     if (row?.id === currentId) setReportingSnapshotRow(row);
                     setSetReportingModalOpen(false);
                     setReportingNote("");
                     setReportingMonthYear(toMonthYearKey(new Date()));
-                  } catch {
-                    // Error already logged in setSnapshotAsReportingVersion
+                  } catch (error) {
+                    const message =
+                      error instanceof Error && error.message.trim().length > 0
+                        ? error.message
+                        : "Could not lock this run for reporting. Please try again.";
+                    setSetReportingError(message);
                   } finally {
                     setSetReportingSaving(false);
                   }

@@ -1,286 +1,400 @@
 "use client";
 
-import { useMemo, useEffect, useState } from "react";
-import { useRiskRegister } from "@/store/risk-register.store";
-import { listRisks } from "@/lib/db/risks";
-import { computePortfolioExposure } from "@/engine/forwardExposure";
-import { PositionBar } from "@/components/dashboard/PositionBar";
+import { useEffect, useMemo, useState } from "react";
 import { SummaryTile } from "@/components/dashboard/SummaryTile";
 import { DashboardCard } from "@/components/dashboard/DashboardCard";
-import { formatCurrency, formatRatio } from "@/lib/formatCurrency";
+import { formatCurrency } from "@/lib/formatCurrency";
 import { formatDurationDays } from "@/lib/formatDuration";
-import { loadProjectContext } from "@/lib/projectContext";
-import type { Risk } from "@/domain/risk/risk.schema";
-import type { SimulationSnapshotRow } from "@/lib/db/snapshots";
-import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
+import {
+  type ProjectContext,
+  loadProjectContext,
+} from "@/lib/projectContext";
+import type {
+  SimulationSnapshotRow,
+  SimulationSnapshotRowDb,
+} from "@/lib/db/snapshots";
+import type { RagStatus } from "@/lib/dashboard/projectTileServerData";
+import {
+  costAtPercentile,
+  deriveCostHistogramFromPercentiles,
+  deriveTimeHistogramFromPercentiles,
+  distributionToCostCdf,
+  distributionToTimeCdf,
+  percentileAtCost,
+  percentileAtTime,
+  timeAtPercentile,
+  type DistributionPoint,
+  type TimeDistributionPoint,
+} from "@/lib/simulationDisplayUtils";
 
 export type ProjectOverviewInitialData = {
   projectId: string;
   projectName: string;
+  ragStatus: RagStatus;
   riskCount: number;
-  latestSnapshot: SimulationSnapshotRow | null;
+  latestLockedSnapshot: SimulationSnapshotRow | null;
 };
 
 type ProjectOverviewContentProps = {
   initialData: ProjectOverviewInitialData;
 };
 
+type SnapshotRisk = {
+  id: string;
+  title: string;
+  simMeanCost?: number;
+  expectedCost?: number;
+  simMeanDays?: number;
+  expectedDays?: number;
+};
+
+function asFiniteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function firstFinite(...values: unknown[]): number | null {
+  for (const value of values) {
+    const n = asFiniteNumber(value);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+function parseTargetPercent(riskAppetite: string): number {
+  const n = parseInt(riskAppetite.replace(/^P/i, ""), 10);
+  if (!Number.isFinite(n)) return 80;
+  return Math.max(1, Math.min(99, n));
+}
+
+function formatSignedCurrency(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  const abs = formatCurrency(Math.abs(value));
+  if (value > 0) return `+${abs}`;
+  if (value < 0) return `-${abs}`;
+  return abs;
+}
+
+function formatSignedDuration(valueDays: number | null): string {
+  if (valueDays == null || !Number.isFinite(valueDays)) return "—";
+  const abs = formatDurationDays(Math.abs(valueDays));
+  if (valueDays > 0) return `+${abs}`;
+  if (valueDays < 0) return `-${abs}`;
+  return abs;
+}
+
+function formatPValue(value: number | null): string {
+  if (value == null || !Number.isFinite(value)) return "—";
+  return `P${Math.round(value)}`;
+}
+
+function formatReportingRun(value: string | null | undefined): string {
+  if (!value) return "—";
+  const ymMatch = /^(\d{4})-(\d{2})$/.exec(value);
+  if (ymMatch) {
+    const y = Number(ymMatch[1]);
+    const m = Number(ymMatch[2]);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+      month: "long",
+      year: "numeric",
+    });
+  }
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+function statusLabel(status: RagStatus): string {
+  if (status === "red") return "Red";
+  if (status === "amber") return "Amber";
+  return "Green";
+}
+
+function statusToneClass(status: RagStatus): string {
+  if (status === "red") return "text-red-700 dark:text-red-300";
+  if (status === "amber") return "text-amber-700 dark:text-amber-300";
+  return "text-emerald-700 dark:text-emerald-300";
+}
+
+function getSnapshotRisks(snapshot: SimulationSnapshotRowDb | null): SnapshotRisk[] {
+  const list = snapshot?.payload?.risks;
+  if (!Array.isArray(list)) return [];
+  return list as SnapshotRisk[];
+}
+
 export function ProjectOverviewContent({ initialData }: ProjectOverviewContentProps) {
-  const { projectId, riskCount, latestSnapshot } = initialData ?? {
+  const { projectId, riskCount, ragStatus, latestLockedSnapshot } = initialData ?? {
     projectId: "",
     projectName: "",
+    ragStatus: "amber" as const,
     riskCount: 0,
-    latestSnapshot: null,
+    latestLockedSnapshot: null,
   };
-  const { setRisks } = useRiskRegister();
-  const [risks, setRisksLocal] = useState<Risk[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [projectContext, setProjectContext] = useState<ProjectContext | null>(null);
 
   useEffect(() => {
-    if (!projectId) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    listRisks(projectId)
-      .then((loaded) => {
-        setRisks(loaded);
-        setRisksLocal(loaded);
-      })
-      .catch((err) => console.error("[ProjectOverview] load risks", err))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const syncContext = () => setProjectContext(loadProjectContext(projectId));
+    syncContext();
+    window.addEventListener("focus", syncContext);
+    window.addEventListener("storage", syncContext);
+    return () => {
+      window.removeEventListener("focus", syncContext);
+      window.removeEventListener("storage", syncContext);
+    };
   }, [projectId]);
 
-  const activeRisks = useMemo(
-    () => risks.filter((r) => !isRiskStatusArchived(r.status)),
-    [risks]
+  const reportingSnapshot = latestLockedSnapshot as SimulationSnapshotRowDb | null;
+  const reportingRunLabel = useMemo(
+    () =>
+      formatReportingRun(
+        reportingSnapshot?.report_month ??
+          reportingSnapshot?.locked_at ??
+          reportingSnapshot?.created_at
+      ),
+    [reportingSnapshot]
   );
 
-  const exposure = useMemo(() => {
-    if (activeRisks.length === 0) return null;
-    return computePortfolioExposure(activeRisks, "neutral", 12, { topN: 5 });
-  }, [activeRisks]);
-
-  const highSeverityCount = useMemo(() => {
-    return activeRisks.filter(
-      (r) => r.residualRating?.level === "high" || r.residualRating?.level === "extreme"
-    ).length;
-  }, [activeRisks]);
-
-  const costPosition = useMemo(() => {
-    const row = latestSnapshot;
-    if (!row || typeof row !== "object") return null;
-    const p50 = Number(row.cost_p50);
-    const p50Safe = Number.isFinite(p50) ? p50 : 0;
-    const minCol = row.cost_min;
-    const maxCol = row.cost_max;
-    const hasMinMax =
-      minCol != null &&
-      maxCol != null &&
-      Number.isFinite(Number(minCol)) &&
-      Number.isFinite(Number(maxCol));
-    let minBound = hasMinMax ? Number(minCol) : Number(row.cost_p20);
-    let maxBound = hasMinMax ? Number(maxCol) : Number(row.cost_p90);
-    if (!Number.isFinite(minBound)) minBound = 0;
-    if (!Number.isFinite(maxBound)) maxBound = 0;
-    if (minBound > maxBound) [minBound, maxBound] = [maxBound, minBound];
-    return { p10: minBound, p50: p50Safe, p90: maxBound };
-  }, [latestSnapshot]);
-
-  const schedulePosition = useMemo(() => {
-    const row = latestSnapshot;
-    if (!row || typeof row !== "object") return null;
-    const p50 = Number(row.time_p50);
-    const p50Safe = Number.isFinite(p50) ? p50 : 0;
-    const minCol = row.time_min;
-    const maxCol = row.time_max;
-    const hasMinMax =
-      minCol != null &&
-      maxCol != null &&
-      Number.isFinite(Number(minCol)) &&
-      Number.isFinite(Number(maxCol));
-    let minBound = hasMinMax ? Number(minCol) : Number(row.time_p20);
-    let maxBound = hasMinMax ? Number(maxCol) : Number(row.time_p90);
-    if (!Number.isFinite(minBound)) minBound = 0;
-    if (!Number.isFinite(maxBound)) maxBound = 0;
-    if (minBound > maxBound) [minBound, maxBound] = [maxBound, minBound];
-    return { p10: minBound, p50: p50Safe, p90: maxBound };
-  }, [latestSnapshot]);
-
-  const residualExposure = exposure?.total ?? 0;
-  const totalScheduleExposureDays = useMemo(() => {
-    return activeRisks.reduce((sum, r) => {
-      const days = r.preMitigationTimeML ?? r.postMitigationTimeML ?? 0;
-      return sum + (Number.isFinite(days) ? days : 0);
-    }, 0);
-  }, [activeRisks]);
-
-  const projectContext = useMemo(
-    () => (projectId ? loadProjectContext(projectId) : null),
-    [projectId]
-  );
+  const targetConfidence = projectContext?.riskAppetite ?? "P80";
+  const targetPercent = parseTargetPercent(targetConfidence);
   const contingencyHeld: number | null =
     projectContext?.contingencyValue_m != null &&
     Number.isFinite(projectContext.contingencyValue_m)
       ? projectContext.contingencyValue_m * 1e6
       : null;
-  const coverageRatio =
-    contingencyHeld != null && residualExposure > 0 ? contingencyHeld / residualExposure : null;
-
-  const targetLabel = projectContext?.riskAppetite ?? "P80";
-  const targetMet = coverageRatio != null && coverageRatio >= 1;
-  const targetStatus = coverageRatio == null ? null : targetMet ? "Met" : "Below recommended";
-
-  const verdict = useMemo(() => {
-    if (highSeverityCount > 0 && (coverageRatio == null || coverageRatio < 1))
-      return { label: "Review recommended", support: "Exposure exceeds contingency or high-severity risks present.", tone: "amber" as const };
-    if (riskCount === 0 || activeRisks.length === 0)
-      return {
-        label: "No risks yet",
-        support:
-          risks.length > 0 && activeRisks.length === 0
-            ? "All risks are archived. Restore from the risk register Archived tab if needed."
-            : "Add risks and run simulation to see verdict.",
-        tone: "neutral" as const,
-      };
-    return {
-      label: "Controlled",
-      support: `Project is operating within recommended confidence (${projectContext?.riskAppetite ?? "P80"}).`,
-      tone: "emerald" as const,
-    };
-  }, [highSeverityCount, coverageRatio, riskCount, projectContext?.riskAppetite, risks.length, activeRisks.length]);
-
+  const plannedDurationDays =
+    projectContext?.plannedDuration_months != null &&
+    Number.isFinite(projectContext.plannedDuration_months)
+      ? (projectContext.plannedDuration_months * 365) / 12
+      : null;
   const scheduleBufferDays =
     projectContext?.scheduleContingency_weeks != null && Number.isFinite(projectContext.scheduleContingency_weeks)
       ? projectContext.scheduleContingency_weeks * 7
       : null;
 
-  if (loading) {
-    return (
-      <main className="p-6 max-w-6xl mx-auto w-full">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading…</p>
-      </main>
+  const costDistribution = useMemo((): DistributionPoint[] => {
+    if (!reportingSnapshot) return [];
+    const fromPayload = reportingSnapshot.payload?.distributions?.costHistogram ?? [];
+    if (fromPayload.length > 0) return fromPayload;
+    const p50 = firstFinite(reportingSnapshot.cost_p50, reportingSnapshot.payload?.summary?.p50Cost);
+    const p80 = firstFinite(
+      reportingSnapshot.cost_p80,
+      reportingSnapshot.payload?.summary?.p80Cost
     );
-  }
+    const p90 = firstFinite(reportingSnapshot.cost_p90, reportingSnapshot.payload?.summary?.p90Cost);
+    if (p50 == null || p80 == null || p90 == null) return [];
+    return deriveCostHistogramFromPercentiles({ p50Cost: p50, p80Cost: p80, p90Cost: p90 }, 40);
+  }, [reportingSnapshot]);
+
+  const timeDistribution = useMemo((): TimeDistributionPoint[] => {
+    if (!reportingSnapshot) return [];
+    const fromPayload = reportingSnapshot.payload?.distributions?.timeHistogram ?? [];
+    if (fromPayload.length > 0) return fromPayload;
+    const p50 = firstFinite(reportingSnapshot.time_p50, reportingSnapshot.payload?.summary?.p50Time);
+    const p80 = firstFinite(
+      reportingSnapshot.time_p80,
+      reportingSnapshot.payload?.summary?.p80Time
+    );
+    const p90 = firstFinite(reportingSnapshot.time_p90, reportingSnapshot.payload?.summary?.p90Time);
+    if (p50 == null || p80 == null || p90 == null) return [];
+    return deriveTimeHistogramFromPercentiles({ p50Time: p50, p80Time: p80, p90Time: p90 }, 40);
+  }, [reportingSnapshot]);
+
+  const costCdf = useMemo(
+    () => (costDistribution.length > 0 ? distributionToCostCdf(costDistribution) : []),
+    [costDistribution]
+  );
+  const timeCdf = useMemo(
+    () => (timeDistribution.length > 0 ? distributionToTimeCdf(timeDistribution) : []),
+    [timeDistribution]
+  );
+
+  const currentCostPosition = useMemo(() => {
+    if (!costCdf.length || contingencyHeld == null || contingencyHeld <= 0) return null;
+    const value = percentileAtCost(costCdf, contingencyHeld);
+    return value != null ? Math.round(value) : null;
+  }, [costCdf, contingencyHeld]);
+
+  const currentTimePosition = useMemo(() => {
+    if (!timeCdf.length || plannedDurationDays == null || plannedDurationDays <= 0) return null;
+    const value = percentileAtTime(timeCdf, plannedDurationDays);
+    return value != null ? Math.round(value) : null;
+  }, [timeCdf, plannedDurationDays]);
+
+  const costAtTarget = useMemo(
+    () => (costCdf.length > 0 ? costAtPercentile(costCdf, targetPercent) : null),
+    [costCdf, targetPercent]
+  );
+  const timeAtTarget = useMemo(
+    () => (timeCdf.length > 0 ? timeAtPercentile(timeCdf, targetPercent) : null),
+    [timeCdf, targetPercent]
+  );
+
+  const costGapToTarget =
+    costAtTarget != null && contingencyHeld != null ? costAtTarget - contingencyHeld : null;
+  const timeGapToTarget =
+    timeAtTarget != null && plannedDurationDays != null ? timeAtTarget - plannedDurationDays : null;
+
+  const costMean = firstFinite(
+    reportingSnapshot?.cost_mean,
+    reportingSnapshot?.payload?.summary?.meanCost
+  );
+  const timeMean = firstFinite(
+    reportingSnapshot?.time_mean,
+    reportingSnapshot?.payload?.summary?.meanTime
+  );
+  const costContingencyRemaining =
+    contingencyHeld != null && costMean != null ? contingencyHeld - costMean : null;
+  const timeContingencyRemaining =
+    scheduleBufferDays != null && timeMean != null ? scheduleBufferDays - timeMean : null;
+
+  const snapshotRisks = useMemo(
+    () => getSnapshotRisks(reportingSnapshot),
+    [reportingSnapshot]
+  );
+
+  const keyCostRisk = useMemo(() => {
+    const sorted = [...snapshotRisks]
+      .map((risk) => ({
+        ...risk,
+        impact: firstFinite(risk.simMeanCost, risk.expectedCost) ?? 0,
+      }))
+      .filter((risk) => risk.impact > 0)
+      .sort((a, b) => b.impact - a.impact);
+    return sorted[0] ?? null;
+  }, [snapshotRisks]);
+
+  const keyTimeRisk = useMemo(() => {
+    const sorted = [...snapshotRisks]
+      .map((risk) => ({
+        ...risk,
+        impact: firstFinite(risk.simMeanDays, risk.expectedDays) ?? 0,
+      }))
+      .filter((risk) => risk.impact > 0)
+      .sort((a, b) => b.impact - a.impact);
+    return sorted[0] ?? null;
+  }, [snapshotRisks]);
+
+  const keyOpportunity = useMemo(() => {
+    const opportunity = snapshotRisks.find((risk) => {
+      const cost = firstFinite(risk.simMeanCost, risk.expectedCost);
+      const days = firstFinite(risk.simMeanDays, risk.expectedDays);
+      return (cost != null && cost < 0) || (days != null && days < 0);
+    });
+    return opportunity ?? null;
+  }, [snapshotRisks]);
 
   return (
     <main className="p-6 max-w-6xl mx-auto w-full">
       <div className="mb-6">
         <h2 className="text-lg font-semibold m-0 text-[var(--foreground)]">Project Overview</h2>
+        {reportingSnapshot && (
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            Reporting Run: {reportingRunLabel}
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-col gap-3">
-      {/* Verdict + core metrics — single panel */}
-      <section
-        className="rounded-lg bg-neutral-50 dark:bg-neutral-800/50 overflow-hidden"
-        aria-labelledby="verdict-heading metrics-heading"
-      >
-        <div className="py-3 px-4 bg-[var(--background)]">
-          <h2 id="verdict-heading" className="sr-only">
-            Project verdict
-          </h2>
-          <p
-            className={`text-xl font-semibold tracking-tight m-0 ${
-              verdict.tone === "emerald"
-                ? "text-emerald-700 dark:text-emerald-400"
-                : verdict.tone === "amber"
-                  ? "text-amber-700 dark:text-amber-400"
-                  : "text-[var(--foreground)]"
-            }`}
-          >
-            {verdict.label}
+      {!reportingSnapshot ? (
+        <section className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800/50 p-6">
+          <p className="text-base font-semibold text-[var(--foreground)] m-0">
+            No reporting run locked
           </p>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0 mt-0.5">
-            {verdict.support}
+          <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400 m-0">
+            Lock a simulation for reporting to populate Overview
           </p>
-        </div>
-        <div className="bg-[var(--background)] py-3 px-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <h2 id="metrics-heading" className="sr-only col-span-full">
-            Core metrics
-          </h2>
-          <SummaryTile
-            title="Residual Cost"
-            primaryValue={exposure ? formatCurrency(residualExposure) : "—"}
-          />
-          <SummaryTile
-            title="Residual Schedule"
-            primaryValue={
-              activeRisks.length > 0 && totalScheduleExposureDays > 0
-                ? formatDurationDays(totalScheduleExposureDays)
-                : "—"
-            }
-          />
-          <SummaryTile
-            title="Contingency"
-            primaryValue={contingencyHeld != null ? formatCurrency(contingencyHeld) : "—"}
-          />
-          <SummaryTile
-            title="Coverage"
-            primaryValue={coverageRatio != null ? formatRatio(coverageRatio) : "—"}
-          />
-          <SummaryTile
-            title="Target"
-            primaryValue={
-              projectContext
-                ? `${targetLabel}${targetStatus != null ? ` (${targetStatus})` : ""}`
-                : "—"
-            }
-          />
-        </div>
-      </section>
-
-      {/* Position bars in cards — same two-column layout as Simulation */}
-      <section
-        className="grid grid-cols-1 lg:grid-cols-2 gap-6"
-        aria-labelledby="position-heading"
-      >
-        <h2 id="position-heading" className="sr-only">
-          Cost and schedule position
-        </h2>
-        <DashboardCard title="Cost">
-          {costPosition ? (
-            <PositionBar
-              label="Cost"
-              p10={costPosition.p10}
-              p50={costPosition.p50}
-              p90={costPosition.p90}
-              formatValue={formatCurrency}
-              valueLabel="P50"
-              currentPosition={contingencyHeld}
-            />
-          ) : (
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
-              No simulation run yet. Run simulation on Run Data.
+        </section>
+      ) : (
+        <div className="space-y-4">
+          <DashboardCard title="Status">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <SummaryTile
+                title="Project Status (RAG)"
+                primaryValue={statusLabel(ragStatus)}
+                subtext={`${riskCount} active risks · RiskAI thresholds`}
+              />
+              <SummaryTile
+                title="Target Confidence"
+                primaryValue={targetConfidence}
+                subtext="From Project Settings risk appetite"
+              />
+            </div>
+            <p className={`mt-2 mb-0 text-xs font-medium ${statusToneClass(ragStatus)}`}>
+              {statusLabel(ragStatus)}
             </p>
-          )}
-        </DashboardCard>
-        <DashboardCard title="Schedule">
-          {schedulePosition ? (
-            <PositionBar
-              label="Schedule"
-              p10={schedulePosition.p10}
-              p50={schedulePosition.p50}
-              p90={schedulePosition.p90}
-              formatValue={formatDurationDays}
-              valueLabel="P50"
-              currentPosition={scheduleBufferDays}
-            />
-          ) : (
-            <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
-              No simulation run yet. Run simulation on Run Data.
-            </p>
-          )}
-        </DashboardCard>
-      </section>
-      </div>
+          </DashboardCard>
 
-      {/* Footer */}
-      <footer className="mt-8 pt-4 border-t border-neutral-200 dark:border-neutral-700">
-        <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0">
-          Based on latest reporting run · Synced with Run Data
-        </p>
-      </footer>
+          <DashboardCard title="Position">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <SummaryTile
+                title="Current Cost Position"
+                primaryValue={formatPValue(currentCostPosition)}
+              />
+              <SummaryTile
+                title="Current Time Position"
+                primaryValue={formatPValue(currentTimePosition)}
+              />
+            </div>
+          </DashboardCard>
+
+          <DashboardCard title="Impact">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <SummaryTile
+                title="$ Gap to Target"
+                primaryValue={formatSignedCurrency(costGapToTarget)}
+              />
+              <SummaryTile
+                title="Time Gap to Target"
+                primaryValue={formatSignedDuration(timeGapToTarget)}
+              />
+            </div>
+          </DashboardCard>
+
+          <DashboardCard title="Buffer">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <SummaryTile
+                title="$ Contingency Remaining"
+                primaryValue={formatSignedCurrency(costContingencyRemaining)}
+              />
+              <SummaryTile
+                title="Time Contingency Remaining"
+                primaryValue={formatSignedDuration(timeContingencyRemaining)}
+              />
+            </div>
+          </DashboardCard>
+
+          <DashboardCard title="Insight">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+              <SummaryTile
+                title="Key Cost Risk (Top 1)"
+                primaryValue={keyCostRisk?.title ?? "—"}
+                subtext={
+                  keyCostRisk
+                    ? formatCurrency(
+                        firstFinite(keyCostRisk.simMeanCost, keyCostRisk.expectedCost) ?? 0
+                      )
+                    : "No cost risk in reporting run"
+                }
+              />
+              <SummaryTile
+                title="Key Time Risk (Top 1)"
+                primaryValue={keyTimeRisk?.title ?? "—"}
+                subtext={
+                  keyTimeRisk
+                    ? formatDurationDays(
+                        firstFinite(keyTimeRisk.simMeanDays, keyTimeRisk.expectedDays) ?? 0
+                      )
+                    : "No schedule risk in reporting run"
+                }
+              />
+              <SummaryTile
+                title="Key Opportunity (Top 1)"
+                primaryValue={keyOpportunity?.title ?? "No opportunity identified"}
+                subtext="Opportunity output not available in current run payload"
+              />
+            </div>
+          </DashboardCard>
+        </div>
+      )}
     </main>
   );
 }
