@@ -5,6 +5,7 @@ import { useMemo, useEffect, useState } from "react";
 import {
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -22,6 +23,7 @@ import { formatReportMonthLabel, type SimulationSnapshotRow } from "@/lib/db/sna
 import { formatCurrency } from "@/lib/formatCurrency";
 import { formatDurationDays } from "@/lib/formatDuration";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
+import { useProjectPageHeaderExtras } from "@/contexts/ProjectPageHeaderContext";
 import type { Risk } from "@/domain/risk/risk.schema";
 import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 import { computeRag, type RagStatus } from "@/lib/dashboard/projectTileServerData";
@@ -42,10 +44,72 @@ import {
 type CdfChartPoint = { x: number; p: number };
 
 const CHART_HEIGHT = 200;
-const CHART_MARGIN = { top: 8, right: 12, left: 4, bottom: 4 };
-/** Reference lines: hue from theme only; distinguish by weight and dash. */
-const REF_CURRENT_OPACITY = 0.55;
-const REF_TARGET_OPACITY = 0.35;
+/** Extra top room for on-chart “Target (PXX)” / “Current” labels. */
+const CHART_MARGIN = { top: 14, right: 12, left: 4, bottom: 4 };
+
+/** P on the piecewise-linear CDF at x (same anchors as the line). */
+function interpolatePAtX(points: CdfChartPoint[], x: number): number | null {
+  const sorted = [...points].sort((a, b) => a.x - b.x);
+  if (sorted.length < 2) return null;
+  if (x <= sorted[0].x) return sorted[0].p;
+  if (x >= sorted[sorted.length - 1].x) return sorted[sorted.length - 1].p;
+  for (let i = 0; i < sorted.length - 1; i++) {
+    const a = sorted[i];
+    const b = sorted[i + 1];
+    if (x >= a.x && x <= b.x) {
+      const t = (x - a.x) / (b.x - a.x);
+      return a.p + t * (b.p - a.p);
+    }
+  }
+  return null;
+}
+
+function DistributionTooltipContent({
+  active,
+  payload,
+  formatX,
+  currentX,
+  points,
+}: {
+  active?: boolean;
+  payload?: ReadonlyArray<{ payload?: CdfChartPoint }>;
+  formatX: (n: number) => string;
+  currentX: number | null;
+  points: CdfChartPoint[];
+}) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload;
+  if (point == null) return null;
+
+  const closestToMean = points.reduce<CdfChartPoint | null>((best, p) => {
+    if (currentX == null) return best;
+    if (best == null) return p;
+    return Math.abs(p.x - currentX) < Math.abs(best.x - currentX) ? p : best;
+  }, null);
+
+  const isNearestAnchorToMean =
+    currentX != null &&
+    closestToMean != null &&
+    Math.abs(point.x - closestToMean.x) < 1e-9 &&
+    Math.abs(point.p - closestToMean.p) < 1e-9;
+
+  return (
+    <div
+      className="rounded-lg px-2.5 py-1.5 text-xs shadow-sm"
+      style={{
+        background: "var(--background)",
+        border: "1px solid oklch(0.85 0.01 250 / 0.35)",
+      }}
+    >
+      <p className="m-0 font-medium text-[var(--foreground)] tabular-nums leading-snug">
+        P{point.p} • {formatX(point.x)}
+      </p>
+      {isNearestAnchorToMean ? (
+        <p className="m-0 mt-0.5 text-[10px] text-neutral-500 dark:text-neutral-400">(Current)</p>
+      ) : null}
+    </div>
+  );
+}
 
 function formatSignedDollarGap(meanCost: number | null, appetiteLineCost: number | null): string {
   if (meanCost == null || appetiteLineCost == null) return "—";
@@ -158,6 +222,15 @@ function DistributionMiniChart({
   const hasLine = points.length >= 2;
   const stroke = "var(--foreground)";
 
+  const pAtCurrent =
+    hasLine && currentX != null && Number.isFinite(currentX)
+      ? interpolatePAtX(points, currentX)
+      : null;
+
+  const showCurrentGuide = currentX != null && Number.isFinite(currentX);
+  const showTargetGuide = targetX != null && Number.isFinite(targetX);
+  const showCurrentDot = showCurrentGuide && pAtCurrent != null;
+
   return (
     <DashCard className="flex flex-col gap-3">
       <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400 m-0">
@@ -189,60 +262,73 @@ function DistributionMiniChart({
                 tickLine={{ stroke: "var(--foreground)", strokeOpacity: 0.12 }}
               />
               <Tooltip
-                contentStyle={{
-                  background: "var(--background)",
-                  border: "1px solid oklch(0.85 0.01 250 / 0.35)",
-                  borderRadius: 8,
-                  fontSize: 12,
-                }}
-                formatter={(value) => [`P${value ?? ""}`, "Band"]}
-                labelFormatter={(v) => formatX(Number(v))}
+                content={(props) => (
+                  <DistributionTooltipContent
+                    active={props.active}
+                    payload={props.payload}
+                    formatX={formatX}
+                    currentX={currentX}
+                    points={points}
+                  />
+                )}
               />
               <Line
                 type="monotone"
                 dataKey="p"
                 stroke={stroke}
-                strokeWidth={2}
-                dot={{ r: 3, fill: stroke, strokeWidth: 0 }}
-                activeDot={{ r: 4 }}
+                strokeOpacity={0.38}
+                strokeWidth={1.5}
+                dot={{ r: 2.5, fill: stroke, strokeWidth: 0, fillOpacity: 0.42 }}
+                activeDot={{ r: 4, fillOpacity: 0.65 }}
                 isAnimationActive={false}
               />
-              {currentX != null && Number.isFinite(currentX) ? (
-                <ReferenceLine
-                  x={currentX}
-                  stroke="var(--foreground)"
-                  strokeOpacity={REF_CURRENT_OPACITY}
-                  strokeWidth={2}
-                  strokeDasharray="4 3"
-                />
-              ) : null}
-              {targetX != null && Number.isFinite(targetX) ? (
+              {showTargetGuide ? (
                 <ReferenceLine
                   x={targetX}
                   stroke="var(--foreground)"
-                  strokeOpacity={REF_TARGET_OPACITY}
+                  strokeOpacity={0.4}
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                  label={{
+                    value: `Target (${targetLabel})`,
+                    position: "insideTop",
+                    fill: "var(--foreground)",
+                    fillOpacity: 0.5,
+                    fontSize: 10,
+                  }}
+                />
+              ) : null}
+              {showCurrentGuide ? (
+                <ReferenceLine
+                  x={currentX}
+                  stroke="var(--foreground)"
+                  strokeOpacity={0.88}
                   strokeWidth={2}
+                />
+              ) : null}
+              {showCurrentDot ? (
+                <ReferenceDot
+                  x={currentX}
+                  y={pAtCurrent}
+                  r={7}
+                  fill="var(--foreground)"
+                  fillOpacity={1}
+                  stroke="var(--background)"
+                  strokeWidth={2}
+                  strokeOpacity={1}
+                  label={{
+                    value: "Current",
+                    position: "top",
+                    fill: "var(--foreground)",
+                    fillOpacity: 0.88,
+                    fontSize: 10,
+                  }}
                 />
               ) : null}
             </LineChart>
           </ResponsiveContainer>
         </div>
       )}
-      {hasLine ? (
-        <div className="flex flex-wrap gap-4 text-[11px] text-neutral-500 dark:text-neutral-400">
-          <span className="inline-flex items-center gap-1.5">
-            <span
-              className="h-0.5 w-4 border-t-2 border-dashed border-[var(--foreground)] opacity-55"
-              aria-hidden
-            />
-            Mean (current)
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="h-0.5 w-4 rounded-sm bg-[var(--foreground)] opacity-35" aria-hidden />
-            Target ({targetLabel})
-          </span>
-        </div>
-      ) : null}
     </DashCard>
   );
 }
@@ -254,6 +340,7 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   };
 
   const { setRisks } = useRiskRegister();
+  const { setExtras } = useProjectPageHeaderExtras();
   const [risks, setRisksLocal] = useState<Risk[]>([]);
   const [loadingRisks, setLoadingRisks] = useState(true);
 
@@ -475,8 +562,39 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
       ? formatReportMonthLabel(reportingSnapshot.report_month)
       : null;
 
+  const reportingNoteTrimmed = reportingSnapshot?.lock_note?.trim() ?? "";
+
+  const overviewHeaderEnd = useMemo(() => {
+    if (!reportingSnapshot || loadingRisks) return null;
+    return (
+      <>
+        <p className="m-0">
+          <span className="text-neutral-500 dark:text-neutral-400">Reporting run </span>
+          <span className="font-medium text-[var(--foreground)]">{reportingMonthHeader ?? "—"}</span>
+        </p>
+        <div className="m-0 max-w-md sm:max-w-sm">
+          <span className="text-neutral-500 dark:text-neutral-400">Note </span>
+          {reportingNoteTrimmed ? (
+            <span className="font-medium text-neutral-800 dark:text-neutral-200">
+              {reportingNoteTrimmed}
+            </span>
+          ) : (
+            <span className="text-neutral-500 dark:text-neutral-400">—</span>
+          )}
+        </div>
+      </>
+    );
+  }, [reportingSnapshot, loadingRisks, reportingMonthHeader, reportingNoteTrimmed]);
+
+  useEffect(() => {
+    setExtras({
+      titleSuffix: "Project Overview",
+      end: overviewHeaderEnd,
+    });
+    return () => setExtras(null);
+  }, [overviewHeaderEnd, setExtras]);
+
   const runDataHref = projectId ? riskaiPath(`/projects/${projectId}/run-data`) : DASHBOARD_PATH;
-  const settingsHref = projectId ? riskaiPath(`/projects/${projectId}/settings`) : DASHBOARD_PATH;
   const simulationHref = projectId ? riskaiPath(`/projects/${projectId}/simulation`) : DASHBOARD_PATH;
 
   /** Mean minus appetite line: ≤0 (at/under target) reads favorable. */
@@ -491,9 +609,6 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   if (!reportingSnapshot) {
     return (
       <main className="p-6 w-full">
-        <div className="mb-6">
-          <h1 className="text-lg font-semibold m-0 text-[var(--foreground)]">Project Overview</h1>
-        </div>
         <div className="rounded-2xl bg-neutral-100/70 dark:bg-white/[0.06] p-8 text-center shadow-sm">
           <p className="text-base font-medium text-[var(--foreground)] m-0">No reporting run locked</p>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0 mt-2 max-w-md mx-auto">
@@ -528,36 +643,23 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
   }
 
   const rag = ragPresentation(ragStatus);
-  const reportingNoteTrimmed = reportingSnapshot?.lock_note?.trim() ?? "";
   const activeN = countActiveRisks(risks);
   const highN = countHighSeverityActive(risks);
 
   const targetLabelShort = targetAppetite;
 
-  return (
-    <main className="p-6 w-full max-w-7xl mx-auto">
-      <header className="mb-8 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <h1 className="text-xl font-semibold tracking-tight m-0 text-[var(--foreground)]">
-          Project Overview
-        </h1>
-        <div className="flex flex-col gap-1 text-sm text-neutral-600 dark:text-neutral-300 sm:items-end sm:text-right">
-          <p className="m-0">
-            <span className="text-neutral-500 dark:text-neutral-400">Reporting run </span>
-            <span className="font-medium text-[var(--foreground)]">{reportingMonthHeader ?? "—"}</span>
-          </p>
-          <div className="m-0 max-w-md sm:max-w-sm">
-            <span className="text-neutral-500 dark:text-neutral-400">Note </span>
-            {reportingNoteTrimmed ? (
-              <span className="font-medium text-neutral-800 dark:text-neutral-200">
-                {reportingNoteTrimmed}
-              </span>
-            ) : (
-              <span className="text-neutral-500 dark:text-neutral-400">—</span>
-            )}
-          </div>
-        </div>
-      </header>
+  /** Same basis as `currentConfidenceLabel` (nearest reporting anchor vs configured target). */
+  const confidenceVsTargetDir =
+    currentConfidenceLabel != null
+      ? nearestAnchor > targetPercent
+        ? "above"
+        : nearestAnchor < targetPercent
+          ? "below"
+          : null
+      : null;
 
+  return (
+    <main className="p-6 w-full">
       {/* Row 1 — headline metrics */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-8">
         <DashCard>
@@ -579,30 +681,34 @@ export function ProjectOverviewContent({ initialData }: ProjectOverviewContentPr
           <p className="text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400 m-0 mb-3">
             Target vs current confidence
           </p>
-          <p className="text-2xl font-semibold tracking-tight text-[var(--foreground)] m-0 tabular-nums">
-            {currentConfidenceLabel ?? "—"}
-            <span className="text-neutral-400 dark:text-neutral-500 font-normal mx-2">→</span>
-            {targetAppetite}
-          </p>
-          <div
-            className="mt-4 flex items-center gap-2"
-            aria-hidden
-          >
-            <span className="text-[10px] uppercase tracking-wide text-neutral-500 w-14 shrink-0">Current</span>
-            <div className="flex flex-1 items-center gap-1.5 min-w-0 max-w-[140px]">
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--foreground)] opacity-70" />
-              <span className="h-px flex-1 min-w-[12px] bg-[var(--foreground)] opacity-15" />
-              <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--foreground)] opacity-35" />
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="text-3xl font-bold tracking-tight text-[var(--foreground)] tabular-nums">
+                {currentConfidenceLabel ?? "—"}
+              </span>
+              <span className="text-sm font-medium text-neutral-500 dark:text-neutral-400">(Current)</span>
+              {confidenceVsTargetDir === "above" ? (
+                <span
+                  className="text-base leading-none text-emerald-600 dark:text-emerald-400"
+                  aria-label="Above target"
+                  role="img"
+                >
+                  ↑
+                </span>
+              ) : confidenceVsTargetDir === "below" ? (
+                <span
+                  className="text-base leading-none text-red-600 dark:text-red-400"
+                  aria-label="Below target"
+                  role="img"
+                >
+                  ↓
+                </span>
+              ) : null}
             </div>
-            <span className="text-[10px] uppercase tracking-wide text-neutral-500 w-14 shrink-0 text-right">
-              Target
-            </span>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 m-0 tabular-nums">
+              Target: {targetAppetite}
+            </p>
           </div>
-          <p className="text-xs text-neutral-500 dark:text-neutral-400 m-0 mt-3">
-            <Link href={settingsHref} className="underline underline-offset-2 hover:text-[var(--foreground)]">
-              Settings
-            </Link>
-          </p>
         </DashCard>
 
         <DashCard>

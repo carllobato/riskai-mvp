@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { assertProjectAccess } from "@/lib/auth/assertProjectAccess";
 import { DASHBOARD_PATH, riskaiPath } from "@/lib/routes";
 import { PageHeader } from "@/components/PageHeader";
+import { ProjectPageHeaderExtrasProvider } from "@/contexts/ProjectPageHeaderContext";
 import { ProjectPermissionsProvider } from "@/contexts/ProjectPermissionsContext";
 import { isDevAuthBypassEnabled } from "@/lib/dev/devAuthBypass";
 import { SetActiveProjectClient } from "./SetActiveProjectClient";
@@ -66,14 +67,16 @@ export default async function ProjectLayout({
 
   return (
     <ProjectPermissionsProvider permissions={permissions}>
-      <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
-      <PageHeader
-        projectId={projectId}
-        projectName={project.name}
-        portfolioId={portfolioId}
-        portfolioName={portfolioName}
-      />
-      {children}
+      <ProjectPageHeaderExtrasProvider>
+        <SetActiveProjectClient projectId={projectId} storageKey={ACTIVE_PROJECT_KEY} />
+        <PageHeader
+          projectId={projectId}
+          projectName={project.name}
+          portfolioId={portfolioId}
+          portfolioName={portfolioName}
+        />
+        {children}
+      </ProjectPageHeaderExtrasProvider>
     </ProjectPermissionsProvider>
   );
 }
