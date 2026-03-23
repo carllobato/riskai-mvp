@@ -15,6 +15,15 @@ export type RiskAppetite =
   | "P80"
   | "P90";
 
+/** Map settings Risk Appetite (e.g. P80) to cumulative percentile 0–100 for distribution targets. */
+export function riskAppetiteToPercent(
+  appetite: RiskAppetite | string | null | undefined
+): number {
+  if (appetite == null || typeof appetite !== "string") return 80;
+  const n = parseInt(appetite.replace(/^P/i, ""), 10);
+  return Number.isFinite(n) ? n : 80;
+}
+
 export type ProjectCurrency = "AUD" | "USD" | "GBP";
 
 export type FinancialUnit = "THOUSANDS" | "MILLIONS" | "BILLIONS";

@@ -34,7 +34,8 @@ function residualLevel(row: RiskAggRow): "low" | "medium" | "high" | "extreme" {
   return buildRating(Number(row.post_probability) || 1, postConsequence).level;
 }
 
-function computeRag(params: {
+/** RiskAI portfolio tile RAG: high/extreme residual → red; risks but no simulation timestamp → amber; else green. */
+export function computeRag(params: {
   riskCount: number;
   highSeverityCount: number;
   lastSimulationAt: string | null;

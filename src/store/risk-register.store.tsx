@@ -1,6 +1,13 @@
 "use client";
 
-import React, { createContext, useContext, useEffect, useMemo, useReducer } from "react";
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useReducer,
+} from "react";
 import type { Risk } from "@/domain/risk/risk.schema";
 import type {
   SimulationSnapshot,
@@ -100,7 +107,7 @@ function scenarioSnapshotScalarsForPayload(s: SimulationSnapshot): Record<string
 }
 
 /** Build store simulation state from a DB snapshot row (so "last run" data can be restored). */
-function buildSimulationFromDbRow(row: SimulationSnapshotRow): {
+export function buildSimulationFromDbRow(row: SimulationSnapshotRow): {
   current: SimulationSnapshot;
   neutral: MonteCarloNeutralSnapshot;
 } | null {
@@ -763,6 +770,20 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
     return computePortfolioForwardPressure(list, profile);
   }, [riskForecastsById]);
 
+  const hydrateSimulationFromDbSnapshot = useCallback((row: SimulationSnapshotRow) => {
+    const built = buildSimulationFromDbRow(row);
+    if (built) {
+      dispatch({
+        type: "simulation/hydrate",
+        payload: {
+          current: built.current,
+          history: [],
+          neutral: built.neutral,
+        },
+      });
+    }
+  }, [dispatch]);
+
   const value = useMemo<Ctx>(
     () => ({
       risks: state.risks,
@@ -960,26 +981,21 @@ export function RiskRegisterProvider({ children }: { children: React.ReactNode }
           });
       },
       clearSimulationHistory: () => dispatch({ type: "simulation/clearHistory" }),
-      hydrateSimulationFromDbSnapshot: (row) => {
-        const built = buildSimulationFromDbRow(row);
-        if (built) {
-          dispatch({
-            type: "simulation/hydrate",
-            payload: {
-              current: built.current,
-              history: [],
-              neutral: built.neutral,
-            },
-          });
-        }
-      },
+      hydrateSimulationFromDbSnapshot,
       setSimulationDelta: (delta) => dispatch({ type: "simulation/setDelta", delta }),
       hasDraftRisks: state.risks.some((r) => isRiskStatusDraft(r.status)),
       invalidRunnableCount,
       forwardPressure,
       riskForecastsById,
     }),
-    [state.risks, state.simulation, invalidRunnableCount, forwardPressure, riskForecastsById]
+    [
+      state.risks,
+      state.simulation,
+      invalidRunnableCount,
+      forwardPressure,
+      riskForecastsById,
+      hydrateSimulationFromDbSnapshot,
+    ]
   );
 
   return <RiskRegisterContext.Provider value={value}>{children}</RiskRegisterContext.Provider>;

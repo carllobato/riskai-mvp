@@ -184,42 +184,146 @@ export type SimulationSnapshotRow = {
   run_duration_ms?: number | null;
   payload?: SimulationSnapshotPayload | null;
   created_at?: string;
+  locked_for_reporting?: boolean;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  lock_note?: string | null;
+  report_month?: string | null;
 } | null;
 
+/** Format snapshot `created_at` like Run Data: "15 Mar 2026 — 09:08:37". */
+export function formatSnapshotCreatedAtLabel(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const datePart = d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+    const timePart = d.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    });
+    return `${datePart} — ${timePart}`;
+  } catch {
+    return iso;
+  }
+}
+
 /**
- * Row from `select('*')` may include reporting columns if present in the database.
+ * Human-readable run label (no separate run name column). Uses iterations + run time, aligned with Run Data.
+ */
+export function formatSimulationRunDisplayName(
+  row: SimulationSnapshotRow | null | undefined
+): string | null {
+  if (!row || typeof row !== "object") return null;
+  const created = row.created_at;
+  const iter = row.iterations;
+  if (created) {
+    const ts = formatSnapshotCreatedAtLabel(created);
+    if (iter != null && Number.isFinite(Number(iter))) {
+      return `${Number(iter).toLocaleString()} iterations · ${ts}`;
+    }
+    return ts;
+  }
+  const id = row.id;
+  if (id && !String(id).startsWith("sim_")) {
+    return `Run ${String(id).slice(0, 8)}…`;
+  }
+  return null;
+}
+
+/** `report_month` (ISO date or `YYYY-MM-…`) → "March 2026"; invalid or empty → "—". */
+export function formatReportMonthLabel(reportMonth: string | null | undefined): string {
+  if (!reportMonth) return "—";
+  const ym = reportMonth.slice(0, 7);
+  if (!/^\d{4}-\d{2}$/.test(ym)) return "—";
+  const [y, m] = ym.split("-").map(Number);
+  const date = new Date(y, m - 1, 1);
+  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
+
+/**
+ * Row from `select('*')` may include reporting lock columns if present in the database.
  * Base shape is {@link SimulationSnapshotRow}; this type is for typed access only.
  */
-export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow> & {
-  reporting_version?: boolean;
-  reporting_locked_at?: string | null;
-  reporting_locked_by?: string | null;
-  reporting_note?: string | null;
-  reporting_month_year?: string | null;
+export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow>;
+
+/** `reportingMonthYear` "YYYY-MM" → Postgres `date` first of month (YYYY-MM-01). */
+function reportMonthDateFromYearMonth(reportingMonthYear: string): string {
+  const trimmed = reportingMonthYear.trim();
+  if (!/^\d{4}-\d{2}$/.test(trimmed)) {
+    throw new Error(
+      `setSnapshotAsReportingVersion: invalid reportingMonthYear "${reportingMonthYear}" (expected YYYY-MM)`
+    );
+  }
+  return `${trimmed}-01`;
+}
+
+export type SetSnapshotAsReportingVersionResult = {
+  id: string;
+  locked_for_reporting: boolean;
+  locked_at: string | null;
+  locked_by: string | null;
+  lock_note: string | null;
+  report_month: string | null;
 };
 
 /**
- * Set a snapshot as the reporting version (one-way lock). Persists reporting_version, locked_at, locked_by, note, reporting_month_year.
- * reporting_month_year should be "YYYY-MM" (e.g. "2025-03").
+ * Set a snapshot as the reporting version (one-way lock) on `riskai_simulation_snapshots`.
+ * Uses columns: locked_for_reporting, locked_at, locked_by (auth user UUID), lock_note, report_month.
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
-  params: { note: string; lockedBy: string; reportingMonthYear: string }
-): Promise<void> {
+  params: { userId: string; note?: string; reportingMonthYear: string }
+): Promise<SetSnapshotAsReportingVersionResult> {
+  const userId = params.userId?.trim();
+  if (!userId) {
+    const err = new Error("setSnapshotAsReportingVersion: userId is required");
+    console.error("[setSnapshotAsReportingVersion]", err);
+    throw err;
+  }
+
+  const reportMonth = reportMonthDateFromYearMonth(params.reportingMonthYear);
+  const payload = {
+    locked_for_reporting: true,
+    locked_at: new Date().toISOString(),
+    locked_by: userId,
+    lock_note: params.note?.trim() || null,
+    report_month: reportMonth,
+  };
+
+  console.log("[setSnapshotAsReportingVersion] before update", {
+    snapshotId,
+    userId,
+    reportMonth,
+    lockNote: payload.lock_note,
+  });
+
   const supabase = supabaseBrowserClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("riskai_simulation_snapshots")
-    .update({
-      reporting_version: true,
-      reporting_locked_at: new Date().toISOString(),
-      reporting_locked_by: params.lockedBy || null,
-      reporting_note: params.note?.trim() || null,
-      reporting_month_year: params.reportingMonthYear?.trim() || null,
-    })
-    .eq("id", snapshotId);
+    .update(payload)
+    .eq("id", snapshotId)
+    .select("id, locked_for_reporting, locked_at, locked_by, lock_note, report_month")
+    .single();
 
   if (error) {
-    console.error("[setSnapshotAsReportingVersion]", error);
+    console.error("[setSnapshotAsReportingVersion] Supabase error", error);
     throw error;
   }
+
+  if (!data) {
+    const err = new Error(
+      "setSnapshotAsReportingVersion: update returned no row (check id and RLS)."
+    );
+    console.error("[setSnapshotAsReportingVersion]", err);
+    throw err;
+  }
+
+  console.log("[setSnapshotAsReportingVersion] success", data);
+  return data as SetSnapshotAsReportingVersionResult;
 }

@@ -436,7 +436,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         {showResults &&
           isCurrentRunPersisted &&
           effectiveProjectId &&
-          !reportingDbRow?.reporting_version && (
+          !reportingDbRow?.locked_for_reporting && (
           <button
             type="button"
             onClick={() => !simulationReadOnly && setSetReportingModalOpen(true)}
@@ -685,22 +685,39 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                 type="button"
                 disabled={setReportingSaving}
                 onClick={async () => {
-                  const currentId = simulation.current?.id;
-                  if (!currentId || !effectiveProjectId) return;
+                  const snapshotId = simulation.current?.id;
+                  if (!snapshotId || !effectiveProjectId) return;
                   setSetReportingSaving(true);
                   try {
-                    await setSnapshotAsReportingVersion(currentId, {
+                    const supabase = supabaseBrowserClient();
+                    const {
+                      data: { user },
+                      error: authErr,
+                    } = await supabase.auth.getUser();
+                    if (authErr) {
+                      console.error("[simulation] set reporting version auth", authErr);
+                      throw authErr;
+                    }
+                    const userId = user?.id;
+                    if (!userId) {
+                      const err = new Error("Not authenticated: cannot set reporting version.");
+                      console.error("[simulation] set reporting version", err);
+                      throw err;
+                    }
+
+                    await setSnapshotAsReportingVersion(snapshotId, {
+                      userId,
                       note: reportingNote,
-                      lockedBy: triggeredBy ?? "Unknown",
                       reportingMonthYear,
                     });
                     const row = await getLatestSnapshot(effectiveProjectId);
-                    if (row?.id === currentId) setReportingSnapshotRow(row);
+                    if (row?.id === snapshotId) setReportingSnapshotRow(row);
                     setSetReportingModalOpen(false);
                     setReportingNote("");
                     setReportingMonthYear(toMonthYearKey(new Date()));
-                  } catch {
-                    // Error already logged in setSnapshotAsReportingVersion
+                  } catch (e) {
+                    console.error("[simulation] set reporting version failed", e);
+                    throw e;
                   } finally {
                     setSetReportingSaving(false);
                   }

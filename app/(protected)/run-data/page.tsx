@@ -8,6 +8,7 @@ import { portfolioMomentumSummary } from "@/domain/risk/risk.logic";
 import { getLatestSnapshot, getRiskHistory } from "@/lib/riskSnapshotHistory";
 import {
   getLatestSnapshot as getLatestDbSnapshot,
+  formatReportMonthLabel,
   type SimulationSnapshotRow,
   type SimulationSnapshotRowDb,
 } from "@/lib/db/snapshots";
@@ -30,7 +31,11 @@ import {
 } from "@/engine/statistics";
 import { computeSimulationAssumptionCounts } from "@/lib/simulationAssumptions";
 import { SIMULATION_ENGINE_VERSION } from "@/domain/simulation/monteCarlo";
-import { fetchPublicProfile, formatTriggeredByLabel } from "@/lib/profiles/profileDb";
+import {
+  fetchPublicProfile,
+  formatProfileAuditLabel,
+  formatTriggeredByLabel,
+} from "@/lib/profiles/profileDb";
 import { supabaseBrowserClient } from "@/lib/supabase/browser";
 import { appliesToExcludesCost, appliesToExcludesTime } from "@/domain/risk/riskFieldSemantics";
 
@@ -47,14 +52,6 @@ function formatCost(value: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(value);
-}
-
-/** Format reporting_month_year (YYYY-MM) as "March 2025". */
-function formatReportingMonthYear(ym: string | null | undefined): string {
-  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return "—";
-  const [y, m] = ym.split("-").map(Number);
-  const date = new Date(y, m - 1, 1);
-  return date.toLocaleDateString("en-GB", { month: "long", year: "numeric" });
 }
 
 /** Format ISO timestamp for Run Metadata: "15 Mar 2026 — 09:08:37". */
@@ -108,6 +105,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
   const [snapshotPersistWarning, setSnapshotPersistWarning] = useState<string | null>(null);
   const [triggeredBy, setTriggeredBy] = useState<string | null>(null);
   const [reportingSnapshotRow, setReportingSnapshotRow] = useState<SimulationSnapshotRow>(null);
+  const [reportingLockedByLabel, setReportingLockedByLabel] = useState<string | null>(null);
 
   useEffect(() => {
     if (!projectId) return;
@@ -158,6 +156,27 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
       .catch(() => setReportingSnapshotRow(null));
   }, [projectId, current?.id, isCurrentRunPersisted]);
   const reportingDbRow = reportingSnapshotRow as SimulationSnapshotRowDb | null;
+
+  useEffect(() => {
+    const uid = reportingDbRow?.locked_by?.trim();
+    if (!uid) {
+      setReportingLockedByLabel(null);
+      return;
+    }
+    let cancelled = false;
+    const supabase = supabaseBrowserClient();
+    fetchPublicProfile(supabase, uid)
+      .then((p) => {
+        if (!cancelled) setReportingLockedByLabel(formatProfileAuditLabel(p, uid));
+      })
+      .catch(() => {
+        if (!cancelled) setReportingLockedByLabel(uid);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reportingDbRow?.locked_by]);
+
   const momentumSummary = useMemo(() => portfolioMomentumSummary(risks), [risks]);
 
   /** Neutral baseline snapshot: always used for Project Cost block so project cost is scenario-invariant. */
@@ -1036,7 +1055,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting version</dt>
                       <dd className="mt-0.5">
-                        {reportingDbRow?.reporting_version ? (
+                        {reportingDbRow?.locked_for_reporting ? (
                           <span className="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-200">
                             Yes
                           </span>
@@ -1062,17 +1081,25 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting month / year</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_month_year ? (
-                          formatReportingMonthYear(reportingDbRow.reporting_month_year)
-                        ) : (
-                          <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
-                        )}
+                        {(() => {
+                          if (!reportingDbRow?.report_month) {
+                            return (
+                              <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
+                            );
+                          }
+                          const label = formatReportMonthLabel(reportingDbRow.report_month);
+                          return label !== "—" ? (
+                            label
+                          ) : (
+                            <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
+                          );
+                        })()}
                       </dd>
                     </div>
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked by</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_locked_by?.trim() || (
+                        {(reportingLockedByLabel ?? reportingDbRow?.locked_by?.trim()) || (
                           <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
                         )}
                       </dd>
@@ -1080,8 +1107,8 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Locked on</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_locked_at ? (
-                          formatRunTimestamp(reportingDbRow.reporting_locked_at)
+                        {reportingDbRow?.locked_at ? (
+                          formatRunTimestamp(reportingDbRow.locked_at)
                         ) : (
                           <span className="text-neutral-500 dark:text-neutral-400">Not set</span>
                         )}
@@ -1090,7 +1117,7 @@ export default function RunDataPage({ projectId, projectName }: RunDataPageProps
                     <div>
                       <dt className="text-neutral-500 dark:text-neutral-400 font-normal">Reporting note</dt>
                       <dd className="mt-0.5 text-neutral-800 dark:text-neutral-200">
-                        {reportingDbRow?.reporting_note?.trim() || (
+                        {reportingDbRow?.lock_note?.trim() || (
                           <span className="text-neutral-500 dark:text-neutral-400">Not available</span>
                         )}
                       </dd>

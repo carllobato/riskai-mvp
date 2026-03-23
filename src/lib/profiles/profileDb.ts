@@ -76,6 +76,28 @@ export async function fetchPublicProfile(
 }
 
 /**
+ * Audit label when only user id and optional `profiles` row exist (e.g. reporting "locked by").
+ * Aligns with {@link formatTriggeredByLabel} name/company rules where profile fields exist.
+ */
+export function formatProfileAuditLabel(
+  profile: PublicProfileRow | null,
+  fallbackUserId: string
+): string {
+  const id = fallbackUserId.trim();
+  if (!id) return "—";
+  if (!profile) return id;
+  const first = profile.first_name?.trim();
+  const last = profile.surname?.trim();
+  const company = profile.company?.trim();
+  const email = profile.email?.trim();
+  if (first || last) {
+    const namePart = [first, last].filter(Boolean).join(", ");
+    return company ? `${namePart} - ${company}` : namePart;
+  }
+  return email || id;
+}
+
+/**
  * Persist name / company in `public.profiles`; role + onboarding flag in auth metadata.
  */
 export async function upsertPublicProfile(

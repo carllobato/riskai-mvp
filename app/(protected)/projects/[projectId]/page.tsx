@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { getProjectIfAccessible } from "@/lib/db/projectAccess";
 import { supabaseServerClient } from "@/lib/supabase/server";
-import { isRiskStatusArchived } from "@/domain/risk/riskFieldSemantics";
 import { ProjectOverviewContent } from "./ProjectOverviewContent";
 import type { SimulationSnapshotRow } from "@/lib/db/snapshots";
 
@@ -16,27 +15,24 @@ export default async function ProjectDashboardPage({
 
   const supabase = await supabaseServerClient();
 
-  const [{ data: riskRows }, { data: latestSnapshotRow }] = await Promise.all([
-    supabase.from("risks").select("id, status").eq("project_id", projectId),
-    supabase
-      .from("riskai_simulation_snapshots")
-      .select("*")
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-  ]);
+  const { data: lockedReportingRow, error: lockedReportingError } = await supabase
+    .from("riskai_simulation_snapshots")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("locked_for_reporting", true)
+    .order("locked_at", { ascending: false, nullsFirst: false })
+    .limit(1)
+    .maybeSingle();
 
-  const riskCount =
-    (riskRows ?? []).filter((r) => !isRiskStatusArchived((r as { status?: string | null }).status)).length;
+  if (lockedReportingError) {
+    console.error("[ProjectOverview] locked reporting snapshot query failed", lockedReportingError);
+  }
 
   return (
     <ProjectOverviewContent
       initialData={{
         projectId,
-        projectName: project.name,
-        riskCount,
-        latestSnapshot: (latestSnapshotRow as SimulationSnapshotRow | null) ?? null,
+        reportingSnapshot: (lockedReportingRow as SimulationSnapshotRow | null) ?? null,
       }}
     />
   );
