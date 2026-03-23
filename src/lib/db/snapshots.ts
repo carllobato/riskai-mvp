@@ -191,12 +191,38 @@ export type SimulationSnapshotRow = {
  * Base shape is {@link SimulationSnapshotRow}; this type is for typed access only.
  */
 export type SimulationSnapshotRowDb = NonNullable<SimulationSnapshotRow> & {
+  // Preferred lock fields.
+  locked_for_reporting?: boolean;
+  locked_at?: string | null;
+  locked_by?: string | null;
+  lock_note?: string | null;
+  report_month?: string | null;
+  // Legacy lock fields.
   reporting_version?: boolean;
   reporting_locked_at?: string | null;
   reporting_locked_by?: string | null;
   reporting_note?: string | null;
   reporting_month_year?: string | null;
 };
+
+/** Convert YYYY-MM to YYYY-MM-01 for date-backed report_month column. */
+function toReportMonthDate(reportingMonthYear: string): string | null {
+  const ym = reportingMonthYear?.trim();
+  if (!ym || !/^\d{4}-\d{2}$/.test(ym)) return null;
+  return `${ym}-01`;
+}
+
+/** True when update failed because payload columns are not present in this schema. */
+function isMissingColumnError(error: unknown): boolean {
+  const maybe = error as { code?: string; message?: string } | null;
+  const code = maybe?.code ?? "";
+  const message = maybe?.message ?? "";
+  return (
+    code === "PGRST204" ||
+    /column .* does not exist/i.test(message) ||
+    /could not find .* in the schema cache/i.test(message)
+  );
+}
 
 /**
  * Set a snapshot as the reporting version (one-way lock). Persists reporting_version, locked_at, locked_by, note, reporting_month_year.
@@ -212,16 +238,35 @@ export async function setSnapshotAsReportingVersion(
   }
 
   const supabase = supabaseBrowserClient();
-  const { error } = await supabase
+  const lockedAt = new Date().toISOString();
+  const reportMonthDate = toReportMonthDate(params.reportingMonthYear);
+  const lockNote = params.note?.trim() || null;
+
+  // Preferred schema: locked_for_reporting, locked_at, locked_by, lock_note, report_month.
+  let { error } = await supabase
     .from("riskai_simulation_snapshots")
     .update({
-      reporting_version: true,
-      reporting_locked_at: new Date().toISOString(),
-      reporting_locked_by: lockedByUserId,
-      reporting_note: params.note?.trim() || null,
-      reporting_month_year: params.reportingMonthYear?.trim() || null,
+      locked_for_reporting: true,
+      locked_at: lockedAt,
+      locked_by: lockedByUserId,
+      lock_note: lockNote,
+      report_month: reportMonthDate,
     })
     .eq("id", snapshotId);
+
+  // Backward compatibility for older environments still on reporting_* fields.
+  if (error && isMissingColumnError(error)) {
+    ({ error } = await supabase
+      .from("riskai_simulation_snapshots")
+      .update({
+        reporting_version: true,
+        reporting_locked_at: lockedAt,
+        reporting_locked_by: lockedByUserId,
+        reporting_note: lockNote,
+        reporting_month_year: params.reportingMonthYear?.trim() || null,
+      })
+      .eq("id", snapshotId));
+  }
 
   if (error) {
     console.error("[setSnapshotAsReportingVersion]", error);

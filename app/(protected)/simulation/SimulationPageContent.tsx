@@ -272,6 +272,9 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
       })
       .catch(() => setReportingSnapshotRow(null));
   }, [effectiveProjectId, persistedRunId]);
+  const isReportingVersionLocked = Boolean(
+    reportingDbRow?.locked_for_reporting ?? reportingDbRow?.reporting_version
+  );
 
   const analysisState = useMemo(
     () => ({ risks, simulation: { ...simulation } }),
@@ -442,7 +445,7 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
         {showResults &&
           isCurrentRunPersisted &&
           effectiveProjectId &&
-          !reportingDbRow?.reporting_version && (
+          !isReportingVersionLocked && (
           <button
             type="button"
             onClick={() => !simulationReadOnly && setSetReportingModalOpen(true)}
