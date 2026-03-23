@@ -231,8 +231,17 @@ function isMissingColumnError(error: unknown): boolean {
  */
 export async function setSnapshotAsReportingVersion(
   snapshotId: string,
-  params: { note: string; lockedByUserId: string; reportingMonthYear: string }
-): Promise<void> {
+  params: {
+    projectId: string;
+    note: string;
+    lockedByUserId: string;
+    reportingMonthYear: string;
+  }
+): Promise<SimulationSnapshotRowDb> {
+  const projectId = params.projectId?.trim();
+  if (!projectId) {
+    throw new Error("Cannot lock reporting snapshot without a project ID.");
+  }
   const lockedByUserId = params.lockedByUserId?.trim();
   if (!lockedByUserId) {
     throw new Error("Cannot lock reporting snapshot without an authenticated user ID.");
@@ -241,36 +250,94 @@ export async function setSnapshotAsReportingVersion(
   const supabase = supabaseBrowserClient();
   const lockedAt = new Date().toISOString();
   const reportMonthDate = toReportMonthDate(params.reportingMonthYear);
+  if (!reportMonthDate) {
+    throw new Error(
+      `Invalid reportingMonthYear '${params.reportingMonthYear}'. Expected format YYYY-MM.`
+    );
+  }
   const lockNote = params.note?.trim() || null;
+  const selector = { snapshotId, projectId };
+  const preferredPayload = {
+    locked_for_reporting: true,
+    locked_at: lockedAt,
+    locked_by: lockedByUserId,
+    lock_note: lockNote,
+    report_month: reportMonthDate,
+  };
+  console.info("[setSnapshotAsReportingVersion] input", {
+    snapshot_id: snapshotId,
+    project_id: projectId,
+    ...preferredPayload,
+  });
+  console.info("[setSnapshotAsReportingVersion] selector", selector);
+  console.info("[setSnapshotAsReportingVersion] payload", preferredPayload);
 
   // Preferred schema: locked_for_reporting, locked_at, locked_by, lock_note, report_month.
-  let { error } = await supabase
+  let {
+    data,
+    error,
+    status,
+    statusText,
+  } = await supabase
     .from("riskai_simulation_snapshots")
-    .update({
-      locked_for_reporting: true,
-      locked_at: lockedAt,
-      locked_by: lockedByUserId,
-      lock_note: lockNote,
-      report_month: reportMonthDate,
-    })
-    .eq("id", snapshotId);
+    .update(preferredPayload)
+    .eq("id", snapshotId)
+    .eq("project_id", projectId)
+    .select("id, project_id, locked_for_reporting, locked_at, locked_by, lock_note, report_month");
+  console.info("[setSnapshotAsReportingVersion] response (preferred)", {
+    status,
+    statusText,
+    error,
+    data,
+  });
 
   // Backward compatibility for older environments still on reporting_* fields.
   if (error && isMissingColumnError(error)) {
-    ({ error } = await supabase
+    const legacyPayload = {
+      reporting_version: true,
+      reporting_locked_at: lockedAt,
+      reporting_locked_by: lockedByUserId,
+      reporting_note: lockNote,
+      reporting_month_year: params.reportingMonthYear?.trim() || null,
+    };
+    console.info("[setSnapshotAsReportingVersion] payload (legacy fallback)", legacyPayload);
+    ({
+      data,
+      error,
+      status,
+      statusText,
+    } = await supabase
       .from("riskai_simulation_snapshots")
-      .update({
-        reporting_version: true,
-        reporting_locked_at: lockedAt,
-        reporting_locked_by: lockedByUserId,
-        reporting_note: lockNote,
-        reporting_month_year: params.reportingMonthYear?.trim() || null,
-      })
-      .eq("id", snapshotId));
+      .update(legacyPayload)
+      .eq("id", snapshotId)
+      .eq("project_id", projectId)
+      .select(
+        "id, project_id, reporting_version, reporting_locked_at, reporting_locked_by, reporting_note, reporting_month_year"
+      ));
+    console.info("[setSnapshotAsReportingVersion] response (legacy fallback)", {
+      status,
+      statusText,
+      error,
+      data,
+    });
   }
 
   if (error) {
     console.error("[setSnapshotAsReportingVersion]", error);
     throw error;
   }
+
+  const updatedRow = data?.[0] as SimulationSnapshotRowDb | undefined;
+  if (!updatedRow) {
+    const noRowError = new Error(
+      "Reporting lock update completed without returning an affected row."
+    );
+    console.error("[setSnapshotAsReportingVersion] no affected row", {
+      selector,
+      preferredPayload,
+    });
+    throw noRowError;
+  }
+
+  return updatedRow;
 }

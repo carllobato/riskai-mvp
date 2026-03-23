@@ -696,20 +696,41 @@ export default function SimulationPage({ projectId: urlProjectId }: SimulationPa
                 onClick={async () => {
                   const currentId = simulation.current?.id;
                   if (!currentId || !effectiveProjectId || !currentUserId) return;
+                  console.info("[simulation] set reporting version click", {
+                    snapshot_id: currentId,
+                    project_id: effectiveProjectId,
+                    locked_for_reporting: true,
+                    locked_at: new Date().toISOString(),
+                    locked_by: currentUserId,
+                    lock_note: reportingNote.trim() || null,
+                    report_month: `${reportingMonthYear}-01`,
+                  });
                   setSetReportingSaving(true);
                   try {
-                    await setSnapshotAsReportingVersion(currentId, {
+                    const updatedRow = await setSnapshotAsReportingVersion(currentId, {
+                      projectId: effectiveProjectId,
                       note: reportingNote,
                       lockedByUserId: currentUserId,
                       reportingMonthYear,
                     });
+                    console.info("[simulation] reporting lock persisted", {
+                      snapshot_id: currentId,
+                      project_id: effectiveProjectId,
+                      response_row: updatedRow,
+                    });
                     const row = await getLatestSnapshot(effectiveProjectId);
-                    if (row?.id === currentId) setReportingSnapshotRow(row);
+                    console.info("[simulation] latest snapshot after lock", {
+                      snapshot_id: row?.id ?? null,
+                      project_id: effectiveProjectId,
+                    });
+                    if (row?.id === currentId) {
+                      setReportingSnapshotRow(row);
+                    } else {
+                      setReportingSnapshotRow(updatedRow);
+                    }
                     setSetReportingModalOpen(false);
                     setReportingNote("");
                     setReportingMonthYear(toMonthYearKey(new Date()));
-                  } catch {
-                    // Error already logged in setSnapshotAsReportingVersion
                   } finally {
                     setSetReportingSaving(false);
                   }
